@@ -1,0 +1,49 @@
+# -----------------------------
+# Base image: Node:18.19.1-slim
+# -----------------------------
+FROM node:18.19.1-slim
+
+# -----------------------------
+# The folder we create inside the container for our app
+# All subsequent commands will run inside /app
+# -----------------------------
+WORKDIR /app
+
+# -----------------------------
+# Node dependecies
+# -----------------------------
+COPY server/package.json server/package-lock.json* ./
+RUN npm install
+
+# -----------------------------
+# Copy all application source code
+# -----------------------------
+COPY server/ ./server/
+COPY python-jobs/ ./python-jobs/
+
+# -----------------------------
+# Install Python system tools
+# python3-pip y python3-venv
+# -----------------------------
+RUN apt-get update && apt-get install -y python3-pip python3-venv
+
+# -----------------------------
+# Create a Python virtual enviroment
+# All Python packages will be installed inside /opt/venv
+# Ensure container uses this virtual environment for Python and pip
+# -----------------------------
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# -----------------------------
+# Python dependecies
+# Install Python dependencies inside the virtual environment
+# -----------------------------
+COPY python-jobs/requirements.txt ./python-jobs/
+RUN pip install --no-cache-dir -r ./python-jobs/requirements.txt
+
+# -----------------------------
+# Default command to run the Node server
+# -----------------------------
+CMD ["node", "server/server.js"]
+

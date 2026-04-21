@@ -1,0 +1,59 @@
+# ========== STAGE 1: BUILDER ==========
+# Usa Node con Alpine
+FROM node:20-alpine AS builder
+
+# -----------------------------
+# The folder we create inside the container for our app
+# All subsequent commands will run inside /app
+# -----------------------------
+WORKDIR /app
+
+# Copia solo package.json (mejora caché de Docker)
+COPY package*.json ./
+
+# Instala dependencias con versión exacta de package-lock.json
+RUN npm ci
+
+# Copia todo el código fuente (TSX, componentes, etc.)
+COPY . .
+
+
+# Deshabilitar TypeScript checking
+# ENV NEXT_DISABLE_TYPE_CHECKING=true
+
+
+
+# Compila Next.js: convierte TSX a JS en la carpeta .next/standalone
+# Now in standalone we have server.js, package.json and node_modules
+# That node_moduels only has the necessar dependecies
+# The inside standalone/.next we have server/pages(js)
+# Then on the root we have .next, public, node_modules, app, basically the source folder
+# For the runner we will only use standalone and public
+RUN npm run build
+
+
+
+# ========== ETAPA 2: RUNNER ==========
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copiar standalone completo a app
+COPY --from=builder /app/.next/standalone/ ./
+
+# Copiar la carpeta static (chunks CSS/JS) a la carpeta static de app
+COPY --from=builder /app/.next/static ./.next/static
+
+# Copiar public
+COPY --from=builder /app/public ./public
+
+RUN chown -R nextjs:nodejs /app
+
+USER nextjs
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

@@ -1,0 +1,59 @@
+networks:
+  network-michael:
+    driver: bridge
+    name: network-michael
+
+services:
+  # ========== SERVIDOR NODE.JS ==========
+  server-michael:
+    build: /home/michael/nup-app-ops/backend-integration
+    container_name: server-michael
+    ports:
+      - "3001:3001"
+    env_file:
+      - /home/michael/nup-app-ops/backend-integration/.env.development
+    networks:
+      - network-michael
+    depends_on:
+      - redis-michael
+      - postgres-michael
+    restart: unless-stopped
+
+  # ========== DASHBOARD NEXT.JS ==========
+  dashboard-michael:
+    build: /home/michael/nup-app-ops/dashboard
+    container_name: dashboard-michael
+    ports:
+      - "3000:3000"
+    env_file:
+      - /home/michael/nup-app-ops/dashboard/.env.production
+    networks:
+      - network-michael
+    depends_on:
+      - server-michael
+    restart: unless-stopped
+
+  # ========== REDIS ==========
+  redis-michael:
+    image: redis:7-alpine
+    container_name: redis-michael
+    volumes:
+      - /mnt/datos/redis:/data
+    command: redis-server --appendonly yes
+    networks:
+      - network-michael
+    restart: unless-stopped
+
+  # ========== POSTGRESQL ==========
+  postgres-michael:
+    image: postgres:15-alpine
+    container_name: postgres-michael
+    environment:
+      - POSTGRES_PASSWORD=Lc17ma1a2e17b
+      - POSTGRES_USER=michael
+      - POSTGRES_DB=michael_db
+    volumes:
+      - /mnt/datos/postgres:/var/lib/postgresql/data
+    networks:
+      - network-michael
+    restart: unless-stopped
