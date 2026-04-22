@@ -3,21 +3,27 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
-
+import { GeneralDashboard } from "@/components/Dashboards/GeneralDashboard ";
 
 
 //======================//
 // Initialization: Env //
 //====================//
-
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL;
 
 
+//===============================//
+// Dashboard Prop Name Reciever //
+//=============================//
 interface DashboardFetcherProps {
   DashboardComponent: React.ComponentType<any>;
   title: string;
 }
 
+
+//======================================//
+// Unified Dashaboard Fetcher Function //
+//====================================//
 export default function DashboardFetcher({ DashboardComponent, title }: DashboardFetcherProps) {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("sessionId");
@@ -33,6 +39,9 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
       return;
     }
 
+      //=========================================//
+     // Server Fetch Logic and Session Recovery //
+    //=========================================//
     const fetchData = async () => {
       try {
         let res = await fetch(`${SERVER_URL}/api/session-data?sessionId=${sessionId}`, {
@@ -40,20 +49,18 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
         });
 
         if (res.status === 404) {
-          // Session expired – regenerate
           console.log("Session expired, regenerating...");
           const newRes = await fetch(
             `${SERVER_URL}/api/company?objectId=${objectId}&objectTypeId=${objectTypeId}`,
             { headers: { "ngrok-skip-browser-warning": "true" } }
           );
           const { sessionId: newSessionId } = await newRes.json();
-          // Update URL without reload
           window.history.replaceState(
             {},
             "",
             `?sessionId=${newSessionId}&objectId=${objectId}&objectTypeId=${objectTypeId}`
           );
-          // Retry with new sessionId
+          
           res = await fetch(`${SERVER_URL}/api/session-data?sessionId=${newSessionId}`, {
             headers: { "ngrok-skip-browser-warning": "true" },
           });
@@ -100,5 +107,5 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
     );
   }
 
-  return <DashboardComponent data={data} />;
+  return <GeneralDashboard  data={data} />;
 }

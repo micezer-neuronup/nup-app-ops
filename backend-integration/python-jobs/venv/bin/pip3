@@ -1,4 +1,4 @@
-#!/home/michael/server_infrastructure/backend-integration/python-jobs/venv/bin/python3
+#!/home/michael/nup-app-ops/backend-integration/python-jobs/venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys

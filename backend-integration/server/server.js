@@ -191,7 +191,6 @@ app.get('/api/company', async (req, res) => {
 // });
 
 
-
 //==========================================//
 // Endpoint: GET Company Data by SessionId //
 //========================================//
@@ -242,29 +241,26 @@ app.get('/api/session-data', async (req, res) => {
 });
 
 
-
-
-
 //========================================//
 // Cron Job: Fetch events from Amplitude //
 //======================================//
 //The time you want - 2
 //This runs 3 in the morning
-cron.schedule('10 12 * * *', () => {
-  log("INFO", "CRON", "Running every minute");
+//cron.schedule('10 12 * * *', () => {
+//  log("INFO", "CRON", "Running every minute");
 
-  exec(`${pythonBinary} "${scriptPath}"`, (error, stdout, stderr) => {
-    if (error) {
-      log("ERROR", "CRON", "Python execution failed", { error: error.message });
-      return;
-    }
-    if (stderr) {
-      log("WARN", "CRON", "Python stderr output", { stderr });
-      return;
-    }
-    log("INFO", "CRON", "Python output", { output: stdout.trim() });
-  });
-});
+//  exec(`${pythonBinary} "${scriptPath}"`, (error, stdout, stderr) => {
+//    if (error) {
+//      log("ERROR", "CRON", "Python execution failed", { error: error.message });
+//      return;
+//    }
+//    if (stderr) {
+//      log("WARN", "CRON", "Python stderr output", { stderr });
+//      return;
+//    }
+//    log("INFO", "CRON", "Python output", { output: stdout.trim() });
+//  });
+//});
 
 
 
