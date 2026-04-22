@@ -10,6 +10,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Copy, Check } from "lucide-react";
 import {
   Building2,
   Mail,
@@ -25,11 +26,11 @@ import {
   Activity,
   MousePointerClick,
   Clock,
-  Monitor,
-  UserPlus,
-  ClipboardCheck,
   Crown,
   BadgeCheck,
+  ClipboardCheck,
+  Monitor,
+  UserPlus,
 } from "lucide-react";
 import {
   LineChart,
@@ -71,8 +72,8 @@ export function GeneralDashboard({ data }: { data: any }) {
   const [selectedView, setSelectedView] = useState<"7days" | "30days" | "monthly">("7days");
   const [selectedMetric, setSelectedMetric] = useState<MetricType>("exercises");
   const [hoveredMetric, setHoveredMetric] = useState<MetricType | null>(null);
+  const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
 
-  // Chart data processing (same as HealthScore_dashboard)
   const getChartData = () => {
     const dailyData = data?.analytics?.daily || [];
     if (!dailyData.length) return [];
@@ -113,9 +114,50 @@ export function GeneralDashboard({ data }: { data: any }) {
   const totals = data?.analytics?.totals || {};
   const dailyStats = data?.analytics?.daily || [];
 
-  // Helper for boolean emojis
   const renderBoolean = (value: any) => {
     return value === true || value === "true" ? "✅" : "❌";
+  };
+
+  const handleCopy = async (textToCopy: string, fieldId: string) => {
+    if (!textToCopy) return;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedStates((prev) => ({ ...prev, [fieldId]: true }));
+      setTimeout(() => setCopiedStates((prev) => ({ ...prev, [fieldId]: false })), 2000);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = textToCopy;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopiedStates((prev) => ({ ...prev, [fieldId]: true }));
+      setTimeout(() => setCopiedStates((prev) => ({ ...prev, [fieldId]: false })), 2000);
+    }
+  };
+
+  const CopyButton = ({ text, fieldId }: { text: string; fieldId: string }) => {
+    if (!text || text === "—") return null;
+    return (
+      <button
+        onClick={() => handleCopy(text, fieldId)}
+        className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md hover:bg-secondary transition-all duration-200 hover:scale-105"
+        title="Copiar"
+      >
+        {copiedStates[fieldId] ? (
+          <Check className="h-4 w-4 text-emerald-500" />
+        ) : (
+          <Copy className="h-4 w-4 text-muted-foreground" />
+        )}
+        {copiedStates[fieldId] && (
+          <span className="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs text-background shadow-lg">
+            ¡Copiado!
+          </span>
+        )}
+      </button>
+    );
   };
 
   // Extract data
@@ -153,7 +195,6 @@ export function GeneralDashboard({ data }: { data: any }) {
     : "—";
   const avgDaily = Math.round(totalExercises / Math.max(dailyStats.length, 1));
 
-  // Format date helper
   const formatDate = (dateStr: string) => {
     if (!dateStr || dateStr === "—") return "—";
     const date = new Date(dateStr);
@@ -161,28 +202,34 @@ export function GeneralDashboard({ data }: { data: any }) {
     return date.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" });
   };
 
-  // Styles for metric value rows
-  const MetricRow = ({ icon: Icon, label, value, copyable = false }: any) => (
-    <div className="flex items-center justify-between py-2 border-b last:border-0">
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">{label}</span>
+  // MetricRow with hover background
+  const MetricRow = ({ icon: Icon, label, value, copyField }: any) => {
+    const displayValue = value === undefined || value === null ? "—" : value;
+    const isBoolean = typeof value === "boolean" || value === "true" || value === "false";
+    const boolResult = isBoolean ? renderBoolean(value) : null;
+    
+    return (
+      <div className="flex items-center justify-between py-2 border-b last:border-0 px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
+        <div className="flex items-center gap-2">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">{label}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {isBoolean ? (
+            <span className="text-sm font-semibold">{boolResult}</span>
+          ) : (
+            <>
+              <span className="text-sm font-semibold">{displayValue}</span>
+              {copyField && displayValue !== "—" && (
+                <CopyButton text={String(displayValue)} fieldId={copyField} />
+              )}
+            </>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold">{value}</span>
-        {copyable && value !== "—" && (
-          <button
-            onClick={() => navigator.clipboard.writeText(value)}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            📋
-          </button>
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
-  // MetricButton and ViewButton for chart
   const MetricButton = ({ metric, label }: { metric: MetricType; label: string }) => {
     const Icon = metricConfig[metric].icon;
     const isActive = selectedMetric === metric;
@@ -237,27 +284,18 @@ export function GeneralDashboard({ data }: { data: any }) {
 
   return (
     <div className="space-y-4">
-      {/* Tabs placeholder (commented) */}
-      <div className="flex gap-2 border-b pb-2">
-        <Button variant="default">General</Button>
-        <Button variant="ghost">Suscripción</Button>
-        <Button variant="ghost">NUP2GO</Button>
-        <Button variant="ghost">Centro</Button>
-      </div> 
-
-      {/* 4 main cards in a grid with reduced gap */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Card 1: Centro */}
-        <Card className="overflow-hidden">
+        <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-[linear-gradient(86deg,rgba(0,164,189,0.1)-3.28%,rgba(0,189,165,0.1)97.8%)]">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1 text-xs uppercase tracking-wider">
               <Building2 className="h-3 w-3" /> Información del Centro
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-1">
-            <MetricRow icon={Building2} label="ID Centro" value={centerId} copyable />
-            <MetricRow icon={Mail} label="Email" value={email} copyable />
-            <MetricRow icon={FileText} label="CIF" value={cif} copyable />
+            <MetricRow icon={Building2} label="ID Centro" value={centerId} copyField="centerId" />
+            <MetricRow icon={Mail} label="Email" value={email} copyField="email" />
+            <MetricRow icon={FileText} label="CIF" value={cif} copyField="cif" />
             <MetricRow icon={MapPin} label="Región" value={region} />
             <MetricRow icon={Stethoscope} label="Especialidad" value={specialty} />
             <MetricRow icon={Users} label="Pacientes" value={numPatients} />
@@ -266,7 +304,7 @@ export function GeneralDashboard({ data }: { data: any }) {
         </Card>
 
         {/* Card 2: Suscripción */}
-        <Card className="overflow-hidden">
+        <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-[linear-gradient(86deg,rgba(0,164,189,0.1)-3.28%,rgba(0,189,165,0.1)97.8%)]">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1 text-xs uppercase tracking-wider">
               <Crown className="h-3 w-3" /> Suscripción
@@ -277,14 +315,14 @@ export function GeneralDashboard({ data }: { data: any }) {
             <MetricRow icon={Crown} label="Plan" value={subscriptionPlan} />
             <MetricRow icon={Calendar} label="Finaliza" value={formatDate(periodEnd)} />
             <MetricRow icon={Clock} label="Días suscrito" value={totalDays} />
-            <MetricRow icon={ClipboardCheck} label="Assessment" value={renderBoolean(hasAssessment)} />
-            <MetricRow icon={Monitor} label="Material Digital" value={renderBoolean(hasDigitalMaterial)} />
-            <MetricRow icon={UserPlus} label="Profesionales Extra" value={renderBoolean(hasExtraProfessionals)} />
+            <MetricRow icon={ClipboardCheck} label="Assessment" value={hasAssessment} />
+            <MetricRow icon={Monitor} label="Material Digital" value={hasDigitalMaterial} />
+            <MetricRow icon={UserPlus} label="Profesionales Extra" value={hasExtraProfessionals} />
           </CardContent>
         </Card>
 
         {/* Card 3: NUP2GO */}
-        <Card className="overflow-hidden">
+        <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-[linear-gradient(86deg,rgba(0,164,189,0.1)-3.28%,rgba(0,189,165,0.1)97.8%)]">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1 text-xs uppercase tracking-wider">
               <Wallet className="h-3 w-3" /> NUP2GO
@@ -299,7 +337,7 @@ export function GeneralDashboard({ data }: { data: any }) {
         </Card>
 
         {/* Card 4: Datos de uso */}
-        <Card className="overflow-hidden">
+        <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-[linear-gradient(86deg,rgba(0,164,189,0.1)-3.28%,rgba(0,189,165,0.1)97.8%)]">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1 text-xs uppercase tracking-wider">
               <Activity className="h-3 w-3" /> Datos de uso
@@ -316,7 +354,7 @@ export function GeneralDashboard({ data }: { data: any }) {
         </Card>
       </div>
 
-      {/* Chart Section (same as HealthScore) */}
+      {/* Chart Section (unchanged) */}
       <Card className="overflow-hidden">
         <CardHeader className="border-b bg-gradient-to-r from-background to-secondary/5 pb-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
