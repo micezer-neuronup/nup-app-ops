@@ -238,12 +238,12 @@ export function GeneralDashboard({ data }: { data: any }) {
   return (
     <div className="space-y-4">
       {/* Tabs placeholder (commented) */}
-      {/* <div className="flex gap-2 border-b pb-2">
+      <div className="flex gap-2 border-b pb-2">
         <Button variant="default">General</Button>
         <Button variant="ghost">Suscripción</Button>
         <Button variant="ghost">NUP2GO</Button>
         <Button variant="ghost">Centro</Button>
-      </div> */}
+      </div> 
 
       {/* 4 main cards in a grid with reduced gap */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
