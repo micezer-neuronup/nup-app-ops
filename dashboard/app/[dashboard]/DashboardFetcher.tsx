@@ -26,59 +26,41 @@ interface DashboardFetcherProps {
 //====================================//
 export default function DashboardFetcher({ DashboardComponent, title }: DashboardFetcherProps) {
   const searchParams = useSearchParams();
-  const sessionId = searchParams.get("sessionId");
   const objectId = searchParams.get("objectId");
   const objectTypeId = searchParams.get("objectTypeId");
 
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sessionId) {
+    if (!objectId || !objectTypeId) {
+      setError("Faltan parámetros objectId o objectTypeId");
       setLoading(false);
       return;
     }
 
-      //=========================================//
-     // Server Fetch Logic and Session Recovery //
-    //=========================================//
     const fetchData = async () => {
       try {
-        let res = await fetch(`${SERVER_URL}/api/session-data?sessionId=${sessionId}`, {
-          headers: { "ngrok-skip-browser-warning": "true" },
-        });
-
-        if (res.status === 404) {
-          console.log("Session expired, regenerating...");
-          const newRes = await fetch(
-            `${SERVER_URL}/api/company?objectId=${objectId}&objectTypeId=${objectTypeId}`,
-            { headers: { "ngrok-skip-browser-warning": "true" } }
-          );
-          const { sessionId: newSessionId } = await newRes.json();
-          window.history.replaceState(
-            {},
-            "",
-            `?sessionId=${newSessionId}&objectId=${objectId}&objectTypeId=${objectTypeId}`
-          );
-          
-          res = await fetch(`${SERVER_URL}/api/session-data?sessionId=${newSessionId}`, {
-            headers: { "ngrok-skip-browser-warning": "true" },
-          });
-          const newData = await res.json();
-          setData(newData);
-        } else {
-          const data = await res.json();
-          setData(data);
+        const res = await fetch(
+          `${SERVER_URL}/api/company-data?objectId=${objectId}&objectTypeId=${objectTypeId}`,
+          { headers: { "ngrok-skip-browser-warning": "true" } }
+        );
+        if (!res.ok) {
+          throw new Error(`Error ${res.status}: ${res.statusText}`);
         }
-      } catch (error) {
-        console.error("Error fetching data:", error);
+        const json = await res.json();
+        setData(json);
+      } catch (err: any) {
+        console.error("Error fetching company data:", err);
+        setError(err.message || "Error al cargar los datos");
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [sessionId, objectId, objectTypeId]);
+  }, [objectId, objectTypeId]);
 
   if (loading) {
     return (
@@ -96,6 +78,19 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex h-[calc(100vh-200px)] items-center justify-center">
+        <div className="text-center text-destructive">
+          <p>Error: {error}</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            Intenta recargar la página o contacta con el equipo de operaciones.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="flex h-[calc(100vh-200px)] items-center justify-center">
@@ -107,5 +102,5 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
     );
   }
 
-  return <GeneralDashboard  data={data} />;
+  return <GeneralDashboard data={data} />;
 }
