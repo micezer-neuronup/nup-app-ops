@@ -204,10 +204,10 @@ if __name__ == "__main__":
         port=os.getenv('DB_PORT')
     )
     
-    # start_str, end_str = get_time_window(conn)
+    start_str, end_str = get_time_window(conn)
     
-    start_str = "20260402T00"
-    end_str = "20260403T00"
+    # start_str = "20260402T00"
+    # end_str = "20260403T00"
 
     
     if not start_str:
