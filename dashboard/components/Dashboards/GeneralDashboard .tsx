@@ -45,6 +45,10 @@ import {
   Legend,
 } from "recharts";
 
+
+  //==========================================//
+ // Initialization: Metrics names and colors //
+//==========================================//  
 type MetricType = "exercises" | "sessions" | "logins";
 
 const metricConfig = {
@@ -68,16 +72,34 @@ const metricConfig = {
   },
 };
 
+  //=============================//
+ // Function: General Dashboard //
+//=============================//
 export function GeneralDashboard({ data }: { data: any }) {
+
+        //====================================================================//
+       // Constants:                                                         // 
+      //   - Possible time ranges, set at 7 days value by default           //
+     //    - The actual selected metric, set at exercises value by default //
+    //     - The metric that is been hovered                              //
+   //      - Copied values dictionary                                    //
+  //====================================================================//
   const [selectedView, setSelectedView] = useState<"7days" | "30days" | "monthly">("7days");
   const [selectedMetric, setSelectedMetric] = useState<MetricType>("exercises");
   const [hoveredMetric, setHoveredMetric] = useState<MetricType | null>(null);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
 
+    //======================================================//
+   // Function: Get the Daily Data Analytics based on view //
+  //======================================================//
   const getChartData = () => {
     const dailyData = data?.analytics?.daily || [];
     if (!dailyData.length) return [];
 
+       //===========================================================//
+      // - Slice: Takes last n elements of the array of daily data //
+     //  - Format: Data is formatted to display in the charts     //
+    //===========================================================//
     if (selectedView === "7days") {
       return dailyData.slice(-7).map((item: any) => ({
         name: new Date(item.date).toLocaleDateString("es", { day: "numeric", month: "short" }),
@@ -92,6 +114,21 @@ export function GeneralDashboard({ data }: { data: any }) {
         sessions: item.sessions || 0,
         logins: item.logins || 0,
       }));
+
+
+
+       //=======================================================//
+      // Map: Monthly data map to griup data by months 
+      //  - For each stat, a day is created.
+      //  - For each Month, a unique key is created
+      //  - CReate display format for each month
+      //  - If a months key isnt in the map, its set with 0 values
+    //    - Then aggregations are done for each month picking it
+      
+      //  
+     //  - Format: Data is formatted to display in the charts 
+     // //    
+    //=======================================================//
     } else {
       const monthlyMap = new Map();
       dailyData.forEach((item: any) => {
@@ -160,7 +197,10 @@ export function GeneralDashboard({ data }: { data: any }) {
     );
   };
 
-  // Extract data
+    //=========================================================//
+   // Extract Data: Extract the data response from the server //
+  //=========================================================//  
+  const name = data.properties?.commercial_name || data.properties?.name || "—";
   const centerId = data.properties?.nup_center_id || "—";
   const email = data.properties?.email || "—";
   const cif = data.properties?.cif || "—";
@@ -202,7 +242,9 @@ export function GeneralDashboard({ data }: { data: any }) {
     return date.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" });
   };
 
-  // MetricRow with hover background
+      //===============================================================//
+   // Fetch: Call to server endpoint with data to fetch Hubspot API //
+  //===============================================================//  
   const MetricRow = ({ icon: Icon, label, value, copyField }: any) => {
     const displayValue = value === undefined || value === null ? "—" : value;
     const isBoolean = typeof value === "boolean" || value === "true" || value === "false";
@@ -284,6 +326,7 @@ export function GeneralDashboard({ data }: { data: any }) {
 
   return (
     <div className="space-y-4">
+      <h2 className="text-xl font-semibold mb-3 px-1">{name}</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Card 1: Centro */}
         <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-[linear-gradient(86deg,rgba(0,164,189,0.1)-3.28%,rgba(0,189,165,0.1)97.8%)]">

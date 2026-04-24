@@ -21,9 +21,9 @@ interface DashboardFetcherProps {
 }
 
 
-//======================================//
-// Unified Dashaboard Fetcher Function //
-//====================================//
+//=======================================//
+// Fucntion: Unified Dashaboard Fetcher //
+//=====================================//
 export default function DashboardFetcher({ DashboardComponent, title }: DashboardFetcherProps) {
   const searchParams = useSearchParams();
   const objectId = searchParams.get("objectId");
@@ -33,6 +33,9 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+    //============================================================//
+   // UseEffect: Dependency on objectId and objectTypeId to run  //
+  //============================================================//
   useEffect(() => {
     if (!objectId || !objectTypeId) {
       setError("Faltan parámetros objectId o objectTypeId");
@@ -40,6 +43,9 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
       return;
     }
 
+      //===============================================================//
+     // Fetch: Call to server endpoint with data to fetch Hubspot API //
+    //===============================================================//
     const fetchData = async () => {
       try {
         const res = await fetch(
@@ -58,10 +64,12 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
         setLoading(false);
       }
     };
-
     fetchData();
   }, [objectId, objectTypeId]);
 
+
+
+  
   if (loading) {
     return (
       <div className="flex h-[calc(100vh-200px)] items-center justify-center">

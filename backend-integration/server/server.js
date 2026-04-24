@@ -163,41 +163,41 @@ app.get('/api/company-data', async (req, res) => {
 //The time you want - 2
 //This runs 3 in the morning
 // Runs every 20 minutes for testing
-cron.schedule('*/20 * * * *', () => {
-  log("INFO", "CRON", "Starting Amplitude fetch job...");
+//cron.schedule('*/20 * * * *', () => {
+//  log("INFO", "CRON", "Starting Amplitude fetch job...");
 
   // Use '-u' to force Python to flush prints immediately to Node
-  const pyProcess = spawn('python3', ['-u', scriptPath]);
+//  const pyProcess = spawn('python3', ['-u', scriptPath]);
 
   // Capture standard output (print statements) line by line
-  pyProcess.stdout.on('data', (data) => {
-    const lines = data.toString().split('\n');
-    lines.forEach(line => {
-      if (line.trim()) {
-        log("INFO", "PYTHON", line.trim());
-      }
-    });
-  });
+//  pyProcess.stdout.on('data', (data) => {
+//    const lines = data.toString().split('\n');
+//    lines.forEach(line => {
+//      if (line.trim()) {
+//        log("INFO", "PYTHON", line.trim());
+//      }
+//    });
+//  });
 
   // Capture error output line by line
-  pyProcess.stderr.on('data', (data) => {
-    const lines = data.toString().split('\n');
-    lines.forEach(line => {
-      if (line.trim()) {
-        log("ERROR", "PYTHON", line.trim());
-      }
-    });
-  });
+//  pyProcess.stderr.on('data', (data) => {
+//    const lines = data.toString().split('\n');
+//    lines.forEach(line => {
+//      if (line.trim()) {
+//        log("ERROR", "PYTHON", line.trim());
+//      }
+//    });
+//  });
 
   // Handle when the script finishes
-  pyProcess.on('close', (code) => {
-    if (code === 0) {
-      log("INFO", "CRON", "Python script finished successfully.");
-    } else {
-      log("WARN", "CRON", `Python script exited with code ${code}`);
-    }
-  });
-});
+//  pyProcess.on('close', (code) => {
+//    if (code === 0) {
+//      log("INFO", "CRON", "Python script finished successfully.");
+//    } else {
+//      log("WARN", "CRON", `Python script exited with code ${code}`);
+//    }
+//  });
+//});
 
 
 app.listen(PORT, () => {
