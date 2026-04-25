@@ -10,8 +10,9 @@ from requests.auth import HTTPBasicAuth
 import gzip
 from dotenv import load_dotenv
 
-  #=====================#
- # Initialization: Env #
+
+#=====================#
+# Initialization: Env #
 #=====================#
 
 env_path = Path(__file__).resolve().parent.parent / ".env.development"
@@ -20,8 +21,8 @@ load_dotenv(dotenv_path=env_path)
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 
 AMPLITUDE_SECRET_KEY = os.getenv('AMPLITUDE_SECRET_KEY')
 
-  #===========================#
- # Function: Time management #
+#===========================#
+# Function: Time management #
 #===========================#
 def get_time_window(conn):
     cursor = conn.cursor()
@@ -44,8 +45,8 @@ def get_time_window(conn):
     # Convert them into Amplitude's string format ONLY for the API call URL
     return last_fetch_dt.strftime("%Y%m%dT%H"), end_fetch_dt.strftime("%Y%m%dT%H")
 
-  #===========================#
- # Function: Last fetch date #
+#===========================#
+# Function: Last fetch date #
 #===========================#
 def update_last_fetch_date(conn, end_time_str):
     # Convert Amplitude's '20260402T00' back into a real Python datetime object
@@ -61,8 +62,8 @@ def update_last_fetch_date(conn, end_time_str):
     """, (end_dt,)) # Notice we are passing the datetime object here!
     conn.commit()
 
-  #=============================#
- # Function: Fetch events file #
+#=============================#
+# Function: Fetch events file #
 #=============================#
 def fetch_stream_events(start_str, end_str):
     print("="*80, flush=True)
@@ -95,8 +96,8 @@ def fetch_stream_events(start_str, end_str):
         os.remove(zip_path)
 
 
-  #=============================================#
- # Function: Insert bulk of events to database #
+#=============================================#
+# Function: Insert bulk of events to database #
 #=============================================#
 def process_event_batch(batch, cursor):
     events_to_insert = []
@@ -138,8 +139,8 @@ def process_event_batch(batch, cursor):
     """
     execute_values(cursor, insert_events_query, events_to_insert, template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())")
 
-  #=====================================================#
- # Function: Update daily stats and center total stats #
+#=====================================================#
+# Function: Update daily stats and center total stats #
 #=====================================================#
 def run_daily_aggregations(cursor, start_str, end_str):
 
@@ -194,8 +195,8 @@ def run_daily_aggregations(cursor, start_str, end_str):
             updated_at = NOW();
     """, (start_ts, end_ts))
 
-  #================#
- # Main execution #
+#================#
+# Main execution #
 #================#
 if __name__ == "__main__":
     conn = psycopg2.connect(

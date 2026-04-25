@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const LOG_FILE = path.join(__dirname, "../app.log");
+const LOG_FILE = "/logs/app.log";
 
 const colors = {
   reset: "\x1b[0m",

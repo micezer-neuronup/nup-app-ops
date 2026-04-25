@@ -117,19 +117,14 @@ export function GeneralDashboard({ data }: { data: any }) {
 
 
 
-       //=======================================================//
-      // Map: Monthly data map to griup data by months 
-      //  - For each stat, a day is created.
-      //  - For each Month, a unique key is created
-      //  - CReate display format for each month
-      //  - If a months key isnt in the map, its set with 0 values
-    //    - Then aggregations are done for each month picking it
-      
-      //  
-     //  - Format: Data is formatted to display in the charts 
-     // //    
-    //=======================================================//
-    } else {
+           //=====================================================================//
+          // - Map: Monthly data map to group data by months                     //
+         //     - For each stat, a day is created.                              //
+        //      - For each Month, a unique key is created                      //
+       //       - Create display format for each month                        //
+      //        - If a months key isnt in the map, its defined with 0 values //
+     //=====================================================================//
+     } else {
       const monthlyMap = new Map();
       dailyData.forEach((item: any) => {
         const date = new Date(item.date);
@@ -147,14 +142,25 @@ export function GeneralDashboard({ data }: { data: any }) {
     }
   };
 
+
+
+    //===========================================================//
+   // Data: Store all necessary use data that will be displayed //
+  //===========================================================//
   const chartData = getChartData();
   const totals = data?.analytics?.totals || {};
   const dailyStats = data?.analytics?.daily || [];
 
+    //===========================================//
+   // Function: Render icons for boolean values //
+  //===========================================//
   const renderBoolean = (value: any) => {
     return value === true || value === "true" ? "✅" : "❌";
   };
 
+    //===================================================//
+   // Function: Allows user to copy values to clipboard //
+  //===================================================//
   const handleCopy = async (textToCopy: string, fieldId: string) => {
     if (!textToCopy) return;
     try {
@@ -175,6 +181,10 @@ export function GeneralDashboard({ data }: { data: any }) {
     }
   };
 
+
+    //==================================================//
+   // Component: Button that calls handleCopy function //
+  //==================================================//
   const CopyButton = ({ text, fieldId }: { text: string; fieldId: string }) => {
     if (!text || text === "—") return null;
     return (
@@ -197,9 +207,9 @@ export function GeneralDashboard({ data }: { data: any }) {
     );
   };
 
-    //=========================================================//
-   // Extract Data: Extract the data response from the server //
-  //=========================================================//  
+    //=================================================//
+   // Data: Extract the data response from the server //
+  //=================================================//  
   const name = data.properties?.commercial_name || data.properties?.name || "—";
   const centerId = data.properties?.nup_center_id || "—";
   const email = data.properties?.email || "—";
@@ -226,6 +236,10 @@ export function GeneralDashboard({ data }: { data: any }) {
   const totalSessions = totals.total_sessions || 0;
   const totalLogins = totals.total_logins || 0;
   const totalExercises = totals.total_exercises || 0;
+
+    //============================================//
+   // Data: Formatted view of last activity date //
+  //============================================//
   const lastActivity = data.properties?.last_company_login
     ? new Date(data.properties.last_company_login).toLocaleDateString("es", {
         day: "numeric",
@@ -233,8 +247,12 @@ export function GeneralDashboard({ data }: { data: any }) {
         year: "numeric",
       })
     : "—";
+
   const avgDaily = Math.round(totalExercises / Math.max(dailyStats.length, 1));
 
+    //=========================//
+   // Function: Formats Dates //
+  //=========================//
   const formatDate = (dateStr: string) => {
     if (!dateStr || dateStr === "—") return "—";
     const date = new Date(dateStr);
@@ -242,9 +260,9 @@ export function GeneralDashboard({ data }: { data: any }) {
     return date.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" });
   };
 
-      //===============================================================//
-   // Fetch: Call to server endpoint with data to fetch Hubspot API //
-  //===============================================================//  
+    //========================================================================//
+   // Component: Rows that will render in the Metric Cards based on the data //
+  //========================================================================// 
   const MetricRow = ({ icon: Icon, label, value, copyField }: any) => {
     const displayValue = value === undefined || value === null ? "—" : value;
     const isBoolean = typeof value === "boolean" || value === "true" || value === "false";
@@ -272,6 +290,11 @@ export function GeneralDashboard({ data }: { data: any }) {
     );
   };
 
+
+     //======================================================================//
+    // Component: Buttons that will be used to change the data in the chart // 
+   //  - Triggers setSelectedMetric and setHoveredMetric                   //
+  //======================================================================// 
   const MetricButton = ({ metric, label }: { metric: MetricType; label: string }) => {
     const Icon = metricConfig[metric].icon;
     const isActive = selectedMetric === metric;
@@ -294,6 +317,10 @@ export function GeneralDashboard({ data }: { data: any }) {
     );
   };
 
+     //=============================================================================================//
+    // Component: Buttons that will be used to change the data time granularity/range in the chart // 
+   //  - Triggers setSelectedMetric and setHoveredMetric                                          //
+  //=============================================================================================// 
   const ViewButton = ({ view, label }: { view: "7days" | "30days" | "monthly"; label: string }) => (
     <Button
       variant={selectedView === view ? "default" : "ghost"}
@@ -305,6 +332,10 @@ export function GeneralDashboard({ data }: { data: any }) {
     </Button>
   );
 
+
+    //===========================================================================//
+   // Function-Component: Data that displays when hoverign chart specific range // 
+  //===========================================================================// 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload?.length) {
       const Icon = metricConfig[selectedMetric].icon;
