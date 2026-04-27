@@ -8,11 +8,11 @@ const { spawn } = require('child_process');
 const { log } = require("./utils/logger");
 
 
-// ────── Initialization: env ──────────────────────────────────────────────────
+// ────── Initialization: env ────────────────────────────────────────────────────────
 // ─── For development
 // ─── For local run with development env: NODE_ENV=development node server.js
 // ─── For local run with production env: NODE_ENV=production node server.js
-// ─────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────────
 const envFile = process.env.NODE_ENV === 'production'
   ? '../.env.production'
   : '../.env.development';
@@ -21,9 +21,9 @@ const envPath = path.resolve(__dirname, envFile);
 dotenv.config({ path: envPath });
 
 
-// ────── Import: database connection and queries ─────────
+// ────── Import: database connection and queries ───────────────
 // ─── Database conenction is already imported in database
-// ────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────
 const { getAnalyticsByCenterId } = require('./db/dbQueries');
 
 
@@ -50,11 +50,13 @@ const PORT = process.env.PORT;
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 
 
-// ────── Function: resolveCompanyData ─────────────────────────────────
+// ────── Function: resolveCompanyData ─────────────────────────────────────────────────────────
 // ─── We have 2 object types, company and deal. We define a dictionary with the object types 
-// ─── We define a list with all the properties we want
-// ─── 
-// ──────────────────────────────────────────────────────────────────────────────────────
+// ─── We define a list with all the properties we want to fetch
+// ─── If its a company, we do a direct fecth to hubspot and return it
+// ─── If its a deal, we fetch the deals associated companies
+// ─── The first company that has a nup_center_id is returned
+// ────────────────────────────────────────────────────────────────────────────────────────────
 
 async function resolveCompanyData(objectId, objectTypeId) {
 
@@ -63,9 +65,6 @@ async function resolveCompanyData(objectId, objectTypeId) {
     DEAL: '0-3'
   };
 
-    //=====================//
-   // PROPERTIES TO FETCH //
-  //=====================//
   const companyProperties = [
     'nup_center_id', 'company_specialty__por_definir_', 'activity', 'email', 'region_backend', 'cif',
     'name', 'num_employees', 'num_patients', 'has_extra_professionals',
@@ -75,10 +74,6 @@ async function resolveCompanyData(objectId, objectTypeId) {
     'all_subscription_days', 'hasExtraMaterial'
   ];
 
-
-    //==========================================//
-   // OBJECT TYPE ID = COMPANY => DIRECT FETCH //
-  //==========================================//
   if (objectTypeId === OBJECT_TYPES.COMPANY) {
     const url = `https://api.hubapi.com/crm/v3/objects/company/${objectId}?properties=${companyProperties.join(',')}`;
     const res = await fetch(url, { headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` } });
@@ -88,13 +83,10 @@ async function resolveCompanyData(objectId, objectTypeId) {
     return data;
   }
 
-
-    //=================================================================//
-   // OBJECT TYPE ID = DEAL => ASSOCIATIONS => FETCH BY NUP CENTER ID //
-  //=================================================================//
   if (objectTypeId === OBJECT_TYPES.DEAL) {
 
     const dealUrl = `https://api.hubapi.com/crm/v3/objects/deals/${objectId}?associations=company`;
+
     const dealRes = await fetch(dealUrl, { 
     headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` } 
     });
@@ -129,10 +121,13 @@ async function resolveCompanyData(objectId, objectTypeId) {
   throw new Error(`Unsupported object type: ${objectTypeId}`);
 }
 
+// ────── Endpoint: get company data ──────────────────────────────────────────────────────────────────
+// ─── The endpoint recieves the husbpot objectId and objectTypeId from the dashboard
+// ─── Then the company data is fetched calling resolveCompanyData()
+// ─── Once obtained, the nup_center_id is used to query the nalytics calling getAnalyticsByCenterId
+// ─── The analytics data is appended to the company data and sent back to the dashboard
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-  //========================//
- // ENDPOINT: GET COMPANY //
-//=======================//
 app.options('/api/company-data', cors());
 app.get('/api/company-data', async (req, res) => {
   const { objectId, objectTypeId } = req.query;
@@ -144,18 +139,18 @@ app.get('/api/company-data', async (req, res) => {
 
     const companyData = await resolveCompanyData(objectId, objectTypeId);
 
-
     const nupCenterId = companyData.properties?.nup_center_id;
+
     let analyticsData = null;
     if (nupCenterId) {
       analyticsData = await getAnalyticsByCenterId(nupCenterId);
     }
 
-
     res.json({
       ...companyData,
       analytics: analyticsData
     });
+
   } catch (err) {
     log("ERROR", "API", "Error in /api/company-data", { error: err.message });
     res.status(404).json({ error: err.message });
@@ -163,40 +158,35 @@ app.get('/api/company-data', async (req, res) => {
 });
 
 
-//========================================//
-// Cron Job: Fetch events from Amplitude //
-//======================================//
-//The time you want - 2
-//This runs 3 in the morning
-// Runs every 20 minutes for testing
+// ────── Cron job: fetch events from amplitude ──────────────────────────────
+// ─── Cron job that runs everyday at 6 in the morning
+// ─── The pyProcess lines capture the logs to add them to app.log
+// ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
+// ───────────────────────────────────────────────────────────────────────────
 cron.schedule('0 6 * * *', () => {
     
   log("INFO", "CRON", "Starting Amplitude fetch job...");
 
-  // Use '-u' to force Python to flush prints immediately to Node
   const pyProcess = spawn('python3', ['-u', scriptPath]);
 
-  // Capture standard output (print statements) line by line
   pyProcess.stdout.on('data', (data) => {
     const lines = data.toString().split('\n');
     lines.forEach(line => {
       if (line.trim()) {
-        log("INFO", "PYTHON", line.trim());
+        log("INFO", "CRON", line.trim());
       }
     });
   });
 
-  // Capture error output line by line
   pyProcess.stderr.on('data', (data) => {
     const lines = data.toString().split('\n');
     lines.forEach(line => {
       if (line.trim()) {
-        log("ERROR", "PYTHON", line.trim());
+        log("ERROR", "CRON", line.trim());
       }
     });
   });
 
-  // Handle when the script finishes
   pyProcess.on('close', (code) => {
     if (code === 0) {
       log("INFO", "CRON", "Python script finished successfully.");
