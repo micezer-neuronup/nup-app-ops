@@ -10,21 +10,31 @@ from requests.auth import HTTPBasicAuth
 import gzip
 from dotenv import load_dotenv
 
-
-#=====================#
-# Initialization: Env #
-#=====================#
-
+# ────── Initialization: Env ──────────────────────────────────
+# ─── For development
+# ─── Production uses .env.production through docker-compose
+# ─────────────────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
+
+# ────── Secrets: Amplitudes keys ─────────────────────────────
+# ─── For development
+# ─── Production uses .env.production through docker-compose
+# ─────────────────────────────────────────────────────────────
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 
 AMPLITUDE_SECRET_KEY = os.getenv('AMPLITUDE_SECRET_KEY')
 
-#===========================#
-# Function: Time management #
-#===========================#
+
+# ────── Function: Time window ──────────────────────────────────────────────
+# ─── Queries last timestamp from database
+# ─── Python datetime object == Postgres Timestamp
+# ─── Add 24 hours to last fetch datetime to fetch the whole day (end date)
+# ─── End date must be smaller than actual time - 3 hours
+# ─── Convert times into Amplitude string format for API call URL
+# ────────────────────────────────────────────────────────────────────────
 def get_time_window(conn):
+
     cursor = conn.cursor()
     cursor.execute("SELECT last_fetch_timestamp FROM fetch_metadata WHERE id = 1")
     result = cursor.fetchone()
@@ -32,24 +42,21 @@ def get_time_window(conn):
     if result is None or result[0] is None:
         raise Exception("No last_fetch_timestamp found in DB!")
     
-    # result[0] is ALREADY a Python datetime object because Postgres returned a Timestamp!
     last_fetch_dt = result[0]
-    
-    # We strictly process 24 hours at a time
     end_fetch_dt = last_fetch_dt + timedelta(days=1)
     
-    # AMPLITUDE SAFETY CHECK: Is the end date at least 3 hours old?
     if end_fetch_dt > datetime.now() - timedelta(hours=3):
         return None, None
         
-    # Convert them into Amplitude's string format ONLY for the API call URL
     return last_fetch_dt.strftime("%Y%m%dT%H"), end_fetch_dt.strftime("%Y%m%dT%H")
 
-#===========================#
-# Function: Last fetch date #
-#===========================#
+
+# ────── Function: Last fetch date ────────────────────────────────────────
+# ─── Convert Amplitudes end time to Python datetime object
+# ─── Insert the end time in fetch_metadata table replacing previous value
+# ────────────────────────────────────────────────────────────────────────
 def update_last_fetch_date(conn, end_time_str):
-    # Convert Amplitude's '20260402T00' back into a real Python datetime object
+
     end_dt = datetime.strptime(end_time_str, "%Y%m%dT%H")
     
     cursor = conn.cursor()
@@ -59,22 +66,33 @@ def update_last_fetch_date(conn, end_time_str):
         ON CONFLICT (id) DO UPDATE SET
             last_fetch_timestamp = EXCLUDED.last_fetch_timestamp,
             updated_at = NOW()
-    """, (end_dt,)) # Notice we are passing the datetime object here!
+    """, (end_dt,)) 
     conn.commit()
 
-#=============================#
-# Function: Fetch events file #
-#=============================#
+# ────── Function: Fetch events file ────────────────────────────────────────────────
+# ─── Function recieves both start date and end date
+# ─── Url is built and keys are used for authentication
+# ─── The line response.raise_for_status() end the script if response is an error
+# ─── Write Binary (wb) opens new file on server called daily_export.zip
+# ─── Data is downloaded in 8 Kb chunks, written and cleared from RAM 
+# ─── Once downlaoded, we open zip in read mode
+# ─── We focus on each file inside zip ended in .gz
+# ─── For each .gz file, we decompress and read each line (event per line)
+# ─── We decode each line to utf-8 and strip to prevent spaces and newlines
+# ─── The line yields hand one event to the main for loop that batches them
+# ─── When batch has 5000 events, fucntion waits till they are processed
+# ─── When all events have been processed, the daily_export.zip file is deleted 
+# ────────────────────────────────────────────────────────────────────────────────────
 def fetch_stream_events(start_str, end_str):
-    print("="*80, flush=True)
-    print(f"☁️ Fetching Amplitude API: {start_str} to {end_str}...")
+
+    print(f"[INFO] [AMPLITUDE] Fetching API data | range={start_str} → {end_str}")
     
     url = f'https://analytics.eu.amplitude.com/api/2/export?start={start_str}&end={end_str}' 
     auth = HTTPBasicAuth(AMPLITUDE_API_KEY, AMPLITUDE_SECRET_KEY) 
     response = requests.get(url, auth=auth, stream=True) 
     
     if response.status_code == 404:
-        print("⚠️ No data found for this day (404).")
+        print(f"[WARN] [AMPLITUDE] No data found for this day (404) | range={start_str} → {end_str}")
         return
         
     response.raise_for_status() 
@@ -96,13 +114,19 @@ def fetch_stream_events(start_str, end_str):
         os.remove(zip_path)
 
 
-#=============================================#
-# Function: Insert bulk of events to database #
-#=============================================#
+# ────── Function: Insert batch of events to database ───────────────────────────────────────────
+# ─── Recieves the batch of events
+# ─── We initialize an empty list we will use to store the events with the fields we extract 
+# ─── We extract the event properties
+# ─── WARNING: Add missing fields if needed and fetch events; raw event data is not stored
+# ─── We store events in events_to_insert list
+# ─── Then we insert all events at once with one INSERT
+# ─────────────────────────────────────────────────────────────────────────────────────────────
 def process_event_batch(batch, cursor):
     events_to_insert = []
 
     for event in batch:
+
         center_id_raw = event.get('groups', {}).get('center_id')
         center_id = center_id_raw[0] if isinstance(center_id_raw, list) and center_id_raw else center_id_raw
         
@@ -111,7 +135,6 @@ def process_event_batch(batch, cursor):
         event_timestamp = event.get('event_time')
         event_id_amplitude = event.get('event_id')
         
-
         event_props = event.get('event_properties') or {}
         patient_id = event_props.get('patient_id')
         session_id = event.get('session_id')
@@ -137,18 +160,22 @@ def process_event_batch(batch, cursor):
         VALUES %s
         ON CONFLICT (event_id_amplitude) DO NOTHING
     """
+
     execute_values(cursor, insert_events_query, events_to_insert, template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())")
 
-#=====================================================#
-# Function: Update daily stats and center total stats #
-#=====================================================#
+
+
+# ────── Function: Update daily stats and center total stats ──────────────────────────────
+# ─── Function recieves both start date and end date
+# ─── Converts dates to Postgres valid timestamps
+# ─── Run queries for center_daily_stats and centers tables 
+# ──────────────────────────────────────────────────────────────────────────────────────
 def run_daily_aggregations(cursor, start_str, end_str):
 
-    print(f"🔄 Calculating aggregations for {start_str}...")
+    print(f"[INFO] [AMPLITUDE] Calculating aggregations | date={start_str}")
     
     start_ts = datetime.strptime(start_str, "%Y%m%dT%H").strftime("%Y-%m-%d %H:%M:%S")
     end_ts = datetime.strptime(end_str, "%Y%m%dT%H").strftime("%Y-%m-%d %H:%M:%S")
-
 
     cursor.execute("""
         INSERT INTO center_daily_stats (center_id, date, exercises, sessions, tests_started, tests_finished, activities_started, logins)
@@ -195,9 +222,25 @@ def run_daily_aggregations(cursor, start_str, end_str):
             updated_at = NOW();
     """, (start_ts, end_ts))
 
-#================#
-# Main execution #
-#================#
+
+
+
+# ────── Main execution ──────────────────────────────────────────────────────────────
+# ─── We establish connection with the Postgres database
+# ─── We get the dates with the function get_time_window()
+# ─── To fetch events on specific dates manually use commented lines for dates
+# ─── If dates are available, main execution begins
+# ─── We initialize an empty list we will use to store the fetched events, the BATCH
+# ─── BATCH_SIZE defines the BATCH SIZE 
+# ─── We use total_processed to proceed to run run_daily_aggregations() fucntion
+# ─── We the start asking fetch_stream_events to send the vents one by one
+# ─── Each event is the stored in the batch and fetch_stream_events sends the next one
+# ─── When the batch is filled, fetch_stream_events stops sending events
+# ─── The events are processed with process_event_batch() and the vbath is cleared
+# ─── Then fetch_stream_events continues to send events
+# ─── A last check of the batch is required to process last events as the size will be smaller
+# ─── Lastly we uodate the last fetch date on the database running update_last_fetch_date()
+# ────────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     conn = psycopg2.connect(
         host=os.getenv('DB_HOST'), database=os.getenv('DB_NAME'),
@@ -212,13 +255,12 @@ if __name__ == "__main__":
 
     
     if not start_str:
-        print("⏸️ No new data is ready yet. Exiting gracefully.")
+        print("[INFO] [AMPLITUDE] No new data ready yet. Exiting gracefully.")
         conn.close()
         exit(0)
 
-    print("="*80)
-    print(f"🚀 Starting Daily Run: {start_str} to {end_str}")
-    print("="*80)
+    print(f"[INFO] [AMPLITUDE] Starting daily run | range={start_str} → {end_str}")
+
 
     try:
         cursor = conn.cursor()
@@ -243,14 +285,11 @@ if __name__ == "__main__":
         update_last_fetch_date(conn, end_str)
         conn.commit()
         
-        print("="*80)
-        print(f"✅ Daily Run Complete! Inserted & Aggregated {total_processed} events.")
-        print("="*80)
+        print(f"[INFO] [AMPLITUDE] Daily run complete | processed={total_processed}")
+
 
     except Exception as e:
-        print("=" * 80)
-        print(f"❌ Critical Error: {e}")
-        print("=" * 80)
+        print(f"[ERROR] [AMPLITUDE] Critical error | error={e}")
         conn.rollback()
     finally:
         conn.close()

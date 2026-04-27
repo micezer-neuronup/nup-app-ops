@@ -1,6 +1,11 @@
 const { Pool } = require('pg');
+const { log } = require("../utils/logger")
 
-// No cargues dotenv aquí, solo usa process.env
+// ────── Database Connection Configuration ───────────────
+// ─── Pool to establish connectio to the database
+// ─── We export it to use it in other files
+// ────────────────────────────────────────────────────────
+
 const pool = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
@@ -9,7 +14,12 @@ const pool = new Pool({
   port: parseInt(process.env.DB_PORT),
 });
 
-pool.on('connect', () => console.log('✅ PostgreSQL connected'));
-pool.on('error', (err) => console.error('❌ DB error:', err.message));
+pool.on('connect', () => 
+  log("INFO", "DB", "PostgreSQL connected")
+);
+
+pool.on('error', (err) => 
+  log("ERROR", "DB", "Database error", { error: err.message })
+);
 
 module.exports = { pool };

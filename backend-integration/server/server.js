@@ -8,11 +8,11 @@ const { spawn } = require('child_process');
 const { log } = require("./utils/logger");
 
 
-//======================//
-// INITIALIZATION: ENV //
-//====================//
-// NODE_ENV=DEVELOPMENT NODE SERVER.JS
-// NODE_ENV=PRODUCTION NO
+// ────── Initialization: env ──────────────────────────────────────────────────
+// ─── For development
+// ─── For local run with development env: NODE_ENV=development node server.js
+// ─── For local run with production env: NODE_ENV=production node server.js
+// ─────────────────────────────────────────────────────────────────────────────
 const envFile = process.env.NODE_ENV === 'production'
   ? '../.env.production'
   : '../.env.development';
@@ -21,23 +21,26 @@ const envPath = path.resolve(__dirname, envFile);
 dotenv.config({ path: envPath });
 
 
-//===================================//
-// INITIALIZATION: DATABASE QUERIES //
-//=================================//
+// ────── Import: database connection and queries ─────────
+// ─── Database conenction is already imported in database
+// ────────────────────────────────────────────────────────
 const { getAnalyticsByCenterId } = require('./db/dbQueries');
 
 
 
-//==========================//
-// INITIALIZATION: SCRIPTS //
-//========================//
-const pythonBinary = path.join(__dirname, '../python-jobs/venv/bin/python');
+
+
+// ────── Initialization: script path ─────────────────────────────
+// ─── We define the path of the script the cron job calls
+// ────────────────────────────────────────────────────────────────
 const scriptPath = path.join(__dirname, '../python-jobs/script.py');
 
 
-//=========================//
-// INITIALIZATION: SERVER //
-//=======================//
+// ────── Initialization: server  ─────────────────────────────────────────────
+// ─── We create the express app
+// ─── We add cors and json 
+// ─── We define the server port and the Husbpot token from the enviroment
+// ────────────────────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -47,9 +50,12 @@ const PORT = process.env.PORT;
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 
 
-//================================================//
-// FUNCTION: GET COMPANY BASED ON OBJECT TYPE ID //
-//==============================================//
+// ────── Function: resolveCompanyData ─────────────────────────────────
+// ─── We have 2 object types, company and deal. We define a dictionary with the object types 
+// ─── We define a list with all the properties we want
+// ─── 
+// ──────────────────────────────────────────────────────────────────────────────────────
+
 async function resolveCompanyData(objectId, objectTypeId) {
 
   const OBJECT_TYPES = {
@@ -126,7 +132,7 @@ async function resolveCompanyData(objectId, objectTypeId) {
 
   //========================//
  // ENDPOINT: GET COMPANY //
-//======================//
+//=======================//
 app.options('/api/company-data', cors());
 app.get('/api/company-data', async (req, res) => {
   const { objectId, objectTypeId } = req.query;
