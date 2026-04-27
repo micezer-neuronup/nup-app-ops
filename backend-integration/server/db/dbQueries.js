@@ -1,4 +1,5 @@
 const { pool } = require('./db');
+const { log } = require("../utils/logger")
 
 
 // ────── Function to get analytics from database ───────────────────── 
