@@ -163,7 +163,7 @@ def fetch_all_records(access_token, conn, endpoint, table_name, id_key):
 
 def build_update_queue(conn):
     """Finds invoices missing an ID where the customer HAS an ID."""
-    print("\n🧠 Analyzing relationships and building the To-Do List...")
+    print("\n[INFO] [AMPLITUDE] Analyzing relationships and building To-Do list")
     cursor = conn.cursor()
     
     # Empty the queue just in case we are re-running this script
@@ -186,10 +186,8 @@ def build_update_queue(conn):
     
     cursor.execute("SELECT COUNT(*) FROM pending_updates")
     total_to_update = cursor.fetchone()[0]
-    print("========================================")
-    print(f"🎯 ANALYSIS COMPLETE!")
-    print(f"Found exactly {total_to_update} invoices that need to be updated.")
-    print("========================================")
+    print("[INFO] [ANALYTICS] Analysis complete", flush=True)
+    print(f"[INFO] [ANALYTICS] Invoices to update | total={total_to_update}", flush=True)
 
 if __name__ == "__main__":
     token = get_new_access_token()
@@ -205,4 +203,4 @@ if __name__ == "__main__":
     build_update_queue(db_conn)
     
     db_conn.close()
-    print("\n🏁 Setup finished. The 'zoho_queue.db' is ready for the daily worker!")
+    print("\n[INFO] [SETUP] Setup finished | db=zoho_queue.db ready for daily worker", flush=True)
