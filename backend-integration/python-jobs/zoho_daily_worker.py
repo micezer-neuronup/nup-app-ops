@@ -157,6 +157,8 @@ def run_daily_batch():
     print(f"[INFO] [ZOHO] Updated successfully | count={success_count}")
     print(f"[INFO] [ZOHO] Failed updates | count={fail_count}")
     print(f"[INFO] [ZOHO] Remaining in queue | total={remaining_total}")
+    print(f"[INFO] [ZOHO] API calls left today | remaining={final_api_left}", flush=True)
+
 
 
 if __name__ == "__main__":
