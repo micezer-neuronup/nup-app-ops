@@ -3,7 +3,22 @@ import { SiteHeader } from "../../components/site-header";
 import DashboardFetcher from "./DashboardFetcher";
 import { GeneralDashboard } from "@/components/Dashboards/GeneralDashboard ";
 
-// Keep generateStaticParams if needed, but you can simplify
+
+
+
+// ────── page.tsx ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Directive use client is not necessary here
+// ─── Recieves the props from the url
+// ─── The folder [dashboard] is a dynamic folder so it accepts more than one "dashboard"
+// ─── When the general prop is recieved, page.tsx extracts general to the params
+// ─── As we can see it checks if its a valid dashbaord or not.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
 export async function generateStaticParams() {
   return [{ dashboard: "general" }];
 }

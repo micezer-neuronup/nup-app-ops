@@ -6,7 +6,6 @@ const { log } = require("../utils/logger")
 // ─── We query center events and daily results
 // ─── We use parameterized queries to prevent SQL injection attacks
 // ────────────────────────────────────────────────────────────────────
-
 async function getAnalyticsByCenterId(centerId) {
   if (!centerId) return null;
   

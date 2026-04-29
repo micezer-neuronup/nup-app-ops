@@ -2,10 +2,9 @@ const { Pool } = require('pg');
 const { log } = require("../utils/logger")
 
 // ────── Database Connection Configuration ───────────────
-// ─── Pool to establish connectio to the database
+// ─── Pool to establish connection to the database
 // ─── We export it to use it in other files
 // ────────────────────────────────────────────────────────
-
 const pool = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,

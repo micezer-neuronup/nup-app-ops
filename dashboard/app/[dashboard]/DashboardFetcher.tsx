@@ -5,25 +5,41 @@ import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { GeneralDashboard } from "@/components/Dashboards/GeneralDashboard ";
 
+// ────── DashboardFetcher.tsx ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Directive use client is necessary as we use Next.js AppRouter (app folder)
+// ─── This means all ocmponents are Server Components but they cant use React Hooks
+// ─── The directive allows to send the js to the browser to be interactive
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── The interface is like a rulebook or strcit contract
+// ─── The 1st rule says a component(Dashbaoard in this case) must be passed
+// ─── The 2nd rule says a prop called title must be paased and it must be a string
+// ─── When another file want to use DashboardFetcher, it must fufill both rules
+// ─── If not met, DashboardFetcher will throw an error
+// ─── The intefrace allows us to have resuable code that accepts various dashboards and titles
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── The hook useSearchParams reads the URL in the browser
+// ─── We use it to extract objectId and objectTypeId
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── The DashboardFetcher function uses three states, data, loading and error
+// ─── It has a defined useEffect with dependency on objectId and objectTypeId to run 
+// ─── We then fetch the server endpoint with the ids so it can fetch Hubspot API 
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── The return statement is a defensive implementation
+// ─── We check all the possibilities: loading - error from server - null data - valid data
+// ─────────────────────────────────────────────────────────────────────────────────────────────
 
-//======================//
-// Initialization: Env //
-//====================//
+
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL;
 
 
-//===============================//
-// Dashboard Prop Name Reciever //
-//=============================//
+
 interface DashboardFetcherProps {
   DashboardComponent: React.ComponentType<any>;
   title: string;
 }
 
 
-//=======================================//
-// Fucntion: Unified Dashaboard Fetcher //
-//=====================================//
 export default function DashboardFetcher({ DashboardComponent, title }: DashboardFetcherProps) {
   const searchParams = useSearchParams();
   const objectId = searchParams.get("objectId");
@@ -33,9 +49,7 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-    //============================================================//
-   // UseEffect: Dependency on objectId and objectTypeId to run  //
-  //============================================================//
+
   useEffect(() => {
     if (!objectId || !objectTypeId) {
       setError("Faltan parámetros objectId o objectTypeId");
@@ -43,9 +57,6 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
       return;
     }
 
-      //===============================================================//
-     // Fetch: Call to server endpoint with data to fetch Hubspot API //
-    //===============================================================//
     const fetchData = async () => {
       try {
         const res = await fetch(
@@ -66,7 +77,6 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
     };
     fetchData();
   }, [objectId, objectTypeId]);
-
 
 
   
@@ -110,5 +120,5 @@ export default function DashboardFetcher({ DashboardComponent, title }: Dashboar
     );
   }
 
-  return <GeneralDashboard data={data} />;
+  return <DashboardComponent data={data} />;
 }

@@ -57,7 +57,6 @@ def fetch_stream_events(start_str, end_str):
                         for line in gz:
                             yield json.loads(line.decode('utf-8').strip())
                             
-    # Clean up the 100MB+ zip file after processing the day
     if os.path.exists(zip_path):
         os.remove(zip_path)
 

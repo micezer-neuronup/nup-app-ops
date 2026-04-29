@@ -22,7 +22,7 @@ dotenv.config({ path: envPath });
 
 
 // ────── Import: database connection and queries ───────────────
-// ─── Database conenction is already imported in database
+// ─── Database conenction is already imported in dbQueries
 // ──────────────────────────────────────────────────────────────
 const { getAnalyticsByCenterId } = require('./db/dbQueries');
 
@@ -57,7 +57,6 @@ const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 // ─── If its a deal, we fetch the deals associated companies
 // ─── The first company that has a nup_center_id is returned
 // ────────────────────────────────────────────────────────────────────────────────────────────
-
 async function resolveCompanyData(objectId, objectTypeId) {
 
   const OBJECT_TYPES = {
@@ -127,7 +126,6 @@ async function resolveCompanyData(objectId, objectTypeId) {
 // ─── Once obtained, the nup_center_id is used to query the nalytics calling getAnalyticsByCenterId
 // ─── The analytics data is appended to the company data and sent back to the dashboard
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────
-
 app.options('/api/company-data', cors());
 app.get('/api/company-data', async (req, res) => {
   const { objectId, objectTypeId } = req.query;
@@ -144,6 +142,12 @@ app.get('/api/company-data', async (req, res) => {
     let analyticsData = null;
     if (nupCenterId) {
       analyticsData = await getAnalyticsByCenterId(nupCenterId);
+    
+
+      if (analyticsData && analyticsData.error) {
+          log("WARN", "API", "Analytics DB down, serving center data only", { error: analyticsData.error });
+          analyticsData = null; 
+        }
     }
 
     res.json({

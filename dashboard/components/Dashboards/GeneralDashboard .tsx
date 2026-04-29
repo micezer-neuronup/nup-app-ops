@@ -46,9 +46,22 @@ import {
 } from "recharts";
 
 
-  //==========================================//
- // Initialization: Metrics names and colors //
-//==========================================//  
+
+// ────── GeneralDashboard.tsx ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── We initialize the Charts metrics and colors
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─── GeneralDashboard is the function incharged to recieve and display the data 
+// ─── possible time ranges (default: 7 days)
+// ─── selected metric (default: exercises)
+// ─── hovered metric
+// ─── copied values dictionary
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+// Flow
+// hubspot -> page.tsx -> calls DashboardFetcher.tsx with DashboardComponent and title -> DashboardFetcher checks props, fetches server and returns DashboardComponent with data -> DashboardComponent in this case GeneralDashboard recieves data and render return with data
+
+
 type MetricType = "exercises" | "sessions" | "logins";
 
 const metricConfig = {
@@ -92,6 +105,9 @@ export function GeneralDashboard({ data }: { data: any }) {
     //======================================================//
    // Function: Get the Daily Data Analytics based on view //
   //======================================================//
+
+  const analyticsOffline = !data?.analytics;
+  
   const getChartData = () => {
     const dailyData = data?.analytics?.daily || [];
     if (!dailyData.length) return [];
