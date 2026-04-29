@@ -34,6 +34,7 @@ const { getAnalyticsByCenterId } = require('./db/dbQueries');
 // ─── We define the path of the script the cron job calls
 // ────────────────────────────────────────────────────────────────
 const scriptPath = path.join(__dirname, '../python-jobs/script.py');
+const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
 
 // ────── Initialization: server  ─────────────────────────────────────────────
@@ -198,6 +199,38 @@ cron.schedule('0 6 * * *', () => {
       log("WARN", "CRON", `Python script exited with code ${code}`);
     }
   });
+});
+
+
+// ────── Cron job: update invoices from Zoho ──────────────────────────────
+// ─── Cron job that runs everyday at 2 in the morning
+// ─── The pyProcess lines capture the logs to add them to app.log
+// ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
+// ───────────────────────────────────────────────────────────────────────────
+cron.schedule('0 2 * * *', () => {
+
+    log("INFO", "CRON", "Starting Zoho backfill job");
+    
+
+    const pyProcess = spawn('python3', ['-u', zoho_script_Path]); 
+    
+    pyProcess.stdout.on('data', (data) => {
+        const lines = data.toString().split('\n');
+        lines.forEach(line => {
+            if (line.trim()) {
+
+              log(line.trim()); 
+            }
+        });
+    });
+
+    pyProcess.stderr.on('data', (data) => {
+        log(`[ERROR] [ZOHO WORKER]: ${data.toString().trim()}`);
+    });
+
+    pyProcess.on('close', (code) => {
+        log(`[INFO] [CRON] Zoho backfill script finished with exit code ${code}`);
+    });
 });
 
 
