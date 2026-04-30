@@ -39,7 +39,7 @@ BOOKS_API_URL = "https://www.zohoapis.eu/books/v3"
 # ─── We set the daily limit we want for the updates
 # ─────────────────────────────────────────────────────────────
 DB_PATH = "/logs/zoho_queue.db" 
-DAILY_LIMIT = 5
+DAILY_LIMIT = 1000
 
 
 
@@ -142,7 +142,7 @@ def run_daily_batch():
             print(f"[ERROR] [ZOHO] Failed to update Invoice {inv_id}: {response.text}")
 
         conn.commit()
-        
+
         total_processed = success_count + fail_count
 
         if total_processed % 500 == 0:
