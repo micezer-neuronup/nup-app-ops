@@ -93,7 +93,8 @@ def setup_database():
     cursor.execute('''CREATE TABLE IF NOT EXISTS invoices (
                         invoice_id TEXT PRIMARY KEY,
                         customer_id TEXT,
-                        nup_center_id TEXT
+                        nup_center_id TEXT,
+                        status TEXT 
                     )''')
                     
 
@@ -148,8 +149,9 @@ def fetch_all_records(access_token, conn, endpoint, table_name, id_key):
                 cursor.execute("INSERT OR REPLACE INTO customers (customer_id, nup_center_id) VALUES (?, ?)", 
                                (record_id, nup_id))
             else:
-                cursor.execute("INSERT OR REPLACE INTO invoices (invoice_id, customer_id, nup_center_id) VALUES (?, ?, ?)", 
-                               (record_id, customer_id, nup_id))
+                inv_status = record.get('status') 
+                cursor.execute("INSERT OR REPLACE INTO invoices (invoice_id, customer_id, nup_center_id, status) VALUES (?, ?, ?, ?)", 
+                               (record_id, customer_id, nup_id, inv_status)) 
         
         conn.commit()
 
@@ -180,6 +182,7 @@ def build_update_queue(conn):
         JOIN customers c ON i.customer_id = c.customer_id
         WHERE (i.nup_center_id IS NULL OR i.nup_center_id = '')
           AND (c.nup_center_id IS NOT NULL AND c.nup_center_id != '')
+          AND i.status != 'void'  
     """)
     
     conn.commit()
