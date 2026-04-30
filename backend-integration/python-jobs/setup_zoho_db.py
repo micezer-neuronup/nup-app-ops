@@ -119,7 +119,7 @@ def fetch_all_records(access_token, conn, endpoint, table_name, id_key):
     has_more_page = True
     headers = {'Authorization': f'Zoho-oauthtoken {access_token}'}
     
-    print(f"\n[INFO] [AMPLITUDE] Downloading table | name={table_name}", flush=True)
+    print(f"\n[INFO] [ZOHO] Downloading table | name={table_name}", flush=True)
     
     while has_more_page:
         params = {
@@ -165,7 +165,7 @@ def fetch_all_records(access_token, conn, endpoint, table_name, id_key):
 
 def build_update_queue(conn):
     """Finds invoices missing an ID where the customer HAS an ID."""
-    print("\n[INFO] [AMPLITUDE] Analyzing relationships and building To-Do list")
+    print("\n[INFO] [ZOHO] Analyzing relationships and building To-Do list")
     cursor = conn.cursor()
     
     # Empty the queue just in case we are re-running this script

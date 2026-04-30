@@ -163,6 +163,9 @@ app.get('/api/company-data', async (req, res) => {
 });
 
 
+
+
+
 // ────── Cron job: fetch events from amplitude ──────────────────────────────
 // ─── Cron job that runs everyday at 6 in the morning
 // ─── The pyProcess lines capture the logs to add them to app.log
@@ -207,31 +210,30 @@ cron.schedule('0 6 * * *', () => {
 // ─── The pyProcess lines capture the logs to add them to app.log
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
-cron.schedule('0 2 * * *', () => {
+//cron.schedule('0 2 * * *', () => {
 
-    log("INFO", "CRON", "Starting Zoho backfill job");
+//    log("INFO", "CRON", "Starting Zoho backfill job");
     
 
-    const pyProcess = spawn('python3', ['-u', zoho_script_Path]); 
+//    const pyProcess = spawn('python3', ['-u', zoho_script_Path]); 
     
-    pyProcess.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n');
-        lines.forEach(line => {
-            if (line.trim()) {
+//    pyProcess.stdout.on('data', (data) => {
+//        const lines = data.toString().split('\n');
+//        lines.forEach(line => {
+//            if (line.trim()) {
+//              log("INFO", "CRON", line.trim());
+//            }
+//        });
+//    });
 
-              log(line.trim()); 
-            }
-        });
-    });
+//    pyProcess.stderr.on('data', (data) => {
+//        log(`[ERROR] [CRON]: ${data.toString().trim()}`);
+//    });
 
-    pyProcess.stderr.on('data', (data) => {
-        log(`[ERROR] [ZOHO WORKER]: ${data.toString().trim()}`);
-    });
-
-    pyProcess.on('close', (code) => {
-        log(`[INFO] [CRON] Zoho backfill script finished with exit code ${code}`);
-    });
-});
+//    pyProcess.on('close', (code) => {
+//        log(`[INFO] [CRON] Zoho backfill script finished with exit code ${code}`);
+//    });
+//});
 
 
 app.listen(PORT, () => {
