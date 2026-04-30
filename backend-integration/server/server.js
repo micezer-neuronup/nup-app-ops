@@ -207,7 +207,7 @@ cron.schedule('0 6 * * *', () => {
 // ─── The pyProcess lines capture the logs to add them to app.log
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
-cron.schedule('5 11 * * *', () => {
+cron.schedule('0 2 * * *', () => {
 
     log("INFO", "CRON", "Starting Zoho backfill job");
     

@@ -39,7 +39,7 @@ BOOKS_API_URL = "https://www.zohoapis.eu/books/v3"
 # ─── We set the daily limit we want for the updates
 # ─────────────────────────────────────────────────────────────
 DB_PATH = "/logs/zoho_queue.db" 
-DAILY_LIMIT = 1000
+DAILY_LIMIT = 2500
 
 
 
