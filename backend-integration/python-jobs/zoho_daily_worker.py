@@ -39,7 +39,7 @@ BOOKS_API_URL = "https://www.zohoapis.eu/books/v3"
 # ─── We set the daily limit we want for the updates
 # ─────────────────────────────────────────────────────────────
 DB_PATH = "/logs/zoho_queue.db" 
-DAILY_LIMIT = 2500
+DAILY_LIMIT = 5
 
 
 
@@ -99,6 +99,9 @@ def run_daily_batch():
         print("[INFO] [ZOHO] No pending invoices found | status=complete")
         conn.close()
         exit(0) 
+
+    total_batch = len(invoices_to_update)
+    print(f"[INFO] [ZOHO] Found {total_batch} invoices for today. Starting updates...")
         
     print(f"[INFO] [ZOHO] Batch start | invoices={len(invoices_to_update)}")
     
@@ -138,6 +141,8 @@ def run_daily_batch():
             fail_count += 1
             print(f"[ERROR] [ZOHO] Failed to update Invoice {inv_id}: {response.text}")
 
+        conn.commit()
+        
         total_processed = success_count + fail_count
 
         if total_processed % 500 == 0:
@@ -146,7 +151,7 @@ def run_daily_batch():
         time.sleep(0.1) 
         
 
-    conn.commit()
+    
     
     cursor.execute("SELECT COUNT(*) FROM pending_updates WHERE status = 'PENDING'")
     remaining_total = cursor.fetchone()[0]
