@@ -27,9 +27,6 @@ dotenv.config({ path: envPath });
 const { getAnalyticsByCenterId } = require('./db/dbQueries');
 
 
-
-
-
 // ────── Initialization: script path ─────────────────────────────
 // ─── We define the path of the script the cron job calls
 // ────────────────────────────────────────────────────────────────
@@ -214,7 +211,6 @@ cron.schedule('0 2 * * *', () => {
 
     log("INFO", "CRON", "Starting Zoho backfill job");
     
-
     const pyProcess = spawn('python3', ['-u', zoho_script_Path]); 
     
     pyProcess.stdout.on('data', (data) => {
@@ -227,11 +223,20 @@ cron.schedule('0 2 * * *', () => {
     });
 
     pyProcess.stderr.on('data', (data) => {
-        log(`[ERROR] [CRON]: ${data.toString().trim()}`);
+        const lines = data.toString().split('\n');
+        lines.forEach(line => {
+            if (line.trim()) {
+              log("ERROR", "CRON", line.trim());
+            }
+        });
     });
 
     pyProcess.on('close', (code) => {
-        log(`[INFO] [CRON] Zoho backfill script finished with exit code ${code}`);
+        if (code === 0) {
+            log("INFO", "CRON", `Zoho backfill script finished with exit code ${code}`);
+        } else {
+            log("WARN", "CRON", `Zoho backfill script exited with code ${code}`);
+        }
     });
 });
 
