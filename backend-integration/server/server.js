@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
+//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -47,7 +47,7 @@ app.use(cors({ origin: true, credentials: true }));
 
 const PORT = process.env.PORT;
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+//const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
 
 // ────── Webhook Routes ──────────────────────────────────────────────────────
 // ─── Requires Raw Body so we define it before the json global middleware
@@ -74,60 +74,60 @@ const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 // ───
 // ────────────────────────────────────────────────────────────────────────────
 
-app.post(
-  '/api/webhooks/stripe', 
-  express.raw({ type: 'application/json' }), 
-  async (request, response) => {
-    const sig = request.headers['stripe-signature'];
-    let event;
+//app.post(
+//  '/api/webhooks/stripe', 
+//  express.raw({ type: 'application/json' }), 
+//  async (request, response) => {
+//    const sig = request.headers['stripe-signature'];
+//    let event;
 
-    try {
-      event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
-    } catch (err) {
-      log("ERROR", "STRIPE", `Webhook signature verification failed: ${err.message}`);
-      return response.status(400).send(`Webhook Error: ${err.message}`);
-    }
+//    try {
+//      event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
+//    } catch (err) {
+//      log("ERROR", "STRIPE", `Webhook signature verification failed: ${err.message}`);
+//      return response.status(400).send(`Webhook Error: ${err.message}`);
+//    }
 
-    log("INFO", "STRIPE", `Webhook Received: ${event.type} (ID: ${event.id})`);
+//    log("INFO", "STRIPE", `Webhook Received: ${event.type} (ID: ${event.id})`);
 
-    try {
-      switch (event.type) {
+//    try {
+//      switch (event.type) {
         
         // ─── CREATION & UPDATES ─────────────────────────────────────────
-        case 'customer.subscription.created':
-        case 'customer.subscription.updated': 
-          await processSubscriptionUpsert(event);
-          break;
+//        case 'customer.subscription.created':
+//        case 'customer.subscription.updated': 
+//          await processSubscriptionUpsert(event);
+//          break;
 
         // ─── CANCELLATIONS ──────────────────────────────────────────────
-        case 'customer.subscription.deleted': 
-          await processSubscriptionCancellation(event);
-          break;
+//        case 'customer.subscription.deleted': 
+//          await processSubscriptionCancellation(event);
+//          break;
 
         // ─── PAYMENTS SUCCESS/FAIL ──────────────────────────────────────
-        case 'invoice.paid':
-        case 'invoice.payment_failed': 
-          await processInvoiceEvent(event);
-          break;
+//        case 'invoice.paid':
+//        case 'invoice.payment_failed': 
+//          await processInvoiceEvent(event);
+//          break;
 
         // ─── UNHANDLED EVENTS ───────────────────────────────────────────
-        default:
-          log("INFO", "STRIPE", `🤷‍♂️ Unhandled event type: ${event.type}`);
-      }
+//        default:
+//          log("INFO", "STRIPE", `🤷‍♂️ Unhandled event type: ${event.type}`);
+//      }
 
       // 3. Success Acknowledgment back to Stripe
-      response.status(200).send();
+//      response.status(200).send();
 
-    } catch (error) {
-      if (error.code === '23505') {
-        log("INFO", "STRIPE", `Duplicate webhook ignored. Event ID: ${event.id}`);
-        return response.status(200).send(); 
-      }
+//    } catch (error) {
+//      if (error.code === '23505') {
+//        log("INFO", "STRIPE", `Duplicate webhook ignored. Event ID: ${event.id}`);
+//        return response.status(200).send(); 
+//      }
 
-      log("ERROR", "STRIPE", `Webhook processing failed. Error: ${error.message}`);
-      return response.status(500).send('Internal Server Error');
-    }
-});
+//      log("ERROR", "STRIPE", `Webhook processing failed. Error: ${error.message}`);
+//      return response.status(500).send('Internal Server Error');
+//    }
+//});
 
 // ────── Global Middleware: JSON Parsers ───────────────────────────
 // ─── We apply JSON parsing. This will apply to all routes defined below
