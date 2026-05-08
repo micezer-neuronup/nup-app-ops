@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -8,11 +9,11 @@ const { spawn } = require('child_process');
 const { log } = require("./utils/logger");
 
 
-// ────── Initialization: env ────────────────────────────────────────────────────────
+// ────── Initialization: env ────────────────────────────────────────────────────
 // ─── For development
 // ─── For local run with development env: NODE_ENV=development node server.js
 // ─── For local run with production env: NODE_ENV=production node server.js
-// ───────────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
 const envFile = process.env.NODE_ENV === 'production'
   ? '../.env.production'
   : '../.env.development';
@@ -24,11 +25,11 @@ dotenv.config({ path: envPath });
 // ────── Import: database connection and queries ───────────────
 // ─── Database conenction is already imported in dbQueries
 // ──────────────────────────────────────────────────────────────
-const { getAnalyticsByCenterId } = require('./db/dbQueries');
+const { getAnalyticsByCenterId, upsertSubscriptionData} = require('./db/dbQueries');
 
 
-// ────── Initialization: script path ─────────────────────────────
-// ─── We define the path of the script the cron job calls
+// ────── Initialization: Script paths ─────────────────────────────
+// ─── We define the path of the scripts the cron job calls
 // ────────────────────────────────────────────────────────────────
 const scriptPath = path.join(__dirname, '../python-jobs/script.py');
 const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
@@ -36,16 +37,102 @@ const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.
 
 // ────── Initialization: server  ─────────────────────────────────────────────
 // ─── We create the express app
-// ─── We add cors and json 
-// ─── We define the server port and the Husbpot token from the enviroment
+// ─── We add cors 
+// ─── We define the server port
+// ─── We define the Husbpot token from the enviroment
+// ─── We define the Stripe endpoint secret
 // ────────────────────────────────────────────────────────────────────────────
 const app = express();
-app.use(cors());
-app.use(express.json());
 app.use(cors({ origin: true, credentials: true }));
 
 const PORT = process.env.PORT;
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+
+// ────── Webhook Routes ──────────────────────────────────────────────────────
+// ─── Requires Raw Body so we define it before the json global middleware
+// ─── This way Stripe can read the raw buffer to securely verify the signature
+// ─── We manage webhooks to track subscriptions state and historic data
+// ─── Webhooks for subscriptions:
+// ────── customer.subscription.created
+// ────── customer.subscription.updated
+// ────── customer.subscription.deleted
+// ─── Webhooks for invoices:
+// ────── invoice.paid
+// ────── invoice.payment_failed
+// ─── Webhook is open to the internet, we secure it using the Webhook Secret
+// ─── Stripe knows this Webhook Secret as weel as the server
+// ─── Stripe generates webhooks and hashes it with the Webhook Secret
+// ─── This creates a unique signature which this endpoint recieves
+// ─── Stripe in the server does the same process using the request.body and Webhook Secret
+// ─── If the result is not the same, its rejeted, it cant be trsuted
+// ─── If the result is the same, then its from Stripe, it can be trusted
+// ─── 
+// ───
+// ───
+// ───
+// ───
+// ────────────────────────────────────────────────────────────────────────────
+
+app.post(
+  '/api/webhooks/stripe', 
+  express.raw({ type: 'application/json' }), 
+  async (request, response) => {
+    const sig = request.headers['stripe-signature'];
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
+    } catch (err) {
+      log("ERROR", "STRIPE", `Webhook signature verification failed: ${err.message}`);
+      return response.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    log("INFO", "STRIPE", `Webhook Received: ${event.type} (ID: ${event.id})`);
+
+    try {
+      switch (event.type) {
+        
+        // ─── CREATION & UPDATES ─────────────────────────────────────────
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated': 
+          await processSubscriptionUpsert(event);
+          break;
+
+        // ─── CANCELLATIONS ──────────────────────────────────────────────
+        case 'customer.subscription.deleted': 
+          await processSubscriptionCancellation(event);
+          break;
+
+        // ─── PAYMENTS SUCCESS/FAIL ──────────────────────────────────────
+        case 'invoice.paid':
+        case 'invoice.payment_failed': 
+          await processInvoiceEvent(event);
+          break;
+
+        // ─── UNHANDLED EVENTS ───────────────────────────────────────────
+        default:
+          log("INFO", "STRIPE", `🤷‍♂️ Unhandled event type: ${event.type}`);
+      }
+
+      // 3. Success Acknowledgment back to Stripe
+      response.status(200).send();
+
+    } catch (error) {
+      if (error.code === '23505') {
+        log("INFO", "STRIPE", `Duplicate webhook ignored. Event ID: ${event.id}`);
+        return response.status(200).send(); 
+      }
+
+      log("ERROR", "STRIPE", `Webhook processing failed. Error: ${error.message}`);
+      return response.status(500).send('Internal Server Error');
+    }
+});
+
+// ────── Global Middleware: JSON Parsers ───────────────────────────
+// ─── We apply JSON parsing. This will apply to all routes defined below
+// ────────────────────────────────────────────────────────────────────────────
+app.use(express.json());
 
 
 // ────── Function: resolveCompanyData ─────────────────────────────────────────────────────────
@@ -207,38 +294,38 @@ cron.schedule('0 6 * * *', () => {
 // ─── The pyProcess lines capture the logs to add them to app.log
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
-cron.schedule('0 2 * * *', () => {
+//cron.schedule('0 2 * * *', () => {
 
-    log("INFO", "CRON", "Starting Zoho backfill job");
+//    log("INFO", "CRON", "Starting Zoho backfill job");
     
-    const pyProcess = spawn('python3', ['-u', zoho_script_Path]); 
+//    const pyProcess = spawn('python3', ['-u', zoho_script_Path]); 
     
-    pyProcess.stdout.on('data', (data) => {
-        const lines = data.toString().split('\n');
-        lines.forEach(line => {
-            if (line.trim()) {
-              log("INFO", "CRON", line.trim());
-            }
-        });
-    });
+//    pyProcess.stdout.on('data', (data) => {
+//        const lines = data.toString().split('\n');
+//        lines.forEach(line => {
+//            if (line.trim()) {
+//              log("INFO", "CRON", line.trim());
+//            }
+//        });
+//    });
 
-    pyProcess.stderr.on('data', (data) => {
-        const lines = data.toString().split('\n');
-        lines.forEach(line => {
-            if (line.trim()) {
-              log("ERROR", "CRON", line.trim());
-            }
-        });
-    });
+//    pyProcess.stderr.on('data', (data) => {
+//        const lines = data.toString().split('\n');
+//        lines.forEach(line => {
+//            if (line.trim()) {
+//              log("ERROR", "CRON", line.trim());
+//            }
+//        });
+//    });
 
-    pyProcess.on('close', (code) => {
-        if (code === 0) {
-            log("INFO", "CRON", `Zoho backfill script finished with exit code ${code}`);
-        } else {
-            log("WARN", "CRON", `Zoho backfill script exited with code ${code}`);
-        }
-    });
-});
+//    pyProcess.on('close', (code) => {
+//        if (code === 0) {
+//            log("INFO", "CRON", `Zoho backfill script finished with exit code ${code}`);
+//        } else {
+//            log("WARN", "CRON", `Zoho backfill script exited with code ${code}`);
+//        }
+//    });
+//});
 
 
 app.listen(PORT, () => {

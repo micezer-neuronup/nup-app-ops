@@ -46,6 +46,7 @@ DAILY_LIMIT = 2500
 # ────── Function: get_new_access_token ──────────────────────────────────
 # ─── Refresh Zoho access token
 # ─── We set payload for access token request
+# ─── Retry logic in case Zoho connection fails
 # ────────────────────────────────────────────────────────────────────────
 def get_new_access_token():
     
@@ -58,16 +59,20 @@ def get_new_access_token():
         'grant_type': 'refresh_token'
     }
     
-    response = requests.post(ACCOUNTS_URL, data=payload)
-    response.raise_for_status()
-    
-    data = response.json()
-
-    if 'access_token' in data:
-        print("[INFO] [AUTH] Access token generated successfully")
-        return data['access_token']
-    else:
-        raise Exception(f"[ERROR] [AUTH] Failed to get token | data={data}")
+    for attempt in range(3):
+        try:
+            response = requests.post(ACCOUNTS_URL, data=payload, timeout=15)
+            response.raise_for_status()
+            return response.json()['access_token']
+            
+        except requests.exceptions.RequestException as e:
+            print(f"[WARN] [AUTH] Zoho network hiccup (Attempt {attempt + 1}/3): {e}")
+            if attempt < 2:
+                print("[INFO] [AUTH] Retrying in 10 seconds...")
+                time.sleep(10)
+            else:
+                print("[ERROR] [AUTH] Zoho server not reachable. Aborting.")
+                raise e 
 
 
 # ────── Function: run_daily_batch ──────────────────────────────────────────────
