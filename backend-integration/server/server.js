@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
+//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -27,7 +27,7 @@ dotenv.config({ path: envPath });
 // ──────────────────────────────────────────────────────────────
 const { getAnalyticsByCenterId,getSubscriptionByCenterId} = require('./db/dbQueries');
 
-const {processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
+//const {processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
 
 // ────── Initialization: Script paths ─────────────────────────────
 // ─── We define the path of the scripts the cron job calls
@@ -48,7 +48,7 @@ app.use(cors({ origin: true, credentials: true }));
 
 const PORT = process.env.PORT;
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+//const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
 
 // ────── Webhook Routes ──────────────────────────────────────────────────────
 // ─── Requires Raw Body so we define it before the json global middleware
