@@ -14,18 +14,57 @@ from requests.auth import HTTPBasicAuth
 import gzip
 from dotenv import load_dotenv
 
-
-
 env_path = Path(__file__).resolve().parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 
 AMPLITUDE_SECRET_KEY = os.getenv('AMPLITUDE_SECRET_KEY')
 
+# 🛑 EL FILTRO SALVA-DISCOS 🛑
+# Si ignoramos esto, ahorramos un 80% del peso en BD de métricas que no valen para CS
+IGNORED_EVENTS = {
+    'Exercise - Finished',
+    'Start Session',
+    'End Session',
+    'Search - Input',
+    'Page Viewed',
+    'Resource - Opened',
+    'Activity Preview - Opened',
+    'Activity Solution - Opened',
+    'Activity Documentation - Opened'
+    'Solution - Downloaded'
+    'Session - Rated',
+    'Resource - Downloaded',
+    'Report - Downloaded',
+    'Protocol - Finished',
+    'Program - Duplicated',
+    'Program - Created',
+    'Program - Assigned',
+    'Activity - Error',
+    'Presentation - Started',
+    'Activity Video - Opened',
+    'Documentation - Downloaded',
+    'Solution - Downloaded',
+    'Session - Generated',
+    'Configuration - Created',
+    'session_end',
+    'session_start',
+    'Session - Duplicated',
+    'Patient - Created',
+    '[Amplitude] Page Viewed',
+    'Session - Rated',
+    'Activity - Rated',
+    'Activity Documentation - Opened',
+    'Session - Created'
 
-#  //=================//
-# // BACKFILL SCRIPT //
-#//=================//
+
+
+
+
+
+
+
+}
 
 def fetch_stream_events(start_str, end_str):
     print("="*80, flush=True)
@@ -36,7 +75,6 @@ def fetch_stream_events(start_str, end_str):
     
     response = requests.get(url, auth=auth, stream=True) 
     
-    # 404 just means no events occurred on this specific day, which is fine!
     if response.status_code == 404:
         print("⚠️ No data found for this day. Skipping...")
         return
@@ -64,53 +102,63 @@ def process_event_batch(batch, cursor):
     events_to_insert = []
 
     for event in batch:
+        event_type = event.get('event_type')
+        
+        # Filtro de ruido: saltar los eventos inútiles inmediatamente
+        if not event_type or event_type in IGNORED_EVENTS:
+            continue
+            
         center_id_raw = event.get('groups', {}).get('center_id')
         center_id = center_id_raw[0] if isinstance(center_id_raw, list) and center_id_raw else center_id_raw
         
-        event_type = event.get('event_type')
         user_id = event.get('user_id')
         event_timestamp = event.get('event_time')
         event_id_amplitude = event.get('event_id')
-        
-        # Extract the valuable dictionaries
-        event_props = event.get('event_properties') or {}
-        patient_id = event_props.get('patient_id')
-        
-        # --- THE NEW FIELDS ---
         session_id = event.get('session_id')
+        device_id = event.get('device_id')
         platform = event.get('platform')
-        app_version = event.get('version_name')
+        
+        # Extraer JSONs
+        event_props = event.get('event_properties') or {}
+        user_props = event.get('user_properties') or {}
+        
+        patient_id = event_props.get('patient_id')
 
-        if event_type and center_id and user_id and event_timestamp:
+        if center_id and user_id and event_timestamp:
             events_to_insert.append((
+                event_id_amplitude,
                 center_id, 
-                event_type, 
                 user_id, 
                 patient_id, 
+                event_type,
                 event_timestamp, 
-                event_id_amplitude,
-                json.dumps(event_props), # The business context
-                session_id,              # New
-                platform,                # New
-                app_version              # New
+                session_id,              
+                device_id,
+                platform,                
+                json.dumps(event_props), # Se guarda como texto y Postgres lo castea a JSONB
+                json.dumps(user_props)   # Se guarda como texto y Postgres lo castea a JSONB
             ))
 
     if not events_to_insert:
         return
 
-    # Update the INSERT statement to include the 3 new columns
+    # Apuntando a la nueva tabla events_v2 (11 variables + NOW)
     insert_events_query = """
         INSERT INTO events (
-            center_id, event_type, user_id, patient_id, 
-            event_timestamp, event_id_amplitude, event_properties, 
-            session_id, platform, app_version, updated_at
+            event_id_amplitude, center_id, user_id, patient_id, 
+            event_type, event_timestamp, session_id, device_id, 
+            platform, event_properties, user_properties, inserted_at
         )
         VALUES %s
         ON CONFLICT (event_id_amplitude) DO NOTHING
     """
     
-    # We now have 10 placeholders for our Python variables, plus NOW()
-    execute_values(cursor, insert_events_query, events_to_insert, template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())")
+    # %s ::jsonb fuerza a psycopg2 a decirle a Postgres que esa cadena es un JSON
+    template = "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())"
+    
+    execute_values(cursor, insert_events_query, events_to_insert, template=template)
+
+
 if __name__ == "__main__":
     conn = psycopg2.connect(
         host=os.getenv('DB_HOST'), database=os.getenv('DB_NAME'),
@@ -119,19 +167,16 @@ if __name__ == "__main__":
     )
     
     print("="*80)
-    print("🚀 Starting 1-Year Historical Backfill...")
+    print("🚀 Starting 1-Year Historical Backfill V2...")
     print("="*80)
 
     BATCH_SIZE = 5000
     grand_total_processed = 0
     
-    # 🔴 SET YOUR DATES HERE
-    # Start: April 1st, 2025
-    current_date = datetime(2025, 4, 1)
-    # End: Today
-    end_date = datetime(2026, 4, 1)
+    # 🔴 Asegúrate de poner tus fechas aquí
+    current_date = datetime(2025, 10, 1)
+    end_date = datetime(2026, 6, 9)
 
-    # Loop Day by Day
     while current_date < end_date:
         next_date = current_date + timedelta(days=1)
         
@@ -145,30 +190,29 @@ if __name__ == "__main__":
         try:
             for event in fetch_stream_events(start_str, end_str):
                 event_batch.append(event)
-                day_total += 1
-                grand_total_processed += 1
                 
                 if len(event_batch) >= BATCH_SIZE:
                     process_event_batch(event_batch, cursor)
+                    day_total += len(event_batch)
+                    grand_total_processed += len(event_batch)
                     event_batch.clear()
             
             if event_batch:
                 process_event_batch(event_batch, cursor)
+                day_total += len(event_batch)
+                grand_total_processed += len(event_batch)
                 
             conn.commit()
-            print(f"✅ Finished Day {start_str[:8]}: {day_total} events saved.")
-            
-            # Optional: Here is where you could update your fetch_metadata table 
-            # with `end_str` so if the script crashes, it resumes from the right day next time!
+            print(f"✅ Finished Day {start_str[:8]}: {day_total} valuable events saved.")
             
         except Exception as e:
             print(f"❌ Error on day {start_str}: {e}")
             conn.rollback()
-            break # Stop the backfill if a major crash happens
+            break
 
         current_date = next_date
 
     conn.close()
     print("="*80)
-    print(f"🎉 Backfill Complete! Grand total: {grand_total_processed} events.")
+    print(f"🎉 Backfill V2 Complete! Grand total inserted: {grand_total_processed} events.")
     print("="*80)

@@ -231,3 +231,45 @@ body {
     @apply !rounded-none !shadow-none;
   }
 }
+
+
+/* Ocultar scrollbars en todo el dashboard y modal */
+* {
+  scrollbar-width: thin; /* Para Firefox: lo hace fino, pero no lo oculta del todo */
+  scrollbar-color: transparent transparent; /* Hace que el thumb y track sean transparentes */
+}
+
+/* Para navegadores WebKit (Chrome, Edge, Safari) */
+*::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+  background: transparent;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
+/* Asegurar que el modal y sus contenedores internos también oculten scrollbars */
+.fixed.inset-0.z-50 .overflow-y-auto,
+.fixed.inset-0.z-50 .overflow-auto,
+.fixed.inset-0.z-50 [class*="overflow-y-auto"],
+.fixed.inset-0.z-50 [class*="overflow-auto"] {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE y Edge */
+}
+.fixed.inset-0.z-50 .overflow-y-auto::-webkit-scrollbar,
+.fixed.inset-0.z-50 .overflow-auto::-webkit-scrollbar {
+  display: none;
+}
+
+/* También ocultar scrollbar del body del iframe */
+body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+body::-webkit-scrollbar {
+  display: none;
+}
