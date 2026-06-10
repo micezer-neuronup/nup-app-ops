@@ -45,7 +45,7 @@ export function GeneralDashboard({ data }: { data?: any }) {
   const lastNup2goAssignment = props.last_nup2go_assigment ?? null;
   const lastNup2goPaymentDate = props.last_nup2go_payment_date ?? null;
 
-  const currency = props.currecy || "—";
+  const currency = props.currency__por_definir_ || "—";
   const segment = props.segmento || "—";
   const allSubscriptionDays = props.all_subscription_days ?? 0;
 

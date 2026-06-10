@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, CreditCard, CheckCircle2, ShieldCheck, AlertCircle, Users, Globe } from "lucide-react";
 
-// Diccionario completo con las descripciones formateadas
+// Diccionario de descripciones de features
 const featureLabels: Record<string, string> = {
   activity_all: "Acceso a todas las actividades",
   adults_digital: "Actividades digitales para adultos",
@@ -34,6 +34,17 @@ const featureLabels: Record<string, string> = {
   investigacion_loyola: "Investigación Loyola",
   proximamente: "Próximamente",
   testing: "Testing (uso interno)",
+};
+
+// Mapeo de códigos de moneda a símbolos
+const currencySymbols: Record<string, string> = {
+  eur: "€",
+  usd: "$",
+  gbp: "£",
+  brl: "R$",
+  mxn: "$",
+  aud: "$",
+  inr: "₹",
 };
 
 const formatDate = (dateStr: string | null) => {
@@ -69,6 +80,13 @@ export function SubscriptionCard({
   } else if (rawEndDate) {
     endDateDisplay = formatDate(rawEndDate);
   }
+
+  // Formatear moneda
+  const currencyKey = currency?.toLowerCase();
+  const currencySymbol = currencySymbols[currencyKey] || "";
+  const currencyDisplay = currency && currency !== "—"
+    ? `${currencySymbol} (${currency.toUpperCase()})`
+    : "—";
 
   return (
     <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-accent/30">
@@ -112,11 +130,11 @@ export function SubscriptionCard({
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Globe className="h-3 w-3" /> Moneda
             </p>
-            <p className="text-sm font-medium">{currency}</p>
+            <p className="text-sm font-medium">{currencyDisplay}</p>
           </div>
         </div>
 
-        {/* Módulos (Features) con nombre formateado + clave original */}
+        {/* Módulos (Features) */}
         <div className="space-y-2 pt-2 border-t">
           <p className="text-xs text-muted-foreground">Módulos habilitados:</p>
           <div className="flex flex-wrap gap-2">
