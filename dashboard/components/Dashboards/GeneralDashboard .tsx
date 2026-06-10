@@ -40,6 +40,16 @@ export function GeneralDashboard({ data }: { data?: any }) {
   const numPatients = props.num_patients || "—";
   const numEmployees = props.num_employees || "—";
 
+  const nup2goBalance = props.nup2go_balance ?? 0;
+  const nup2goPatients = props.nup2go_patients ?? 0;
+  const lastNup2goAssignment = props.last_nup2go_assigment ?? null;
+  const lastNup2goPaymentDate = props.last_nup2go_payment_date ?? null;
+
+  const currency = props.currecy || "—";
+  const segment = props.Segmento || "—";
+  const allSubscriptionDays = props.all_subscription_days || "—";
+
+
   // --- DATOS REALES DE ANALYTICS ---
   const analytics = data?.analytics || { totals: {}, daily: [] };
 
@@ -79,9 +89,8 @@ export function GeneralDashboard({ data }: { data?: any }) {
     subscription_features: Array.from(new Set(normalizedFeatures)), 
     subscription_items: cleanSubscriptionItems, // <-- Pasamos los items ya limpios
     hasFeatureRequest: { active: false, featureName: "" }
-  };
 
-  const nup2goBalance = "—"; // Pendiente si tienes saldo en otra tabla
+  };
 
 
   // Filtra y asegura que solo pasen strings limpios a la gráfica
@@ -115,6 +124,9 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
         <ProductsCard
           subscriptionItems={subscriptionData.subscription_items}
           nup2goBalance={nup2goBalance}
+          nup2goPatients={nup2goPatients}
+          lastNup2goAssignment={lastNup2goAssignment}
+          lastNup2goPaymentDate={lastNup2goPaymentDate}
           onOpenModal={() => setSubscriptionModalOpen(true)}
         />
 
@@ -127,7 +139,11 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
         open={subscriptionModalOpen}
         onOpenChange={setSubscriptionModalOpen}
         subscriptionData={subscriptionData}
-      />
+        nup2goBalance={nup2goBalance}
+        nup2goPatients={nup2goPatients}
+        lastNup2goAssignment={lastNup2goAssignment}
+        lastNup2goPaymentDate={lastNup2goPaymentDate}
+        />
 
       {/* Gráfica */}
       <UsageChart 

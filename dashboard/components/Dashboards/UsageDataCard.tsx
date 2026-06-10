@@ -11,7 +11,7 @@ import {
   ClipboardCheck, 
   PlayCircle, 
   TrendingUp, 
-  FileText // <-- Nuevo icono para informes
+  FileText 
 } from "lucide-react";
 
 type Range = 7 | 30 | 90;

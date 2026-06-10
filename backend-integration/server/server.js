@@ -145,7 +145,15 @@ async function resolveCompanyData(objectId, objectTypeId) {
   'region_backend',
   'num_employees',
   'num_patients',
-  'last_company_login'
+  'last_company_login',
+  'nup2go_balance',
+  'nup2go_patients',
+  'last_nup2go_assignment',
+  'last_nup2go_payment_date',
+  'Segmento',
+  'currency',
+  'all_subscription_days',
+
 ];
   if (objectTypeId === OBJECT_TYPES.COMPANY) {
     const url = `https://api.hubapi.com/crm/v3/objects/company/${objectId}?properties=${companyProperties.join(',')}`;

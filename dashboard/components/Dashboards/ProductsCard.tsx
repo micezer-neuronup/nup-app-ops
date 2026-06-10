@@ -18,7 +18,22 @@ const MetricRow = ({ icon: Icon, label, value, onClick }: any) => (
 );
 
 export function ProductsCard({ subscriptionItems, nup2goBalance, onOpenModal }: any) {
-  const items = subscriptionItems || [];
+  let items = subscriptionItems || [];
+
+  // Asegurar que NUP2GO está presente
+  const hasNup2go = items.some((item: any) => item.product_name === "NUP2GO");
+  if (!hasNup2go) {
+    // Crear un item ficticio para NUP2GO (solo para mostrar en la lista)
+    items = [
+      ...items,
+      {
+        product_name: "NUP2GO",
+        billing_interval: "month",
+        unit_price: 0,
+        quantity: 1,
+      }
+    ];
+  }
 
   return (
     <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-accent/30">

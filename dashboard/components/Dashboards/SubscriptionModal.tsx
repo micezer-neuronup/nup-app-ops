@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ShieldCheck } from "lucide-react";
 
-// Diccionario para traducir los IDs a nombres legibles
 const featureLabels: Record<string, string> = {
   activity_all: "Uso Digital",
   test_all: "Evaluaciones",
@@ -13,17 +12,42 @@ const featureLabels: Record<string, string> = {
   adults_paper: "Papel Adultos",
 };
 
-// Formateador de fechas
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "—";
   const date = new Date(dateStr);
   return date.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" });
 }
 
-export function SubscriptionModal({ open, onOpenChange, subscriptionData }: any) {
+export function SubscriptionModal({ 
+  open, 
+  onOpenChange, 
+  subscriptionData,
+  nup2goBalance,
+  nup2goPatients,
+  lastNup2goAssignment,
+  lastNup2goPaymentDate
+}: any) {
   if (!open) return null;
 
   const sub = subscriptionData;
+  
+  // Aseguramos que NUP2GO está siempre presente en los items (incluso si no viene del backend)
+  let items = sub.subscription_items || [];
+  const hasNup2go = items.some((item: any) => item.product_name === "NUP2GO");
+  
+  if (!hasNup2go) {
+    items = [
+      ...items,
+      {
+        product_name: "NUP2GO",
+        billing_interval: "month",
+        unit_price: 0,
+        quantity: 1,
+        number_of_renovations: 0,
+        features: [],
+      }
+    ];
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -44,7 +68,7 @@ export function SubscriptionModal({ open, onOpenChange, subscriptionData }: any)
           </div>
         </div>
 
-        {/* Contenido con dos columnas: 2/3 - 1/3 y scroll independiente */}
+        {/* Contenido con dos columnas */}
         <div className="flex flex-1 overflow-hidden p-6 gap-6">
           {/* Columna izquierda (2/3) - Datos generales */}
           <div className="flex-[2] flex flex-col overflow-hidden">
@@ -74,71 +98,72 @@ export function SubscriptionModal({ open, onOpenChange, subscriptionData }: any)
             </Card>
           </div>
 
-          {/* Columna derecha (1/3) - Items con scroll independiente */}
+          {/* Columna derecha (1/3) - Items */}
           <div className="flex-[1] flex flex-col overflow-hidden">
             <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-2 sticky top-0 bg-background pb-1">
               Items de suscripción
             </h3>
             <div className="overflow-y-auto pr-1 space-y-3 flex-1">
-              {sub.subscription_items && sub.subscription_items.length > 0 ? (
-                sub.subscription_items.map((item: any, idx: number) => (
-                  <Card key={idx} className="border shadow-sm">
-                    <CardHeader className="pb-2 pt-3 px-4">
-                      <CardTitle className="text-base">{item.product_name}</CardTitle>
+              {items.map((item: any, idx: number) => (
+                <Card key={idx} className="border shadow-sm">
+                  <CardHeader className="pb-2 pt-3 px-4">
+                    <CardTitle className="text-base">{item.product_name}</CardTitle>
+                    {item.product_name !== "NUP2GO" && (
                       <CardDescription className="text-xs">
                         {item.billing_interval === "month" ? "Mensual" : "Anual"} · {item.unit_price} € · Cantidad: {item.quantity}
                       </CardDescription>
-                    </CardHeader>
-                    <CardContent className="pb-3 pt-0 px-4 space-y-2">
+                    )}
+                  </CardHeader>
+                  <CardContent className="pb-3 pt-0 px-4 space-y-2">
+                    {item.product_name !== "NUP2GO" && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Renovaciones:</span>
                         <span className="font-medium">{item.number_of_renovations ?? 0}</span>
                       </div>
-                      
-                      {/* Lógica NUP2GO */}
-                      {item.product_name === "NUP2GO" && (
-                        <>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Balance:</span>
-                            <span className="font-medium">85 créditos</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Pacientes:</span>
-                            <span className="font-medium">3</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Última tarea:</span>
-                            <span className="font-medium">15/05/2026</span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Último pago:</span>
-                            <span className="font-medium">01/05/2026</span>
-                          </div>
-                        </>
-                      )}
-
-                      {/* FEATURES con el mismo estilo que la tarjeta principal */}
-                      <div>
-                        <span className="text-muted-foreground text-sm">Módulos habilitados:</span>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {item.features && item.features.length > 0 ? (
-                            item.features.map((f: string, fIdx: number) => (
-                              <Badge key={fIdx} variant="secondary" className="font-normal bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                <ShieldCheck className="h-3 w-3 mr-1" />
-                                {featureLabels[f] || f}
-                              </Badge>
-                            ))
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Ningún módulo extra</span>
-                          )}
+                    )}
+                    
+                    {/* Datos específicos de NUP2GO */}
+                    {item.product_name === "NUP2GO" && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Balance:</span>
+                          <span className="font-medium">{nup2goBalance !== undefined ? `${nup2goBalance} créditos` : "—"}</span>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No hay items en esta suscripción.</p>
-              )}
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Pacientes:</span>
+                          <span className="font-medium">{nup2goPatients ?? "—"}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Última tarea:</span>
+                          <span className="font-medium">{lastNup2goAssignment ? formatDate(lastNup2goAssignment) : "—"}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Último pago:</span>
+                          <span className="font-medium">{lastNup2goPaymentDate ? formatDate(lastNup2goPaymentDate) : "—"}</span>
+                        </div>
+                      </>
+                    )}
+                    {/* Features - solo mostrar si NO es NUP2GO */}
+{item.product_name !== "NUP2GO" && (
+  <div>
+    <span className="text-muted-foreground text-sm">Módulos habilitados:</span>
+    <div className="flex flex-wrap gap-2 mt-2">
+      {item.features && item.features.length > 0 ? (
+        item.features.map((f: string, fIdx: number) => (
+          <Badge key={fIdx} variant="secondary" className="font-normal bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+            <ShieldCheck className="h-3 w-3 mr-1" />
+            {featureLabels[f] || f}
+          </Badge>
+        ))
+      ) : (
+        <span className="text-xs text-muted-foreground">Ningún módulo extra</span>
+      )}
+    </div>
+  </div>
+)}
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         </div>
