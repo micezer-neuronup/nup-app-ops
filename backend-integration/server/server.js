@@ -138,7 +138,7 @@ async function resolveCompanyData(objectId, objectTypeId) {
   const companyProperties = [
   'nup_center_id',
   'name',
-  'Email',
+  'email',
   'commercial_name',
   'company_specialty__por_definir_',
   'cif',
@@ -150,10 +150,9 @@ async function resolveCompanyData(objectId, objectTypeId) {
   'nup2go_patients',
   'last_nup2go_assignment',
   'last_nup2go_payment_date',
-  'Segmento',
-  'currency',
+  'segmento',
+  'currency__por_definir_',
   'all_subscription_days',
-
 ];
   if (objectTypeId === OBJECT_TYPES.COMPANY) {
     const url = `https://api.hubapi.com/crm/v3/objects/company/${objectId}?properties=${companyProperties.join(',')}`;
