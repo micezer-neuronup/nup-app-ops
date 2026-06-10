@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, CreditCard, CheckCircle2, ShieldCheck, AlertCircle, Users, Globe } from "lucide-react";
 
-// Diccionario con descripciones formateadas
+// Diccionario completo con las descripciones formateadas
 const featureLabels: Record<string, string> = {
   activity_all: "Acceso a todas las actividades",
   adults_digital: "Actividades digitales para adultos",
@@ -44,23 +44,21 @@ const formatDate = (dateStr: string | null) => {
 
 export function SubscriptionCard({
   subscriptionData,
+  currency,
+  segment,
+  allSubscriptionDays,
   onOpenModal,
 }: {
   subscriptionData: any;
+  currency: string;
+  segment: string;
+  allSubscriptionDays: number;
   onOpenModal?: () => void;
 }) {
   const status = subscriptionData?.current_state || "—";
   const isForever = subscriptionData?.is_forever;
   const rawEndDate = subscriptionData?.current_period_end;
   const features = subscriptionData?.subscription_features || [];
-  const archetype = subscriptionData?.archetype || "—";
-  const currency = subscriptionData?.currency || "EUR";
-
-  // Calcular total días suscrito (suma de renovaciones * 30)
-  const totalDays = (subscriptionData?.subscription_items || []).reduce(
-    (acc: number, item: any) => acc + (item.number_of_renovations * 30),
-    0
-  );
 
   const isActive = status === "active" || status === "trialing";
   const StatusIcon = isActive ? CheckCircle2 : AlertCircle;
@@ -102,13 +100,13 @@ export function SubscriptionCard({
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Users className="h-3 w-3" /> Segmento
             </p>
-            <p className="text-sm font-medium">{archetype}</p>
+            <p className="text-sm font-medium">{segment}</p>
           </div>
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Calendar className="h-3 w-3" /> Días suscrito
             </p>
-            <p className="text-sm font-medium">{totalDays > 0 ? `${totalDays} días` : "—"}</p>
+            <p className="text-sm font-medium">{allSubscriptionDays > 0 ? `${allSubscriptionDays} días` : "—"}</p>
           </div>
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground flex items-center gap-1">

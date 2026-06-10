@@ -46,8 +46,8 @@ export function GeneralDashboard({ data }: { data?: any }) {
   const lastNup2goPaymentDate = props.last_nup2go_payment_date ?? null;
 
   const currency = props.currecy || "—";
-  const segment = props.Segmento || "—";
-  const allSubscriptionDays = props.all_subscription_days || "—";
+  const segment = props.segmento || "—";
+  const allSubscriptionDays = props.all_subscription_days ?? 0;
 
 
   // --- DATOS REALES DE ANALYTICS ---
@@ -117,6 +117,9 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
         {/* Card 2: Suscripción */}
         <SubscriptionCard
           subscriptionData={subscriptionData}
+          currency={currency}
+          segment={segment}
+          allSubscriptionDays={allSubscriptionDays}
           onOpenModal={() => setSubscriptionModalOpen(true)}
         />
 
