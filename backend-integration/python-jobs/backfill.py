@@ -20,8 +20,6 @@ load_dotenv(dotenv_path=env_path)
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 
 AMPLITUDE_SECRET_KEY = os.getenv('AMPLITUDE_SECRET_KEY')
 
-# 🛑 EL FILTRO SALVA-DISCOS 🛑
-# Si ignoramos esto, ahorramos un 80% del peso en BD de métricas que no valen para CS
 IGNORED_EVENTS = {
     'Exercise - Finished',
     'Start Session',
@@ -104,7 +102,7 @@ def process_event_batch(batch, cursor):
     for event in batch:
         event_type = event.get('event_type')
         
-        # Filtro de ruido: saltar los eventos inútiles inmediatamente
+
         if not event_type or event_type in IGNORED_EVENTS:
             continue
             
@@ -117,8 +115,7 @@ def process_event_batch(batch, cursor):
         session_id = event.get('session_id')
         device_id = event.get('device_id')
         platform = event.get('platform')
-        
-        # Extraer JSONs
+
         event_props = event.get('event_properties') or {}
         user_props = event.get('user_properties') or {}
         
@@ -135,14 +132,13 @@ def process_event_batch(batch, cursor):
                 session_id,              
                 device_id,
                 platform,                
-                json.dumps(event_props), # Se guarda como texto y Postgres lo castea a JSONB
-                json.dumps(user_props)   # Se guarda como texto y Postgres lo castea a JSONB
+                json.dumps(event_props), 
+                json.dumps(user_props) 
             ))
 
     if not events_to_insert:
         return
 
-    # Apuntando a la nueva tabla events_v2 (11 variables + NOW)
     insert_events_query = """
         INSERT INTO events (
             event_id_amplitude, center_id, user_id, patient_id, 
@@ -153,7 +149,6 @@ def process_event_batch(batch, cursor):
         ON CONFLICT (event_id_amplitude) DO NOTHING
     """
     
-    # %s ::jsonb fuerza a psycopg2 a decirle a Postgres que esa cadena es un JSON
     template = "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())"
     
     execute_values(cursor, insert_events_query, events_to_insert, template=template)
@@ -173,7 +168,7 @@ if __name__ == "__main__":
     BATCH_SIZE = 5000
     grand_total_processed = 0
     
-    # 🔴 Asegúrate de poner tus fechas aquí
+
     current_date = datetime(2025, 10, 1)
     end_date = datetime(2026, 6, 9)
 

@@ -12,12 +12,31 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar, CreditCard, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
 
-// Diccionario para traducir los IDs de la base de datos a nombres legibles
+// Diccionario completo con las descripciones exactas de base de datos
 const featureLabels: Record<string, string> = {
-  activity_all: "Uso Digital",
-  test_all: "Evaluaciones",
-  kids_paper: "Papel Infantil",
-  adults_paper: "Papel Adultos",
+  // Features generales
+  activity_all: "Acceso a todas las actividades",
+  adults_digital: "Actividades digitales para adultos",
+  adults_kids_digital: "Actividades digitales para adultos y niños",
+  adults_kids_paper: "Actividades en papel para adultos y niños",
+  adults_paper: "Actividades en papel para adultos",
+  kids_digital: "Actividades digitales para niños",
+  kids_paper: "Actividades en papel para niños",
+  test_all: "Acceso a todos los tests y evaluaciones",
+  employee_4: "Hasta 4 profesionales por centro",
+  extra_employee: "Profesionales adicionales",
+  nup2go: "Acceso a NUP2GO",
+  
+  // Features específicas y de investigación
+  extra_barranquilla: "Actividades extra Barranquilla",
+  extra_grupo5: "Actividades extra Grupo5",
+  extras_biodonostia: "Actividades extra Biodonostia",
+  extras_ub: "Actividades extra UB",
+  investigacion_biocruces: "Investigación Biocruces",
+  investigacion_demo: "Investigación demo",
+  investigacion_loyola: "Investigación Loyola",
+  proximamente: "Próximamente",
+  testing: "Testing (uso interno)",
 };
 
 // Formateador de fechas
@@ -90,6 +109,7 @@ export function SubscriptionCard({
               features.map((featureKey: string, idx: number) => (
                 <Badge key={idx} variant="secondary" className="font-normal bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
                   <ShieldCheck className="h-3 w-3 mr-1" />
+                  {/* Si no la encuentra en el diccionario, usa el ID original por seguridad */}
                   {featureLabels[featureKey] || featureKey}
                 </Badge>
               ))

@@ -43,7 +43,7 @@ interface FeatureConfig {
 }
 
 interface UsageChartProps {
-  subscriptionFeatures?: any[];
+  subscriptionFeatures?: string[];
   dailyData?: any[]; 
 }
 
@@ -84,11 +84,9 @@ function processRealData(dailyData: any[] | undefined, range: RangeType) {
 
   const result = [];
 
-  // 1. DICCIONARIO DIARIO
   const dailyMap = new Map<string, any>();
   safeData.forEach((row) => {
     if (!row.stat_date) return;
-    
     let key = "";
     if (typeof row.stat_date === 'string') {
       key = row.stat_date.substring(0, 10); 
@@ -100,31 +98,18 @@ function processRealData(dailyData: any[] | undefined, range: RangeType) {
   });
 
   if (range === "90d") {
-    // 2. AGRUPACIÓN SEMANAL (12 Semanas)
     const weeks = 12;
     for (let i = weeks - 1; i >= 0; i--) {
-      // Fecha de inicio y fin de esta semana móvil
       const weekStart = new Date(today);
       weekStart.setDate(today.getDate() - (i * 7) - 6);
       
-      let wLogins = 0;
-      let wAssigned = 0;
-      let wStarted = 0;
-      let wCompleted = 0;
-      let wTestsStarted = 0;
-      let wTestsFinished = 0;
-      let wActivities = 0;
-      let wDownloads = 0;
+      let wLogins = 0, wAssigned = 0, wStarted = 0, wCompleted = 0;
+      let wTestsStarted = 0, wTestsFinished = 0, wActivities = 0, wDownloads = 0;
       
-      // Sumamos los 7 días correspondientes
       for (let d = 0; d < 7; d++) {
         const currentDay = new Date(weekStart);
         currentDay.setDate(weekStart.getDate() + d);
-        
-        const year = currentDay.getFullYear();
-        const month = String(currentDay.getMonth() + 1).padStart(2, "0");
-        const day = String(currentDay.getDate()).padStart(2, "0");
-        const key = `${year}-${month}-${day}`;
+        const key = `${currentDay.getFullYear()}-${String(currentDay.getMonth() + 1).padStart(2, "0")}-${String(currentDay.getDate()).padStart(2, "0")}`;
         
         const row = dailyMap.get(key) || {};
         wLogins += Number(row.total_logins || 0);
@@ -137,12 +122,9 @@ function processRealData(dailyData: any[] | undefined, range: RangeType) {
         wDownloads += Number(row.exercises_downloaded || 0) + Number(row.materials_downloaded || 0);
       }
 
-      // La etiqueta será "Semana del [Día] [Mes]"
-      const labelStr = `Sem. ${weekStart.getDate()} ${weekStart.toLocaleDateString("es", { month: "short" })}`;
-
       result.push({
-        name: labelStr,
-        isWeekend: false, // Los fines de semana se absorben en el dato semanal
+        name: `Sem. ${weekStart.getDate()} ${weekStart.toLocaleDateString("es", { month: "short" })}`,
+        isWeekend: false,
         logins: wLogins,
         sessionsAssigned: wAssigned,
         sessionsStarted: wStarted,
@@ -154,24 +136,17 @@ function processRealData(dailyData: any[] | undefined, range: RangeType) {
       });
     }
   } else {
-    // 3. AGRUPACIÓN DIARIA (7d y 30d)
     const days = range === "7d" ? 7 : 30;
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-      
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const key = `${year}-${month}-${day}`;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       
       const row = dailyMap.get(key) || {};
-      const dayStr = d.toLocaleDateString("es", { day: "numeric", month: "short" });
-      
       const isWeekend = d.getDay() === 0 || d.getDay() === 6; 
 
       result.push({
-        name: dayStr,
+        name: d.toLocaleDateString("es", { day: "numeric", month: "short" }),
         isWeekend, 
         logins: Number(row.total_logins || 0),
         sessionsAssigned: Number(row.sessions_assigned || 0),
@@ -188,7 +163,7 @@ function processRealData(dailyData: any[] | undefined, range: RangeType) {
   return result;
 }
 
-export function UsageChart({ subscriptionFeatures, dailyData }: UsageChartProps) {
+export function UsageChart({ subscriptionFeatures = [], dailyData = [] }: UsageChartProps) {
   const [range, setRange] = useState<RangeType>("7d");
   const [metric, setMetric] = useState<MetricType>("logins");
   const [showAssigned, setShowAssigned] = useState(true);
@@ -199,16 +174,15 @@ export function UsageChart({ subscriptionFeatures, dailyData }: UsageChartProps)
   const [selectedFeatureKey, setSelectedFeatureKey] = useState<string | null>(null);
   const [availableFeatures, setAvailableFeatures] = useState<FeatureConfig[]>([]);
 
-  // Configurar los módulos extra en base a la suscripción activa
+  // Lógica inteligente de activación de Módulos para las analíticas
   useEffect(() => {
-    // Ahora sabemos que safeFeatures es un array de strings: ["activity_all", "test_all", ...]
     const safeFeatures = Array.isArray(subscriptionFeatures) ? subscriptionFeatures : [];
-    
     const configs: FeatureConfig[] = [];
     
-    if (safeFeatures.includes("test_all")) {
+    // 1. Evaluación (Assessment): Cualquier feature que contenga 'test'
+    if (safeFeatures.some(f => f.includes("test"))) {
       configs.push({
-        key: "test_all",
+        key: "assessment",
         label: "Evaluación (Assessment)",
         dataKey1: "tests_started",
         dataKey2: "tests_finished",
@@ -217,21 +191,37 @@ export function UsageChart({ subscriptionFeatures, dailyData }: UsageChartProps)
       });
     }
     
-    if (safeFeatures.includes("activity_all")) {
+    // 2. Uso Digital: activity_all, digital, investigacion, testing, etc. (Excepto las puramente de papel)
+    const hasDigital = safeFeatures.some(f => 
+      f.includes("activity") || 
+      f.includes("digital") || 
+      f.includes("investigacion") || 
+      f.includes("testing") || 
+      f.includes("proximamente")
+    );
+    if (hasDigital) {
       configs.push({
-        key: "activity_all",
-        label: "Uso Digital",
+        key: "digital",
+        label: "Uso Digital (Actividades)",
         dataKey1: "digital_activities",
-        label1: "Actividades digitales",
+        label1: "Actividades digitales ejecutadas",
       });
     }
     
-    if (safeFeatures.includes("kids_paper") || safeFeatures.includes("adults_paper")) {
+    // 3. Descargas Papel: kids_paper, adults_paper, activity_all (que tiene "Ambos")
+    const hasPaper = safeFeatures.some(f => 
+      f.includes("paper") || 
+      f === "activity_all" || 
+      f === "extras_ub" || 
+      f === "proximamente" ||
+      f === "testing"
+    );
+    if (hasPaper) {
       configs.push({
         key: "paper",
-        label: "Descargas (Papel)",
+        label: "Descargas (Material en Papel)",
         dataKey1: "paper_downloads",
-        label1: "Descargas de material",
+        label1: "Hojas/Ejercicios descargados",
       });
     }
     
@@ -299,7 +289,7 @@ export function UsageChart({ subscriptionFeatures, dailyData }: UsageChartProps)
     if (availableFeatures.length === 0) {
       return (
         <Button variant="outline" size="sm" disabled className="gap-1 opacity-50 cursor-not-allowed">
-          <Activity className="h-3 w-3" /> Sin módulos extra
+          <Activity className="h-3 w-3" /> Sin módulos activos
         </Button>
       );
     }

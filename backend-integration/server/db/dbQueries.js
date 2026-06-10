@@ -12,7 +12,6 @@ async function getAnalyticsByCenterId(centerId) {
   try {
     log("INFO", "ANALYTICS", "Fetching analytics", { centerId });
 
-    // 1. Totales: Sumamos todo al vuelo desde la tabla de estadísticas diarias
     const totalsResult = await pool.query(
       `SELECT 
          COALESCE(SUM(total_logins), 0) AS total_logins,
@@ -32,7 +31,7 @@ async function getAnalyticsByCenterId(centerId) {
       [String(centerId)]
     );
     
-    // 2. Gráficas: Evolución diaria (excluimos id y center_id para no engordar el JSON)
+
     const dailyResult = await pool.query(
       `SELECT 
          stat_date,
@@ -72,7 +71,6 @@ async function getAnalyticsByCenterId(centerId) {
 }
 
 
-// Añade esto en tu archivo de consultas a la BD (dbQueries.js)
 async function getSubscriptionByCenterId(centerId) {
   try {
     const query = `
@@ -111,7 +109,7 @@ async function getSubscriptionByCenterId(centerId) {
 
     const sub = result.rows[0];
     
-    // Aplanar todas las features de todos los items en un solo array limpio
+
     let allFeatures = [];
     if (sub.items && Array.isArray(sub.items)) {
       sub.items.forEach(item => {

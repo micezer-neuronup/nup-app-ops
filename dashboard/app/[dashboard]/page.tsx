@@ -29,7 +29,7 @@ interface PageProps {
 
 export default async function DashboardPage({ params }: PageProps) {
   const { dashboard } = await params;
-  // Optional: if you still want to handle unknown dashboards
+
   if (dashboard !== "general") notFound();
 
   return (

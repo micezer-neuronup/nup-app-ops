@@ -62,6 +62,7 @@ const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 // ─── If the result is not the same, its rejeted, it cant be trsuted
 // ─── If the result is the same, then its from Stripe, it can be trusted
 // ────────────────────────────────────────────────────────────────────────────
+
 /*
 app.post(
   '/api/webhooks/stripe', 
@@ -114,7 +115,6 @@ app.post(
     }
 });
 */
-
 // ────── Global Middleware: JSON Parsers ───────────────────────────
 // ─── We apply JSON parsing. This will apply to all routes defined below
 // ────────────────────────────────────────────────────────────────────────────
@@ -215,20 +215,18 @@ app.get('/api/company-data', async (req, res) => {
     let subscriptionData = null;
 
     if (nupCenterId) {
-      // 🚀 Ejecutamos ambas consultas a la base de datos en paralelo
+
       const [analyticsResult, subscriptionResult] = await Promise.all([
         getAnalyticsByCenterId(nupCenterId),
         getSubscriptionByCenterId(nupCenterId)
       ]);
 
-      // Control de errores de analítica
       if (analyticsResult && analyticsResult.error) {
         log("WARN", "API", "Analytics DB down", { error: analyticsResult.error });
       } else {
         analyticsData = analyticsResult;
       }
 
-      // Control de errores de suscripción
       if (subscriptionResult && subscriptionResult.error) {
         log("WARN", "API", "Subscription DB down", { error: subscriptionResult.error });
       } else {
@@ -239,7 +237,7 @@ app.get('/api/company-data', async (req, res) => {
     res.json({
       ...companyData,
       analytics: analyticsData,
-      subscription: subscriptionData // <-- Inyectamos la suscripción aquí
+      subscription: subscriptionData 
     });
 
   } catch (err) {
@@ -257,6 +255,8 @@ app.get('/api/company-data', async (req, res) => {
 // ─── The pyProcess lines capture the logs to add them to app.log
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
+
+/*
 cron.schedule('0 6 * * *', () => {
     
   log("INFO", "CRON", "Starting Amplitude fetch job...");
@@ -289,6 +289,7 @@ cron.schedule('0 6 * * *', () => {
     }
   });
 });
+*/
 
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────

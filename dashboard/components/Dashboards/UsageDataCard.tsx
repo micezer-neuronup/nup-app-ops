@@ -4,7 +4,15 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Activity, Calendar, Users, ClipboardCheck, PlayCircle, TrendingUp } from "lucide-react";
+import { 
+  Activity, 
+  Calendar, 
+  Users, 
+  ClipboardCheck, 
+  PlayCircle, 
+  TrendingUp, 
+  FileText // <-- Nuevo icono para informes
+} from "lucide-react";
 
 type Range = 7 | 30 | 90;
 
@@ -34,17 +42,20 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
     const filtered = getLastNDays(dailyData, range);
     if (filtered.length === 0) return null;
 
-    // Última actividad: cambiamos el nombre conceptualmente a "Última interacción"
+    // Última actividad
     const lastActivityDate = filtered[filtered.length - 1]?.stat_date || null;
     const lastActivityDisplay = lastActivityDate ? formatDate(lastActivityDate) : "—";
 
-    // Terapeutas activos: último valor registrado en el rango
+    // Terapeutas activos
     const lastActiveTherapists = filtered[filtered.length - 1]?.active_therapists ?? 0;
 
     // Sesiones
     const assignedSessions = filtered.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
     const startedSessions = filtered.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
     const completedSessions = filtered.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
+    
+    // 📊 Informes creados en el rango (Nuevo)
+    const reportsCreated = filtered.reduce((sum, day) => sum + (day.reports_created || 0), 0);
     
     // Tasa de completitud calculada sobre las EMPEZADAS
     const completionRate = startedSessions > 0 ? (completedSessions / startedSessions) * 100 : 0;
@@ -54,11 +65,13 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
     const prevAssigned = previousPeriod.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
     const prevStarted = previousPeriod.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
     const prevCompleted = previousPeriod.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
+    const prevReports = previousPeriod.reduce((sum, day) => sum + (day.reports_created || 0), 0); // <-- Prev informes
     const prevRate = prevStarted > 0 ? (prevCompleted / prevStarted) * 100 : 0;
 
     const assignedEvolution = prevAssigned ? ((assignedSessions - prevAssigned) / prevAssigned) * 100 : 0;
     const startedEvolution = prevStarted ? ((startedSessions - prevStarted) / prevStarted) * 100 : 0;
     const completedEvolution = prevCompleted ? ((completedSessions - prevCompleted) / prevCompleted) * 100 : 0;
+    const reportsEvolution = prevReports ? ((reportsCreated - prevReports) / prevReports) * 100 : 0; // <-- Evolución informes
     const rateEvolution = prevRate ? completionRate - prevRate : 0;
 
     return {
@@ -67,11 +80,13 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
       assignedSessions,
       startedSessions,
       completedSessions,
+      reportsCreated, // <-- Añadido al retorno
       completionRate: Math.round(completionRate),
       evolution: {
         assigned: Math.round(assignedEvolution),
         started: Math.round(startedEvolution),
         completed: Math.round(completedEvolution),
+        reports: Math.round(reportsEvolution), // <-- Añadido al retorno
         rate: Math.round(rateEvolution),
       },
     };
@@ -113,8 +128,9 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
         <MetricRow icon={Users} label="Terapeutas activos" value={rangeData ? `${rangeData.activeTherapists} / ${numEmployees}` : "—"} />
         <MetricRow icon={ClipboardCheck} label="Sesiones asignadas" value={rangeData?.assignedSessions ?? "—"} evolution={rangeData?.evolution.assigned} />
         <MetricRow icon={PlayCircle} label="Sesiones empezadas" value={rangeData?.startedSessions ?? "—"} evolution={rangeData?.evolution.started} />
-        <MetricRow icon={TrendingUp} label="Sesiones completadas" value={rangeData?.completedSessions ?? "—"} evolution={rangeData?.evolution.completed} />
+        <MetricRow icon={TrendingUp} label="Sesiones completadas" value={rangeData?.completedSessions ?? "—"} evolution={rangeData?.evolution.completed} />        
         <MetricRow icon={Activity} label="Tasa de completitud" value={rangeData ? `${rangeData.completionRate}%` : "—"} evolution={rangeData?.evolution.rate} />
+        <MetricRow icon={FileText} label="Informes creados" value={rangeData?.reportsCreated ?? "—"} evolution={rangeData?.evolution.reports} />
       </CardContent>
     </Card>
   );
