@@ -25,7 +25,7 @@ dotenv.config({ path: envPath });
 // ────── Import: database connection and queries ───────────────
 // ─── Database conenction is already imported in dbQueries
 // ──────────────────────────────────────────────────────────────
-const { getAnalyticsByCenterId,getSubscriptionByCenterId} = require('./db/dbQueries');
+const { getAnalyticsByCenterId,getSubscriptionByCenterId, updateFeatureRequestStatus} = require('./db/dbQueries');
 
 //const {processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
 
@@ -253,7 +253,32 @@ app.get('/api/company-data', async (req, res) => {
   }
 });
 
+app.options('/api/feature-requests/:id', cors());
+app.patch('/api/feature-requests/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
 
+  if (!status || (status !== 'pending' && status !== 'completed')) {
+    return res.status(400).json({ error: "El estado debe ser 'pending' o 'completed'" });
+  }
+
+  try {
+    const updatedRequest = await updateFeatureRequestStatus(id, status);
+    
+    if (!updatedRequest) {
+      return res.status(404).json({ error: "Petición de feature no encontrada" });
+    }
+
+    if (updatedRequest.error) {
+      return res.status(500).json({ error: updatedRequest.error });
+    }
+
+    res.json({ success: true, data: updatedRequest });
+  } catch (err) {
+    console.error("Error en PATCH /api/feature-requests/:id", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 

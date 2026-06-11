@@ -1,7 +1,6 @@
-// components/Dashboards/UsageChart.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -47,7 +46,6 @@ interface UsageChartProps {
   dailyData?: any[]; 
 }
 
-// Tooltip Personalizado
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
@@ -75,7 +73,6 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-// Helper para procesar y agrupar los datos
 function processRealData(dailyData: any[] | undefined, range: RangeType) {
   const safeData = Array.isArray(dailyData) ? dailyData : [];
   
@@ -174,13 +171,29 @@ export function UsageChart({ subscriptionFeatures = [], dailyData = [] }: UsageC
   const [selectedFeatureKey, setSelectedFeatureKey] = useState<string | null>(null);
   const [availableFeatures, setAvailableFeatures] = useState<FeatureConfig[]>([]);
 
-  // Lógica inteligente de activación de Módulos para las analíticas
+  // Calcular totales agregados de actividades, tests y descargas a partir de los datos diarios
+  const totals = useMemo(() => {
+    const safeData = Array.isArray(dailyData) ? dailyData : [];
+    let totalActivities = 0;
+    let totalTestsStarted = 0;
+    let totalPaperDownloads = 0;
+    safeData.forEach((row: any) => {
+      totalActivities += Number(row.activities_started || 0);
+      totalTestsStarted += Number(row.tests_started || 0);
+      totalPaperDownloads += (Number(row.exercises_downloaded || 0) + Number(row.materials_downloaded || 0));
+    });
+    return { totalActivities, totalTestsStarted, totalPaperDownloads };
+  }, [dailyData]);
+
+  // Detectar módulos disponibles basados en features contratadas + uso real
   useEffect(() => {
     const safeFeatures = Array.isArray(subscriptionFeatures) ? subscriptionFeatures : [];
     const configs: FeatureConfig[] = [];
     
-    // 1. Evaluación (Assessment): Cualquier feature que contenga 'test'
-    if (safeFeatures.some(f => f.includes("test"))) {
+    // 1. Evaluación (Assessment)
+    const hasTestFeature = safeFeatures.some(f => f.includes("test"));
+    const hasTestUsage = totals.totalTestsStarted > 0;
+    if (hasTestFeature || hasTestUsage) {
       configs.push({
         key: "assessment",
         label: "Evaluación (Assessment)",
@@ -191,15 +204,16 @@ export function UsageChart({ subscriptionFeatures = [], dailyData = [] }: UsageC
       });
     }
     
-    // 2. Uso Digital: activity_all, digital, investigacion, testing, etc. (Excepto las puramente de papel)
-    const hasDigital = safeFeatures.some(f => 
+    // 2. Uso Digital (Actividades)
+    const hasDigitalFeature = safeFeatures.some(f => 
       f.includes("activity") || 
       f.includes("digital") || 
       f.includes("investigacion") || 
       f.includes("testing") || 
       f.includes("proximamente")
     );
-    if (hasDigital) {
+    const hasDigitalUsage = totals.totalActivities > 0;
+    if (hasDigitalFeature || hasDigitalUsage) {
       configs.push({
         key: "digital",
         label: "Uso Digital (Actividades)",
@@ -208,15 +222,16 @@ export function UsageChart({ subscriptionFeatures = [], dailyData = [] }: UsageC
       });
     }
     
-    // 3. Descargas Papel: kids_paper, adults_paper, activity_all (que tiene "Ambos")
-    const hasPaper = safeFeatures.some(f => 
+    // 3. Descargas (Papel)
+    const hasPaperFeature = safeFeatures.some(f => 
       f.includes("paper") || 
       f === "activity_all" || 
       f === "extras_ub" || 
       f === "proximamente" ||
       f === "testing"
     );
-    if (hasPaper) {
+    const hasPaperUsage = totals.totalPaperDownloads > 0;
+    if (hasPaperFeature || hasPaperUsage) {
       configs.push({
         key: "paper",
         label: "Descargas (Material en Papel)",
@@ -234,7 +249,7 @@ export function UsageChart({ subscriptionFeatures = [], dailyData = [] }: UsageC
       setFeatureConfig(null);
       setSelectedFeatureKey(null);
     }
-  }, [subscriptionFeatures]);
+  }, [subscriptionFeatures, totals]);
 
   useEffect(() => {
     const newData = processRealData(dailyData, range);

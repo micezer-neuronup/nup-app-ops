@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 import { SubscriptionCard } from "./SubscriptionCard";
-import { ProductsCard } from "./ProductsCard";
+import { FeatureRequestsCard } from "./FeatureRequestsCard";
 import { UsageDataCard } from "./UsageDataCard";
 import { SubscriptionModal } from "./SubscriptionModal";
 import { UsageChart } from "./ UsageChart";
@@ -116,22 +116,17 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
         
         {/* Card 2: Suscripción */}
         <SubscriptionCard
-          subscriptionData={subscriptionData}
-          currency={currency}
-          segment={segment}
-          allSubscriptionDays={allSubscriptionDays}
-          onOpenModal={() => setSubscriptionModalOpen(true)}
-        />
+  subscriptionData={subscriptionData}
+  currency={currency}
+  segment={segment}
+  allSubscriptionDays={allSubscriptionDays}
+  nup2goBalance={nup2goBalance}
+  onOpenModal={() => setSubscriptionModalOpen(true)}
+/>
 
         {/* Card 3: Productos */}
-        <ProductsCard
-          subscriptionItems={subscriptionData.subscription_items}
-          nup2goBalance={nup2goBalance}
-          nup2goPatients={nup2goPatients}
-          lastNup2goAssignment={lastNup2goAssignment}
-          lastNup2goPaymentDate={lastNup2goPaymentDate}
-          onOpenModal={() => setSubscriptionModalOpen(true)}
-        />
+        <FeatureRequestsCard requests={analytics?.feature_requests || []} />
+
 
         {/* Card 4: Datos de uso */}
         <UsageDataCard analytics={analytics} numEmployees={numEmployees} />

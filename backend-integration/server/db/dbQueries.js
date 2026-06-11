@@ -12,6 +12,7 @@ async function getAnalyticsByCenterId(centerId) {
   try {
     log("INFO", "ANALYTICS", "Fetching analytics", { centerId });
 
+    // 1. Totales (se mantiene igual)
     const totalsResult = await pool.query(
       `SELECT 
          COALESCE(SUM(total_logins), 0) AS total_logins,
@@ -31,7 +32,7 @@ async function getAnalyticsByCenterId(centerId) {
       [String(centerId)]
     );
     
-
+    // 2. Diario (se mantiene igual)
     const dailyResult = await pool.query(
       `SELECT 
          stat_date,
@@ -53,19 +54,56 @@ async function getAnalyticsByCenterId(centerId) {
       [String(centerId)]
     );
 
+    // 3. 🆕 Peticiones de funcionalidades (NUEVO)
+    const featuresResult = await pool.query(
+      `SELECT 
+         id,
+         feature_name,
+         requested_at,
+         status
+       FROM feature_requests
+       WHERE center_id = $1
+       ORDER BY requested_at DESC`,
+      [String(centerId)]
+    );
+
+    // Control de flujo: si no hay analíticas diarias
     if (dailyResult.rows.length === 0) {
       log("WARN", "ANALYTICS", "No analytics found", { centerId });
-      return null;
+      // NOTA: Si quieres que el dashboard reciba los feature_requests aunque 
+      // no haya métricas de uso diario, deberíamos quitar este 'return null' 
+      // y devolver los objetos con 'daily: []'. De momento lo dejo como lo tenías.
+      return null; 
     }
 
     log("INFO", "ANALYTICS", "Analytics fetched successfully", { centerId });
   
+    // 4. Retornamos todo empaquetado
     return {
       totals: totalsResult.rows[0],
-      daily: dailyResult.rows
+      daily: dailyResult.rows,
+      feature_requests: featuresResult.rows // Array vacío [] si no hay peticiones
     };
   } catch (error) {
     log("ERROR", "ANALYTICS", "Error fetching analytics", { error: error.message });
+    return { error: error.message };
+  }
+}
+
+async function updateFeatureRequestStatus(id, status) {
+  try {
+    const query = `
+      UPDATE feature_requests 
+      SET status = $2
+      WHERE id = $1
+      RETURNING *;
+    `;
+    const result = await pool.query(query, [id, status]);
+    
+    if (result.rows.length === 0) return null;
+    return result.rows[0];
+  } catch (error) {
+    console.error("❌ Error updating feature request status:", error);
     return { error: error.message };
   }
 }
@@ -369,5 +407,6 @@ module.exports = {
   getAnalyticsByCenterId, 
   upsertSubscriptionData,
   updateInvoiceData,
-  getSubscriptionByCenterId
+  getSubscriptionByCenterId,
+  updateFeatureRequestStatus
 };

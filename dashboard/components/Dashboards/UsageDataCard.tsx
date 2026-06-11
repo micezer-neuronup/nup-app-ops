@@ -110,7 +110,7 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
   );
 
   return (
-    <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-accent/30">
+    <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-accent/30 h-[450px] flex flex-col">
       <CardHeader className="pb-2">
         <div className="flex justify-between items-start">
           <CardDescription className="flex items-center gap-1 text-xs uppercase tracking-wider">
