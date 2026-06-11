@@ -11,30 +11,47 @@ import gzip
 from dotenv import load_dotenv
 
 # ────── Initialization: Env ──────────────────────────────────
-# ─── For development
-# ─── Production uses .env.production through docker-compose
-# ─────────────────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
-
-# ────── Secrets: Amplitudes keys ─────────────────────────────
-# ─── For development
-# ─── Production uses .env.production through docker-compose
-# ─────────────────────────────────────────────────────────────
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 
 AMPLITUDE_SECRET_KEY = os.getenv('AMPLITUDE_SECRET_KEY')
 
+# ────── Lista de Eventos Ignorados (Del Backfill) ────────────
+IGNORED_EVENTS = {
+    'Exercise - Finished',
+    'Start Session',
+    'End Session',
+    'Search - Input',
+    'Page Viewed',
+    'Resource - Opened',
+    'Activity Preview - Opened',
+    'Activity Solution - Opened',
+    'Activity Documentation - Opened',
+    'Solution - Downloaded',
+    'Session - Rated',
+    'Resource - Downloaded',
+    'Report - Downloaded',
+    'Protocol - Finished',
+    'Program - Duplicated',
+    'Program - Created',
+    'Program - Assigned',
+    'Activity - Error',
+    'Presentation - Started',
+    'Activity Video - Opened',
+    'Documentation - Downloaded',
+    'Session - Generated',
+    'Configuration - Created',
+    'session_end',
+    'session_start',
+    'Session - Duplicated',
+    'Patient - Created',
+    '[Amplitude] Page Viewed',
+    'Activity - Rated',
+    'Session - Created'
+}
 
-# ────── Function: Time window ──────────────────────────────────────────────
-# ─── Queries last timestamp from database
-# ─── Python datetime object == Postgres Timestamp
-# ─── Add 24 hours to last fetch datetime to fetch the whole day (end date)
-# ─── End date must be smaller than actual time - 3 hours
-# ─── Convert times into Amplitude string format for API call URL
-# ────────────────────────────────────────────────────────────────────────
 def get_time_window(conn):
-
     cursor = conn.cursor()
     cursor.execute("SELECT last_fetch_timestamp FROM fetch_metadata WHERE id = 1")
     result = cursor.fetchone()
@@ -50,15 +67,8 @@ def get_time_window(conn):
         
     return last_fetch_dt.strftime("%Y%m%dT%H"), end_fetch_dt.strftime("%Y%m%dT%H")
 
-
-# ────── Function: Last fetch date ────────────────────────────────────────
-# ─── Convert Amplitudes end time to Python datetime object
-# ─── Insert the end time in fetch_metadata table replacing previous value
-# ────────────────────────────────────────────────────────────────────────
 def update_last_fetch_date(conn, end_time_str):
-
     end_dt = datetime.strptime(end_time_str, "%Y%m%dT%H")
-    
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO fetch_metadata (id, last_fetch_timestamp, updated_at)
@@ -69,24 +79,8 @@ def update_last_fetch_date(conn, end_time_str):
     """, (end_dt,)) 
     conn.commit()
 
-# ────── Function: Fetch events file ────────────────────────────────────────────────
-# ─── Function recieves both start date and end date
-# ─── Url is built and keys are used for authentication
-# ─── The line response.raise_for_status() end the script if response is an error
-# ─── Write Binary (wb) opens new file on server called daily_export.zip
-# ─── Data is downloaded in 8 Kb chunks, written and cleared from RAM 
-# ─── Once downlaoded, we open zip in read mode
-# ─── We focus on each file inside zip ended in .gz
-# ─── For each .gz file, we decompress and read each line (event per line)
-# ─── We decode each line to utf-8 and strip to prevent spaces and newlines
-# ─── The line yields hand one event to the main for loop that batches them
-# ─── When batch has 5000 events, fucntion waits till they are processed
-# ─── When all events have been processed, the daily_export.zip file is deleted 
-# ────────────────────────────────────────────────────────────────────────────────────
 def fetch_stream_events(start_str, end_str):
-
     print(f"[INFO] [AMPLITUDE] Fetching API data | range={start_str} → {end_str}")
-    
     url = f'https://analytics.eu.amplitude.com/api/2/export?start={start_str}&end={end_str}' 
     auth = HTTPBasicAuth(AMPLITUDE_API_KEY, AMPLITUDE_SECRET_KEY) 
     response = requests.get(url, auth=auth, stream=True) 
@@ -113,134 +107,124 @@ def fetch_stream_events(start_str, end_str):
     if os.path.exists(zip_path):
         os.remove(zip_path)
 
-
-# ────── Function: Insert batch of events to database ───────────────────────────────────────────
-# ─── Recieves the batch of events
-# ─── We initialize an empty list we will use to store the events with the fields we extract 
-# ─── We extract the event properties
-# ─── WARNING: Add missing fields if needed and fetch events; raw event data is not stored
-# ─── We store events in events_to_insert list
-# ─── Then we insert all events at once with one INSERT
-# ─────────────────────────────────────────────────────────────────────────────────────────────
 def process_event_batch(batch, cursor):
     events_to_insert = []
 
     for event in batch:
-
+        event_type = event.get('event_type')
+        
+        # Filtramos la basura igual que en el backfill
+        if not event_type or event_type in IGNORED_EVENTS:
+            continue
+            
         center_id_raw = event.get('groups', {}).get('center_id')
         center_id = center_id_raw[0] if isinstance(center_id_raw, list) and center_id_raw else center_id_raw
         
-        event_type = event.get('event_type')
         user_id = event.get('user_id')
         event_timestamp = event.get('event_time')
         event_id_amplitude = event.get('event_id')
-        
-        event_props = event.get('event_properties') or {}
-        patient_id = event_props.get('patient_id')
         session_id = event.get('session_id')
+        device_id = event.get('device_id')
         platform = event.get('platform')
-        app_version = event.get('version_name')
 
-        if event_type and center_id and user_id and event_timestamp:
+        event_props = event.get('event_properties') or {}
+        user_props = event.get('user_properties') or {}
+        
+        patient_id = event_props.get('patient_id')
+
+        if center_id and user_id and event_timestamp:
             events_to_insert.append((
-                center_id, event_type, user_id, patient_id, 
-                event_timestamp, event_id_amplitude,
-                json.dumps(event_props), session_id, platform, app_version
+                event_id_amplitude,
+                center_id, 
+                user_id, 
+                patient_id, 
+                event_type,
+                event_timestamp, 
+                session_id,              
+                device_id,
+                platform,                
+                json.dumps(event_props), 
+                json.dumps(user_props) 
             ))
 
     if not events_to_insert:
         return
 
+    # Inserción con la estructura V2 del backfill
     insert_events_query = """
         INSERT INTO events (
-            center_id, event_type, user_id, patient_id, 
-            event_timestamp, event_id_amplitude, event_properties, 
-            session_id, platform, app_version, updated_at
+            event_id_amplitude, center_id, user_id, patient_id, 
+            event_type, event_timestamp, session_id, device_id, 
+            platform, event_properties, user_properties, inserted_at
         )
         VALUES %s
         ON CONFLICT (event_id_amplitude) DO NOTHING
     """
+    
+    template = "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())"
+    execute_values(cursor, insert_events_query, events_to_insert, template=template)
 
-    execute_values(cursor, insert_events_query, events_to_insert, template="(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())")
-
-
-
-# ────── Function: Update daily stats and center total stats ──────────────────────────────
-# ─── Function recieves both start date and end date
-# ─── Converts dates to Postgres valid timestamps
-# ─── Run queries for center_daily_stats and centers tables 
-# ──────────────────────────────────────────────────────────────────────────────────────
 def run_daily_aggregations(cursor, start_str, end_str):
-
-    print(f"[INFO] [AMPLITUDE] Calculating aggregations | date={start_str}")
+    print(f"[INFO] [AMPLITUDE] Calculating aggregations & features | date={start_str}")
     
     start_ts = datetime.strptime(start_str, "%Y%m%dT%H").strftime("%Y-%m-%d %H:%M:%S")
     end_ts = datetime.strptime(end_str, "%Y%m%dT%H").strftime("%Y-%m-%d %H:%M:%S")
 
+    # 1. Agregación de daily_stats (Adaptado al esquema de tu dashboard actual)
     cursor.execute("""
-        INSERT INTO center_daily_stats (center_id, date, exercises, sessions, tests_started, tests_finished, activities_started, logins)
+        INSERT INTO daily_stats (
+            center_id, stat_date, total_logins, activities_started, 
+            sessions_assigned, sessions_started, sessions_finished, 
+            tests_started, tests_finished, reports_created, 
+            exercises_downloaded, materials_downloaded, active_therapists
+        )
         SELECT 
             center_id,
-            DATE(event_timestamp) AS date,
-            COUNT(*) FILTER (WHERE event_type = 'Exercise - Finished'),
+            DATE(event_timestamp) AS stat_date,
+            COUNT(*) FILTER (WHERE event_type = 'User - Login'),
+            COUNT(*) FILTER (WHERE event_type = 'Activity - Started'),
+            COUNT(*) FILTER (WHERE event_type = 'Session - Assigned'),
+            COUNT(*) FILTER (WHERE event_type = 'Session - Started'),
             COUNT(*) FILTER (WHERE event_type = 'Session - Finished'),
             COUNT(*) FILTER (WHERE event_type = 'Test - Started'),
             COUNT(*) FILTER (WHERE event_type = 'Test - Finished'),
-            COUNT(*) FILTER (WHERE event_type = 'Activity - Started'),
-            COUNT(*) FILTER (WHERE event_type = 'User - Login')
+            COUNT(*) FILTER (WHERE event_type = 'Report - Created'),
+            COUNT(*) FILTER (WHERE event_type = 'Exercise - Downloaded'),
+            COUNT(*) FILTER (WHERE event_type = 'Material - Downloaded'),
+            COUNT(DISTINCT user_id)
         FROM events
         WHERE event_timestamp >= %s AND event_timestamp < %s
         GROUP BY center_id, DATE(event_timestamp)
-        ON CONFLICT (center_id, date) DO UPDATE SET
-            exercises = EXCLUDED.exercises,
-            sessions = EXCLUDED.sessions,
+        ON CONFLICT (center_id, stat_date) DO UPDATE SET
+            total_logins = EXCLUDED.total_logins,
+            activities_started = EXCLUDED.activities_started,
+            sessions_assigned = EXCLUDED.sessions_assigned,
+            sessions_started = EXCLUDED.sessions_started,
+            sessions_finished = EXCLUDED.sessions_finished,
             tests_started = EXCLUDED.tests_started,
             tests_finished = EXCLUDED.tests_finished,
-            activities_started = EXCLUDED.activities_started,
-            logins = EXCLUDED.logins;
+            reports_created = EXCLUDED.reports_created,
+            exercises_downloaded = EXCLUDED.exercises_downloaded,
+            materials_downloaded = EXCLUDED.materials_downloaded,
+            active_therapists = EXCLUDED.active_therapists;
     """, (start_ts, end_ts))
 
+    # 2. Extracción e inserción de Feature Requests
     cursor.execute("""
-        INSERT INTO centers (center_id, total_events, total_exercises, total_sessions, total_logins, last_activity_date, updated_at)
+        INSERT INTO feature_requests (center_id, feature_name, requested_at, status)
         SELECT 
-            center_id,
-            COUNT(*) AS total_events,
-            COUNT(*) FILTER (WHERE event_type = 'Exercise - Finished') AS total_exercises,
-            COUNT(*) FILTER (WHERE event_type = 'Session - Finished') AS total_sessions,
-            COUNT(*) FILTER (WHERE event_type = 'User - Login') AS total_logins,
-            MAX(DATE(event_timestamp)) AS last_activity_date,
-            NOW()
+            center_id, 
+            event_properties->>'feature_name', 
+            event_timestamp, 
+            'pending'
         FROM events
-        WHERE event_timestamp >= %s AND event_timestamp < %s
-        GROUP BY center_id
-        ON CONFLICT (center_id) DO UPDATE SET
-            total_events = centers.total_events + EXCLUDED.total_events,
-            total_exercises = centers.total_exercises + EXCLUDED.total_exercises,
-            total_sessions = centers.total_sessions + EXCLUDED.total_sessions,
-            total_logins = centers.total_logins + EXCLUDED.total_logins,
-            last_activity_date = GREATEST(centers.last_activity_date, EXCLUDED.last_activity_date),
-            updated_at = NOW();
+        WHERE event_type = 'Features - Request'
+          AND event_timestamp >= %s AND event_timestamp < %s
+          AND event_properties->>'feature_name' IS NOT NULL
+          AND event_properties->>'feature_name' != ''
+        -- No ponemos ON CONFLICT porque un centro puede pedir la misma feature en días distintos
     """, (start_ts, end_ts))
 
-
-
-
-# ────── Main execution ──────────────────────────────────────────────────────────────
-# ─── We establish connection with the Postgres database
-# ─── We get the dates with the function get_time_window()
-# ─── To fetch events on specific dates manually use commented lines for dates
-# ─── If dates are available, main execution begins
-# ─── We initialize an empty list we will use to store the fetched events, the BATCH
-# ─── BATCH_SIZE defines the BATCH SIZE 
-# ─── We use total_processed to proceed to run run_daily_aggregations() fucntion
-# ─── We the start asking fetch_stream_events to send the vents one by one
-# ─── Each event is the stored in the batch and fetch_stream_events sends the next one
-# ─── When the batch is filled, fetch_stream_events stops sending events
-# ─── The events are processed with process_event_batch() and the vbath is cleared
-# ─── Then fetch_stream_events continues to send events
-# ─── A last check of the batch is required to process last events as the size will be smaller
-# ─── Lastly we uodate the last fetch date on the database running update_last_fetch_date()
-# ────────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     conn = psycopg2.connect(
         host=os.getenv('DB_HOST'), database=os.getenv('DB_NAME'),
@@ -248,11 +232,12 @@ if __name__ == "__main__":
         port=os.getenv('DB_PORT')
     )
     
-    start_str, end_str = get_time_window(conn)
+    # MODO AUTOMÁTICO (Descomenta esto para producción/cron)
+    # start_str, end_str = get_time_window(conn)
     
-    # start_str = "20260402T00"
-    # end_str = "20260403T00"
-
+    # MODO MANUAL (Usa esto para recuperar los días corruptos)
+    start_str = "20260610T00"
+    end_str = "20260611T00"
     
     if not start_str:
         print("[INFO] [AMPLITUDE] No new data ready yet. Exiting gracefully.")
@@ -260,7 +245,6 @@ if __name__ == "__main__":
         exit(0)
 
     print(f"[INFO] [AMPLITUDE] Starting daily run | range={start_str} → {end_str}")
-
 
     try:
         cursor = conn.cursor()
@@ -279,14 +263,16 @@ if __name__ == "__main__":
         if event_batch:
             process_event_batch(event_batch, cursor)
 
+        # Hacemos el commit de los eventos antes de calcular los totales
+        conn.commit()
+
         if total_processed > 0:
             run_daily_aggregations(cursor, start_str, end_str)
 
-        update_last_fetch_date(conn, end_str)
-        conn.commit()
+        # update_last_fetch_date(conn, end_str) # Comentado temporalmente si vas en modo manual
         
+        conn.commit()
         print(f"[INFO] [AMPLITUDE] Daily run complete | processed={total_processed}")
-
 
     except Exception as e:
         print(f"[ERROR] [AMPLITUDE] Critical error | error={e}")
