@@ -232,12 +232,12 @@ if __name__ == "__main__":
         port=os.getenv('DB_PORT')
     )
     
-    # MODO AUTOMÁTICO (Descomenta esto para producción/cron)
-    # start_str, end_str = get_time_window(conn)
+
+    start_str, end_str = get_time_window(conn)
     
-    # MODO MANUAL (Usa esto para recuperar los días corruptos)
-    start_str = "20260610T00"
-    end_str = "20260611T00"
+
+    # start_str = "20260610T00"
+    # end_str = "20260611T00"
     
     if not start_str:
         print("[INFO] [AMPLITUDE] No new data ready yet. Exiting gracefully.")
