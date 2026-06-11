@@ -97,13 +97,13 @@ function processRealData(dailyData: any[] | undefined, range: RangeType) {
   
   safeData.forEach((row) => {
     if (!row.stat_date) return;
-    let key = "";
-    if (typeof row.stat_date === 'string') {
-      key = row.stat_date.substring(0, 10); 
-    } else {
-      const d = new Date(row.stat_date);
-      key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    }
+    
+    // Forzamos a que pase por el motor de fechas del navegador para compensar el UTC
+    const d = new Date(row.stat_date);
+    
+    // Extraemos año, mes y día compensado a la hora local (España)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    
     dailyMap.set(key, row);
   });
 
