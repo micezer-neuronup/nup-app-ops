@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Calendar, MessageSquare } from "lucide-react";
 
 const featureLabels: Record<string, string> = {
+  // --- Mapeos Anteriores ---
   activity_all: "Acceso a todas las actividades",
   adults_digital: "Actividades digitales para adultos",
   adults_kids_digital: "Actividades digitales para adultos y niños",
@@ -27,6 +28,13 @@ const featureLabels: Record<string, string> = {
   investigacion_loyola: "Investigación Loyola",
   proximamente: "Próximamente",
   testing: "Testing (uso interno)",
+
+  activity: "Actividades (General)",
+  activity_digital: "Actividades digitales",
+  activity_paper: "Actividades en papel",
+  employee: "Gestión de profesionales",
+  employee_excess: "Ampliación de profesionales (Límite superado)", 
+  test: "Evaluaciones",
 };
 
 const formatDate = (dateStr: string) => {
