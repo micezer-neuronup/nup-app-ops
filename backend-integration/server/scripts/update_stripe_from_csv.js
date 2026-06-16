@@ -26,7 +26,7 @@ if (!process.env.DB_PASSWORD) {
 // ============================================================================
 const pool = new Pool({
   user: process.env.DB_USER,
-  host: '127.0.0.1', 
+  host: process.env.DB_HOST,
   database: process.env.DB_NAME, 
   password: String(process.env.DB_PASSWORD),
   port: parseInt(process.env.DB_PORT) || 5432,
@@ -67,9 +67,17 @@ async function updateStripeDataFromCSV() {
       const client = await pool.connect();
 
       try {
+        // ✨ PRUEBA 1: ¿Estamos en la base de datos correcta?
+        const totalRows = await client.query('SELECT COUNT(*) as total FROM subscriptions');
+        console.log(`[DEBUG] Suscripciones totales en esta BD: ${totalRows.rows[0].total}`);
+        if (totalRows.rows[0].total == 0) console.log(`[ALERTA] ¡La tabla está vacía! Estás conectado a otra BD.`);
+
         for (const row of stripeUpdates) {
           try {
-            const stripeId = row.stripe_subscription_id.trim();
+            // ✨ PRUEBA 2: Exorcismo de caracteres invisibles
+            // Esto elimina TODO lo que no sea una letra, número o guión bajo
+            const stripeId = row.stripe_subscription_id.replace(/[^a-zA-Z0-9_]/g, ''); 
+            
             const centerId = row.center_id ? row.center_id.trim() : null;
             
             // Parsear las features a un array JSON, tal como lo hicimos en las manuales
