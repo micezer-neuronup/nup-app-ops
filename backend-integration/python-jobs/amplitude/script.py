@@ -309,10 +309,9 @@ def sync_hubspot_metrics(cursor, end_str):
         # =========================================================
         # 🔴 CÁLCULO DEL RIESGO DE CHURN
         # =========================================================
-        days_since_last_login = (ref_date - last_login).days if last_login else 999
-        
+        days_since_last_login = (ref_date - last_login).days if last_login else 999        
         # Regla 1: Riesgo Alto (Inactividad absoluta >= 14 días)
-        if days_since_last_login >= 14:
+        if days_since_last_login >= 14 or health_score < 30:
             churn_risk = "alto"
             
         # Regla 2: Riesgo Medio (Nota baja < 40 ó Frustración: empiezan > 5 pero terminan 0)
