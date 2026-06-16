@@ -25,7 +25,9 @@ dotenv.config({ path: envPath });
 // ────── Import: database connection and queries ───────────────
 // ─── Database conenction is already imported in dbQueries
 // ──────────────────────────────────────────────────────────────
-const { getAnalyticsByCenterId,getSubscriptionByCenterId, updateFeatureRequestStatus} = require('./db/dbAnalytics');
+const { getAnalyticsByCenterId, updateFeatureRequestStatus} = require('./db/dbAnalytics');
+
+const { getSubscriptionByCenterId } = require('./db/dbSubscriptions');
 
 const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
 
