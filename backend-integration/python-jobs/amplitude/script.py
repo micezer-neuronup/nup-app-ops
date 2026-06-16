@@ -314,11 +314,11 @@ def sync_hubspot_metrics(cursor, end_str):
         days_since_last = (ref_date - last_login).days if last_login else 999
         
         if days_since_last >= 14:
-            churn_risk = "Alto"
+            churn_risk = "alto"
         elif (sum_assigned > 0 and sum_started == 0) or health_score < 40:
-            churn_risk = "Medio"
+            churn_risk = "medio"
         else:
-            churn_risk = "Bajo"
+            churn_risk = "bajo"
 
         # ---- FEATURES Y UPSELL ----
         has_pending = pending_features_map.get(center_id, False)
