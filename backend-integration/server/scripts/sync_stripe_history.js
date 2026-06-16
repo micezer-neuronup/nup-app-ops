@@ -27,7 +27,7 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 // ============================================================================
 const pool = new Pool({
   user: process.env.DB_USER,
-  host: '127.0.0.1', 
+  host: process.env.DB_HOST,
   database: process.env.DB_NAME, 
   password: String(process.env.DB_PASSWORD),
   port: parseInt(process.env.DB_PORT) || 5432,
@@ -243,7 +243,7 @@ async function processMassiveStripeSync() {
           }
         }
 
-        const centerFeatures = await getHubspotFeaturesCached(nupCenterId);
+        //const centerFeatures = await getHubspotFeaturesCached(nupCenterId);
 
         // --- ESTADO DEL PADRE: INFERIR TRIAL_CANCELED ---
         let parentState = stripeSub.status;
@@ -287,7 +287,7 @@ async function processMassiveStripeSync() {
             billing_interval: item.price.recurring?.interval || null,
             payment_frequency: item.price.recurring?.interval_count || 1,
             unit_price: item.price.unit_amount ? (item.price.unit_amount / 100) : null, // ✅ CORREGIDO: De céntimos a Euros
-            features: JSON.stringify(centerFeatures), // ✨ INYECTAMOS EL RESULTADO DE HUBSPOT            quantity: item.quantity,
+            features: JSON.stringify([]), // ✨ INYECTAMOS EL RESULTADO DE HUBSPOT            quantity: item.quantity,
             start_date: startDate,
             current_period_start: currentPeriodStart,
             current_period_end: itemPeriodEnd,
