@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 const fetch = require('node-fetch');
 const dotenv = require('dotenv');
 const path = require('path');
@@ -25,9 +25,9 @@ dotenv.config({ path: envPath });
 // ────── Import: database connection and queries ───────────────
 // ─── Database conenction is already imported in dbQueries
 // ──────────────────────────────────────────────────────────────
-const { getAnalyticsByCenterId,getSubscriptionByCenterId, updateFeatureRequestStatus} = require('./db/dbQueries');
+const { getAnalyticsByCenterId,getSubscriptionByCenterId, updateFeatureRequestStatus} = require('./db/dbAnalytics');
 
-//const {processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
+const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
 
 // ────── Initialization: Script paths ─────────────────────────────
 // ─── We define the path of the scripts the cron job calls
@@ -48,7 +48,7 @@ app.use(cors({ origin: true, credentials: true }));
 
 const PORT = process.env.PORT;
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
-//const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
 
 // ────── Webhook Routes ──────────────────────────────────────────────────────
 // ─── Requires Raw Body so we define it before the json global middleware
@@ -63,7 +63,7 @@ const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 // ─── If the result is the same, then its from Stripe, it can be trusted
 // ────────────────────────────────────────────────────────────────────────────
 
-/*
+
 app.post(
   '/api/webhooks/stripe', 
   express.raw({ type: 'application/json' }), 
@@ -114,7 +114,7 @@ app.post(
       return response.status(500).send('Internal Server Error');
     }
 });
-*/
+
 // ────── Global Middleware: JSON Parsers ───────────────────────────
 // ─── We apply JSON parsing. This will apply to all routes defined below
 // ────────────────────────────────────────────────────────────────────────────

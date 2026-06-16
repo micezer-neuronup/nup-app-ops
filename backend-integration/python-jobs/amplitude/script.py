@@ -10,12 +10,14 @@ from requests.auth import HTTPBasicAuth
 import gzip
 from dotenv import load_dotenv
 
+
 # ────── Initialization: Env ──────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 
 AMPLITUDE_SECRET_KEY = os.getenv('AMPLITUDE_SECRET_KEY')
+HUBSPOT_TOKEN = os.getenv('HUBSPOT_TOKEN') # ¡Añade tu token al .env!
 
 # ────── Lista de Eventos Ignorados (Del Backfill) ────────────
 IGNORED_EVENTS = {
@@ -225,57 +227,166 @@ def run_daily_aggregations(cursor, start_str, end_str):
         -- No ponemos ON CONFLICT porque un centro puede pedir la misma feature en días distintos
     """, (start_ts, end_ts))
 
-if __name__ == "__main__":
-    conn = psycopg2.connect(
-        host=os.getenv('DB_HOST'), database=os.getenv('DB_NAME'),
-        user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'),
-        port=os.getenv('DB_PORT')
-    )
+
+def sync_hubspot_metrics(cursor, end_str):
+    print(f"[INFO] [HUBSPOT] Calculating Health Scores & Syncing | ref_date={end_str}", flush=True)
     
-
-    start_str, end_str = get_time_window(conn)
+    # La fecha de referencia es el final del día que estamos procesando
+    ref_date = datetime.strptime(end_str, "%Y%m%dT%H").date()
+    start_30d = ref_date - timedelta(days=30)
     
-
-    # start_str = "20260610T00"
-    # end_str = "20260611T00"
+    # 1. Obtenemos las métricas de los últimos 30 días para calcular Health Score y Churn
+    cursor.execute("""
+        SELECT 
+            center_id,
+            COUNT(DISTINCT CASE WHEN total_logins > 0 THEN stat_date END) as active_days,
+            SUM(sessions_assigned) as sum_assigned,
+            SUM(sessions_started) as sum_started,
+            SUM(sessions_finished) as sum_finished,
+            SUM(tests_started) as sum_tests,
+            SUM(reports_created) as sum_reports,
+            MAX(stat_date) FILTER (WHERE total_logins > 0) as last_login_date
+        FROM daily_stats
+        WHERE stat_date > %s AND stat_date <= %s
+        GROUP BY center_id;
+    """, (start_30d, ref_date))
     
-    if not start_str:
-        print("[INFO] [AMPLITUDE] No new data ready yet. Exiting gracefully.")
-        conn.close()
-        exit(0)
+    stats_rows = cursor.fetchall()
 
-    print(f"[INFO] [AMPLITUDE] Starting daily run | range={start_str} → {end_str}")
+    # 2. Obtenemos las Feature Requests Pendientes (Totales)
+    cursor.execute("""
+        SELECT center_id, COUNT(*) 
+        FROM feature_requests 
+        WHERE status = 'pending' 
+        GROUP BY center_id;
+    """)
+    pending_features_map = {row[0]: (row[1] > 0) for row in cursor.fetchall()}
 
-    try:
-        cursor = conn.cursor()
-        event_batch = []
-        BATCH_SIZE = 5000
-        total_processed = 0
+    # 3. Obtenemos SOLO las Feature Requests NUEVAS de ese día exacto (Para la alerta)
+    ref_date_start_ts = (ref_date - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
+    ref_date_end_ts = ref_date.strftime("%Y-%m-%d 00:00:00")
+    
+    cursor.execute("""
+        SELECT center_id, feature_name 
+        FROM feature_requests 
+        WHERE requested_at >= %s AND requested_at < %s AND status = 'pending';
+    """, (ref_date_start_ts, ref_date_end_ts))
+    
+    # Si hay varias el mismo día, nos quedamos con la última
+    new_features_map = {row[0]: row[1] for row in cursor.fetchall()}
 
-        for event in fetch_stream_events(start_str, end_str):
-            event_batch.append(event)
-            total_processed += 1
+    # --- EMPIEZA EL PROCESADO Y ENVÍO ---
+    headers = {
+        "Authorization": f"Bearer {HUBSPOT_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    success_count = 0
+    not_found_count = 0
+
+    for row in stats_rows:
+        center_id, active_days, sum_assigned, sum_started, sum_finished, sum_tests, sum_reports, last_login = row
+        
+        # Safe casts
+        sum_assigned = sum_assigned or 0
+        sum_started = sum_started or 0
+        sum_finished = sum_finished or 0
+        sum_tests = sum_tests or 0
+        sum_reports = sum_reports or 0
+
+        # ---- CÁLCULO DEL HEALTH SCORE (0 - 100) ----
+        # Pilar 1: Frecuencia (Max 40 pts) -> 15 días activos en 30 días = Top score
+        freq_score = min(40, (active_days / 15.0) * 40)
+        
+        # Pilar 2: Adopción (Max 40 pts) -> Si terminan el 80% de lo que empiezan = Top score
+        if sum_started > 0:
+            completion_rate = sum_finished / sum_started
+            adopt_score = min(40, (completion_rate / 0.8) * 40)
+        else:
+            adopt_score = 0
             
-            if len(event_batch) >= BATCH_SIZE:
-                process_event_batch(event_batch, cursor)
-                event_batch.clear()
+        # Pilar 3: Profundidad (Max 20 pts) -> ¿Hacen tests o informes?
+        depth_score = 20 if (sum_tests > 0 or sum_reports > 0) else 0
         
-        if event_batch:
-            process_event_batch(event_batch, cursor)
+        health_score = round(freq_score + adopt_score + depth_score)
 
-        # Hacemos el commit de los eventos antes de calcular los totales
-        conn.commit()
+        # ---- CÁLCULO DEL CHURN RISK ----
+        days_since_last = (ref_date - last_login).days if last_login else 999
+        
+        if days_since_last >= 14:
+            churn_risk = "Alto"
+        elif (sum_assigned > 0 and sum_started == 0) or health_score < 40:
+            churn_risk = "Medio"
+        else:
+            churn_risk = "Bajo"
 
-        if total_processed > 0:
-            run_daily_aggregations(cursor, start_str, end_str)
+        # ---- FEATURES Y UPSELL ----
+        has_pending = pending_features_map.get(center_id, False)
+        latest_feature = new_features_map.get(center_id, "")
 
-        # update_last_fetch_date(conn, end_str) # Comentado temporalmente si vas en modo manual
+        # ---- ENVÍO A HUBSPOT (Vía directa usando nup_center_id) ----
+        url = f"https://api.hubapi.com/crm/v3/objects/companies/{center_id}?idProperty=nup_center_id"
+        
+        payload = {
+            "properties": {
+                "hs_health_score_app": str(health_score),
+                "hs_riesgo_de_fuga": churn_risk,
+                "hs_has_pending_features": str(has_pending).lower(),
+                "hs_latest_requested_feature": latest_feature
+            }
+        }
+
+        response = requests.patch(url, headers=headers, json=payload)
+        
+        if response.status_code == 200:
+            success_count += 1
+        elif response.status_code == 404:
+            # Pasa a menudo: Tienes el centro en tu BD pero aún no lo habéis creado en HubSpot
+            not_found_count += 1
+        else:
+            print(f"[WARN] HubSpot Error en ID {center_id}: {response.text}")
+
+    print(f"[INFO] [HUBSPOT] Sync complete | Updated={success_count} | Not in CRM={not_found_count}\n", flush=True)
+
+
+
+
+try:
+        cursor = conn.cursor()
+        
+        # === 🚫 COMENTAMOS TODO LO DE AMPLITUDE PARA ESTE TEST ===
+        # event_batch = []
+        # BATCH_SIZE = 5000
+        # total_processed = 0
+
+        # for event in fetch_stream_events(start_str, end_str):
+        #     event_batch.append(event)
+        #     total_processed += 1
+        #     
+        #     if len(event_batch) >= BATCH_SIZE:
+        #         process_event_batch(event_batch, cursor)
+        #         event_batch.clear()
+        # 
+        # if event_batch:
+        #     process_event_batch(event_batch, cursor)
+
+        # conn.commit()
+
+        # if total_processed > 0:
+        #     run_daily_aggregations(cursor, start_str, end_str)
+        # ========================================================
+
+
+        # === 🚀 EJECUTAMOS DIRECTAMENTE LA LLAMADA A HUBSPOT ===
+        # Le pasamos "20260616T00" para que use el día de hoy como fecha de referencia
+        # y calcule los últimos 30 días hacia atrás en la base de datos.
+        sync_hubspot_metrics(cursor, "20260616T00")
+
+
+        # === 🚫 COMENTAMOS EL MARCAPÁGINAS PARA QUE NO SE MUEVA ===
+        # update_last_fetch_date(conn, end_str) 
         
         conn.commit()
-        print(f"[INFO] [AMPLITUDE] Daily run complete | processed={total_processed}")
+        print("[INFO] [HUBSPOT] Manual test run completed successfully!")
 
     except Exception as e:
-        print(f"[ERROR] [AMPLITUDE] Critical error | error={e}")
-        conn.rollback()
-    finally:
-        conn.close()
