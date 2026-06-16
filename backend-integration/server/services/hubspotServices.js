@@ -1,4 +1,4 @@
-const { pool } = require('./db'); // Ajusta la ruta a tu conexión DB
+const { pool } = require('../db/db'); // Ajusta la ruta a tu conexión DB
 const fetch = require('node-fetch'); // O el fetch nativo si usas Node 18+
 const { log } = require("../utils/logger");
 
