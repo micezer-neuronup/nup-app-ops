@@ -329,10 +329,10 @@ def sync_hubspot_metrics(cursor, end_str):
         
         payload = {
             "properties": {
-                "hs_health_score_app": str(health_score),
-                "hs_riesgo_de_fuga": churn_risk,
-                "hs_has_pending_features": str(has_pending).lower(),
-                "hs_latest_requested_feature": latest_feature
+                "health_score": str(health_score),
+                "churn_risk": churn_risk,
+                "pending_feature": str(has_pending).lower(),
+                "latest_requested_feature": latest_feature
             }
         }
 
