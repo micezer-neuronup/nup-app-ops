@@ -235,16 +235,13 @@ def sync_hubspot_metrics(cursor, end_str):
     ref_date = datetime.strptime(end_str, "%Y%m%dT%H").date()
     start_30d = ref_date - timedelta(days=30)
     
-    # 1. Obtenemos las métricas de los últimos 30 días para calcular Health Score y Churn
+    # 1. Recuperamos métricas de los últimos 30 días (Ignoramos asignadas, usamos started y finished)
     cursor.execute("""
         SELECT 
             center_id,
             COUNT(DISTINCT CASE WHEN total_logins > 0 THEN stat_date END) as active_days,
-            SUM(sessions_assigned) as sum_assigned,
             SUM(sessions_started) as sum_started,
             SUM(sessions_finished) as sum_finished,
-            SUM(tests_started) as sum_tests,
-            SUM(reports_created) as sum_reports,
             MAX(stat_date) FILTER (WHERE total_logins > 0) as last_login_date
         FROM daily_stats
         WHERE stat_date > %s AND stat_date <= %s
@@ -253,7 +250,7 @@ def sync_hubspot_metrics(cursor, end_str):
     
     stats_rows = cursor.fetchall()
 
-    # 2. Obtenemos las Feature Requests Pendientes (Totales)
+    # 2. Mapeo de Feature Requests PENDIENTES totales (Para el check booleano)
     cursor.execute("""
         SELECT center_id, COUNT(*) 
         FROM feature_requests 
@@ -262,7 +259,7 @@ def sync_hubspot_metrics(cursor, end_str):
     """)
     pending_features_map = {row[0]: (row[1] > 0) for row in cursor.fetchall()}
 
-    # 3. Obtenemos SOLO las Feature Requests NUEVAS de ese día exacto (Para la alerta)
+    # 3. Mapeo de Feature Requests NUEVAS de las últimas 24h (Para disparar la alerta limpia)
     ref_date_start_ts = (ref_date - timedelta(days=1)).strftime("%Y-%m-%d 00:00:00")
     ref_date_end_ts = ref_date.strftime("%Y-%m-%d 00:00:00")
     
@@ -272,10 +269,9 @@ def sync_hubspot_metrics(cursor, end_str):
         WHERE requested_at >= %s AND requested_at < %s AND status = 'pending';
     """, (ref_date_start_ts, ref_date_end_ts))
     
-    # Si hay varias el mismo día, nos quedamos con la última
     new_features_map = {row[0]: row[1] for row in cursor.fetchall()}
 
-    # --- EMPIEZA EL PROCESADO Y ENVÍO ---
+    # --- CONFIGURACIÓN API HUBSPOT ---
     headers = {
         "Authorization": f"Bearer {HUBSPOT_TOKEN}",
         "Content-Type": "application/json"
@@ -284,47 +280,58 @@ def sync_hubspot_metrics(cursor, end_str):
     success_count = 0
     not_found_count = 0
 
+    # --- BUCLE DE PROCESAMIENTO POR CENTRO ---
     for row in stats_rows:
-        center_id, active_days, sum_assigned, sum_started, sum_finished, sum_tests, sum_reports, last_login = row
+        center_id, active_days, sum_started, sum_finished, last_login = row
         
-        # Safe casts
-        sum_assigned = sum_assigned or 0
+        # Paracaídas para valores nulos de la BD
+        active_days = active_days or 0
         sum_started = sum_started or 0
         sum_finished = sum_finished or 0
-        sum_tests = sum_tests or 0
-        sum_reports = sum_reports or 0
 
-        # ---- CÁLCULO DEL HEALTH SCORE (0 - 100) ----
-        # Pilar 1: Frecuencia (Max 40 pts) -> 15 días activos en 30 días = Top score
-        freq_score = min(40, (active_days / 15.0) * 40)
+        # =========================================================
+        # 🟢 CÁLCULO DEL HEALTH SCORE (MODELO 50/50)
+        # =========================================================
         
-        # Pilar 2: Adopción (Max 40 pts) -> Si terminan el 80% de lo que empiezan = Top score
+        # Pilar 1: Frecuencia (Max 50 pts) -> Objetivo: 15 días activos al mes
+        freq_score = min(50, (active_days / 15.0) * 50)
+        
+        # Pilar 2: Adopción (Max 50 pts) -> Objetivo: Terminar el 80% (0.8) de lo empezado
         if sum_started > 0:
             completion_rate = sum_finished / sum_started
-            adopt_score = min(40, (completion_rate / 0.8) * 40)
+            adopt_score = min(50, (completion_rate / 0.8) * 50)
         else:
             adopt_score = 0
             
-        # Pilar 3: Profundidad (Max 20 pts) -> ¿Hacen tests o informes?
-        depth_score = 20 if (sum_tests > 0 or sum_reports > 0) else 0
-        
-        health_score = round(freq_score + adopt_score + depth_score)
+        # Puntuación final integrada
+        health_score = round(freq_score + adopt_score)
 
-        # ---- CÁLCULO DEL CHURN RISK ----
-        days_since_last = (ref_date - last_login).days if last_login else 999
+        # =========================================================
+        # 🔴 CÁLCULO DEL RIESGO DE CHURN
+        # =========================================================
+        days_since_last_login = (ref_date - last_login).days if last_login else 999
         
-        if days_since_last >= 14:
-            churn_risk = "alto"
-        elif (sum_assigned > 0 and sum_started == 0) or health_score < 40:
-            churn_risk = "medio"
+        # Regla 1: Riesgo Alto (Inactividad absoluta >= 14 días)
+        if days_since_last_login >= 14:
+            churn_risk = "Alto"
+            
+        # Regla 2: Riesgo Medio (Nota baja < 40 ó Frustración: empiezan > 5 pero terminan 0)
+        elif health_score < 40 or (sum_started > 5 and sum_finished == 0):
+            churn_risk = "Medio"
+            
+        # Regla 3: Cliente Saludable
         else:
-            churn_risk = "bajo"
+            churn_risk = "Bajo"
 
-        # ---- FEATURES Y UPSELL ----
+        # =========================================================
+        # 🔵 ASIGNACIÓN DE FEATURES (HISTÓRICO VS NUEVA)
+        # =========================================================
         has_pending = pending_features_map.get(center_id, False)
-        latest_feature = new_features_map.get(center_id, "")
+        latest_feature = new_features_map.get(center_id, "") # Vacío si no hay nada hoy
 
-        # ---- ENVÍO A HUBSPOT (Vía directa usando nup_center_id) ----
+        # =========================================================
+        # 🚀 ENVÍO DIRECTO A LA API DE HUBSPOT
+        # =========================================================
         url = f"https://api.hubapi.com/crm/v3/objects/companies/{center_id}?idProperty=nup_center_id"
         
         payload = {
@@ -336,18 +343,20 @@ def sync_hubspot_metrics(cursor, end_str):
             }
         }
 
-        response = requests.patch(url, headers=headers, json=payload)
-        
-        if response.status_code == 200:
-            success_count += 1
-        elif response.status_code == 404:
-            # Pasa a menudo: Tienes el centro en tu BD pero aún no lo habéis creado en HubSpot
-            not_found_count += 1
-        else:
-            print(f"[WARN] HubSpot Error en ID {center_id}: {response.text}")
+        try:
+            response = requests.patch(url, headers=headers, json=payload)
+            
+            if response.status_code == 200:
+                success_count += 1
+            elif response.status_code == 404:
+                # El centro existe en tu BD pero no está creado en HubSpot todavía
+                not_found_count += 1
+            else:
+                print(f"[WARN] HubSpot API Error para center_id {center_id}: {response.status_code} - {response.text}")
+        except Exception as api_err:
+            print(f"[ERROR] Fallo de red al conectar con HubSpot para center_id {center_id}: {api_err}")
 
-    print(f"[INFO] [HUBSPOT] Sync complete | Updated={success_count} | Not in CRM={not_found_count}\n", flush=True)
-
+    print(f"[INFO] [HUBSPOT] Sync completed | Updated={success_count} | Not in CRM={not_found_count}\n", flush=True)
 
 
 if __name__ == "__main__":
