@@ -313,15 +313,15 @@ def sync_hubspot_metrics(cursor, end_str):
         
         # Regla 1: Riesgo Alto (Inactividad absoluta >= 14 días)
         if days_since_last_login >= 14:
-            churn_risk = "Alto"
+            churn_risk = "alto"
             
         # Regla 2: Riesgo Medio (Nota baja < 40 ó Frustración: empiezan > 5 pero terminan 0)
         elif health_score < 40 or (sum_started > 5 and sum_finished == 0):
-            churn_risk = "Medio"
+            churn_risk = "medio"
             
         # Regla 3: Cliente Saludable
         else:
-            churn_risk = "Bajo"
+            churn_risk = "bajo"
 
         # =========================================================
         # 🔵 ASIGNACIÓN DE FEATURES (HISTÓRICO VS NUEVA)
