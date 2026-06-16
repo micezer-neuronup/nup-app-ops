@@ -350,8 +350,28 @@ def sync_hubspot_metrics(cursor, end_str):
 
 
 
+if __name__ == "__main__":
+    conn = psycopg2.connect(
+        host=os.getenv('DB_HOST'), database=os.getenv('DB_NAME'),
+        user=os.getenv('DB_USER'), password=os.getenv('DB_PASSWORD'),
+        port=os.getenv('DB_PORT')
+    )
+    
 
-try:
+    # start_str, end_str = get_time_window(conn)
+    
+
+    start_str = "20260616T00"
+    end_str = "20260617T00"
+    
+    if not start_str:
+        print("[INFO] [AMPLITUDE] No new data ready yet. Exiting gracefully.")
+        conn.close()
+        exit(0)
+
+    print(f"[INFO] [AMPLITUDE] Starting daily run | range={start_str} → {end_str}")
+
+    try:
         cursor = conn.cursor()
         
         # === 🚫 COMENTAMOS TODO LO DE AMPLITUDE PARA ESTE TEST ===
@@ -390,3 +410,7 @@ try:
         print("[INFO] [HUBSPOT] Manual test run completed successfully!")
 
     except Exception as e:
+        print(f"[ERROR] [AMPLITUDE] Critical error | error={e}")
+        conn.rollback()
+    finally:
+        conn.close()
