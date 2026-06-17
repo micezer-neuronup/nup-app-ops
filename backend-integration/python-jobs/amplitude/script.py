@@ -307,20 +307,28 @@ def sync_hubspot_metrics(cursor, end_str):
         health_score = round(freq_score + adopt_score)
 
         # =========================================================
-        # 🔴 CÁLCULO DEL RIESGO DE CHURN
+        # 🔴 CÁLCULO DEL RIESGO DE CHURN (CON FILTRO DE HÁBITO)
         # =========================================================
         days_since_last_login = (ref_date - last_login).days if last_login else 999        
-        # Regla 1: Riesgo Alto (Inactividad absoluta >= 14 días)
-        if days_since_last_login >= 14 or health_score < 30:
-            churn_risk = "alto"
+
+        # Condición de hábito mínima: haber entrado al menos 5 días distintos en el mes
+        tiene_habito_real = active_days >= 5
+
+        # 1. Filtro de seguridad: Si no llega al hábito mínimo, es un caso "zombie" (Riesgo Bajo)
+        if not tiene_habito_real:
+            churn_risk = "Bajo"
+
+        # 2. Riesgo Alto: Tiene hábito, pero lleva >= 14 días sin entrar O su salud es crítica (< 30)
+        elif days_since_last_login >= 14 or health_score < 30:
+            churn_risk = "Alto" 
             
-        # Regla 2: Riesgo Medio (Nota baja < 40 ó Frustración: empiezan > 5 pero terminan 0)
+        # 3. Riesgo Medio: Tiene hábito, pero su salud flojea (< 40) O sufre frustración activa
         elif health_score < 40 or (sum_started > 5 and sum_finished == 0):
-            churn_risk = "medio"
+            churn_risk = "Medio"
             
-        # Regla 3: Cliente Saludable
+        # 4. Riesgo Bajo: Centros con buen hábito y buena salud
         else:
-            churn_risk = "bajo"
+            churn_risk = "Bajo"
 
         # =========================================================
         # 🔵 ASIGNACIÓN DE FEATURES (HISTÓRICO VS NUEVA)
