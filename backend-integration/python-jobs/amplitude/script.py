@@ -316,19 +316,19 @@ def sync_hubspot_metrics(cursor, end_str):
 
         # 1. Filtro de seguridad: Si no llega al hábito mínimo, es un caso "zombie" (Riesgo Bajo)
         if not tiene_habito_real:
-            churn_risk = "Bajo"
+            churn_risk = "bajo"
 
         # 2. Riesgo Alto: Tiene hábito, pero lleva >= 14 días sin entrar O su salud es crítica (< 30)
         elif days_since_last_login >= 14 or health_score < 30:
-            churn_risk = "Alto" 
+            churn_risk = "alto" 
             
         # 3. Riesgo Medio: Tiene hábito, pero su salud flojea (< 40) O sufre frustración activa
         elif health_score < 40 or (sum_started > 5 and sum_finished == 0):
-            churn_risk = "Medio"
+            churn_risk = "medio"
             
         # 4. Riesgo Bajo: Centros con buen hábito y buena salud
         else:
-            churn_risk = "Bajo"
+            churn_risk = "bajo"
 
         # =========================================================
         # 🔵 ASIGNACIÓN DE FEATURES (HISTÓRICO VS NUEVA)
