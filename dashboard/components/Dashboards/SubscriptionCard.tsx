@@ -81,9 +81,8 @@ export function SubscriptionCard({
   onOpenModal?: () => void;
 }) {
 
-
   // ==========================================
-  // 🐛 CHIVATO DE DEBUG (Cópialo al principio de tu componente)
+  // 🐛 CHIVATO DE DEBUG
   // ==========================================
   console.log("🎯 --- DATOS COMPLETOS DE LA SUSCRIPCIÓN ---");
   console.log("Objeto Padre completo:", subscriptionData);
@@ -101,15 +100,11 @@ export function SubscriptionCard({
   console.log("--------------------------------------------");
   // ==========================================
 
-
-
-
   const [isFlipped, setIsFlipped] = useState(false);
 
   const status = subscriptionData?.current_state || "—";
   const isForever = subscriptionData?.is_forever;
   const source = subscriptionData?.source?.toLowerCase() || ""; // Extraemos el source (stripe o backend)
-  const rawEndDate = subscriptionData?.current_period_end;
   const features: string[] = subscriptionData?.subscription_features || [];
   const items = subscriptionData?.subscription_items || [];
 
@@ -130,7 +125,22 @@ export function SubscriptionCard({
   const StatusIcon = isActive ? CheckCircle2 : AlertCircle;
 
   // ✨ LÓGICA DE FIN DE CICLO ACTUALIZADA
+  // 1. Buscamos la fecha más lejana entre los hijos (ignoramos al padre)
+  let rawEndDate = null;
+  if (items.length > 0) {
+    const endDates = items
+      .map((item: any) => item.current_period_end)
+      .filter((date: any) => date != null) // Filtramos los nulos por si acaso
+      .map((date: any) => new Date(date).getTime()); // Pasamos a timestamp para comparar fácil
+
+    if (endDates.length > 0) {
+      rawEndDate = new Date(Math.max(...endDates)); // Cogemos la fecha mayor
+    }
+  }
+
+  // 2. Aplicamos la lógica visual
   let endDateDisplay = "—";
+  
   if (isForever) {
     if (source === "backend") {
       endDateDisplay = "Renovación Manual";
@@ -139,7 +149,7 @@ export function SubscriptionCard({
       endDateDisplay = "Renovación Automática"; 
     }
   } else if (rawEndDate) {
-    endDateDisplay = formatDate(rawEndDate);
+    endDateDisplay = formatDate(rawEndDate.toISOString());
   }
 
   const currencyKey = currency?.toLowerCase();
