@@ -90,8 +90,10 @@ async function main() {
       }
 
       // Preparar payload del Padre
+      // Preparar payload del Padre
       const subInputs = [{
-        id: sub.subscription_id,
+        idProperty: "subscription_id_unique", // 👈 LO DEVOLVEMOS AQUÍ
+        id: String(sub.subscription_id),      // (Mejor asegurarnos de que el ID es un string)
         properties: {
           account_name: sub.center_name ? `Suscripción - ${sub.center_name}` : `Suscripción - ${sub.subscription_id}`,
           subscription_id_unique: sub.subscription_id,
@@ -105,7 +107,8 @@ async function main() {
         }
       }];
 
-      const subUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ACCOUNT_SUB_OBJECT_ID}/batch/upsert?idProperty=subscription_id_unique`, {
+      // 👈 QUITAMOS EL ?idProperty DE LA URL
+      const subUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ACCOUNT_SUB_OBJECT_ID}/batch/upsert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
         body: JSON.stringify({ inputs: subInputs })
@@ -143,7 +146,8 @@ async function main() {
             : (item.product_name || 'Producto Manual');
 
           return {
-            id: safeItemId,
+            idProperty: "stripe_item_id_unique", // 👈 LO DEVOLVEMOS AQUÍ
+            id: String(safeItemId),
             properties: {
               subscription_item_name: itemName,
               stripe_item_id_unique: safeItemId,
@@ -167,7 +171,8 @@ async function main() {
           };
         });
 
-        const itemsUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ITEM_OBJECT_ID}/batch/upsert?idProperty=stripe_item_id_unique`, {
+        // 👈 QUITAMOS EL ?idProperty DE LA URL
+        const itemsUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ITEM_OBJECT_ID}/batch/upsert`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
           body: JSON.stringify({ inputs: itemInputs })
