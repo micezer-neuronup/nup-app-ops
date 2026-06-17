@@ -43,47 +43,54 @@ const statusMap = {
 // ============================================================================
 // FLUJO PRINCIPAL DE MIGRACIÓN / SINCRONIZACIÓN MASIVA
 // ============================================================================
+// ============================================================================
+// FLUJO PRINCIPAL DE MIGRACIÓN / SINCRONIZACIÓN MASIVA
+// ============================================================================
 async function main() {
-  console.log("🚀 [INICIO] Sincronización masiva de todo el universo de suscripciones...");
+  console.log("🚀 [INICIO] Sincronización masiva filtrada (solo activas/trial/past_due)...");
 
   try {
-    // 1. LEER TODAS LAS SUSCRIPCIONES E ÍTEMS DE POSTGRES
-    const { rows: allSubs } = await pool.query(`SELECT * FROM subscriptions;`);
+    // 1. FILTRAMOS DIRECTAMENTE DESDE LA BASE DE DATOS
+    const { rows: allSubs } = await pool.query(`
+      SELECT * FROM subscriptions 
+      WHERE current_state IN ('active', 'trial', 'trialing', 'past_due');
+    `);
+    
+    // Traemos los ítems, en JS ya los filtraremos por el ID del padre
     const { rows: allItems } = await pool.query(`SELECT * FROM subscription_items;`);
 
     if (allSubs.length === 0) {
-      console.log("ℹ️ No hay suscripciones en la base de datos para sincronizar.");
+      console.log("ℹ️ No hay suscripciones activas en la base de datos para sincronizar.");
       return;
     }
 
-    console.log(`✅ [DB] Extraídas ${allSubs.length} suscripciones y ${allItems.length} ítems.`);
+    console.log(`✅ [DB] Extraídas ${allSubs.length} suscripciones válidas y ${allItems.length} ítems en total.`);
 
     const formatHsDate = (dateVal) => dateVal ? new Date(dateVal).toISOString() : "";
     const subIdToHubspotIdMap = {};
 
+    let processedSubsCount = 0;
+    let processedItemsCount = 0;
+    let errorSubsCount = 0;
+
     // 2. PROCESAR CADA SUSCRIPCIÓN (PADRE)
     for (const sub of allSubs) {
-      console.log(`\n-------------------------------------------------------------`);
-      console.log(`📦 Procesando Suscripción Padre: ${sub.subscription_id}`);
-
+      
       if (!sub.nup_center_id) {
-        console.log(`⚠️ Skip: Suscripción ${sub.subscription_id} no tiene nup_center_id.`);
-        continue;
+        errorSubsCount++;
+        continue; // Saltamos silenciosamente las que no tienen NUP
       }
 
-      // Buscar Empresa vinculada en HubSpot
       let companyHubspotId;
       try {
         companyHubspotId = await findCompanyHubspotId(sub.nup_center_id);
       } catch (err) {
-        console.log(`❌ Skip: ${err.message}`);
-        continue;
+        errorSubsCount++;
+        continue; // Saltamos si no encontramos la empresa en HubSpot
       }
 
-      // Preparar payload del Padre para el Batch Upsert (procesado individual para controlar mapeos)
-      // Preparar payload del Padre (Solo con las propiedades validadas en HubSpot)
+      // Preparar payload del Padre
       const subInputs = [{
-        idProperty: "subscription_id_unique",
         id: sub.subscription_id,
         properties: {
           account_name: sub.center_name ? `Suscripción - ${sub.center_name}` : `Suscripción - ${sub.subscription_id}`,
@@ -98,7 +105,7 @@ async function main() {
         }
       }];
 
-      const subUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ACCOUNT_SUB_OBJECT_ID}/batch/upsert`, {
+      const subUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ACCOUNT_SUB_OBJECT_ID}/batch/upsert?idProperty=subscription_id_unique`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
         body: JSON.stringify({ inputs: subInputs })
@@ -106,97 +113,99 @@ async function main() {
 
       const subUpsertData = await subUpsertRes.json();
       if (!subUpsertRes.ok) {
-        console.error(`❌ Falló Upsert de Suscripción ${sub.subscription_id}:`, JSON.stringify(subUpsertData));
+        errorSubsCount++;
+        console.error(`\n❌ Falló Upsert de Suscripción ${sub.subscription_id}:`, JSON.stringify(subUpsertData));
         continue;
       }
 
       const hubspotSubId = subUpsertData.results[0].id;
       subIdToHubspotIdMap[sub.subscription_id] = hubspotSubId;
-      console.log(`✅ Account Subscription sincronizada. HS ID: ${hubspotSubId}`);
 
-      // Crear Asociación: Suscripción Padre ➔ Empresa
+      // Asociación Padre ➔ Empresa
       await createAssociation(ACCOUNT_SUB_OBJECT_ID, hubspotSubId, "company", companyHubspotId, ASSOC_SUB_TO_COMPANY);
 
-      // 3. PROCESAR LOS ÍTEMS HIJOS DE ESTA SUSCRIPCIÓN ESPECÍFICA
+      // 3. PROCESAR LOS ÍTEMS HIJOS
       const relatedItems = allItems.filter(item => item.subscription_id === sub.subscription_id);
       
-      if (relatedItems.length === 0) {
-        console.log(`ℹ️ La suscripción no tiene ítems hijos asociados en este momento.`);
-        continue;
-      }
-
-      const itemInputs = relatedItems.map(item => {
-        let featuresText = "";
-        try {
-          // Si guardaste las features como JSONB, vendrán estructuradas como objeto/array de JS directamente
-          const parsed = typeof item.features === 'string' ? JSON.parse(item.features) : item.features;
-          featuresText = Array.isArray(parsed) ? parsed.join(", ") : String(parsed || "");
-        } catch (e) {
-          featuresText = String(item.features || "");
-        }
-
-        return {
-          idProperty: "stripe_item_id_unique",
-          id: item.stripe_item_id,
-          properties: {
-            subscription_item_name: `${item.product_name || 'Item'} - ${item.stripe_item_id}`,
-            stripe_item_id_unique: item.stripe_item_id,
-            nup_center_id: sub.nup_center_id,
-            
-            // ✅ Ahora tirará del nuevo intervalMap en minúsculas
-            billing_interval: intervalMap[String(item.billing_interval).toLowerCase()] || "monthly", 
-            
-            payment_frequency: item.payment_frequency || 1,
-            unit_price: item.unit_price || 0,
-            
-            quantity: item.quantity,            
-            start_date: formatHsDate(item.start_date),
-            current_period_start: formatHsDate(item.current_period_start),
-            current_period_end: formatHsDate(item.current_period_end),
-            isforever: item.is_forever ? "true" : "false",
-            features: featuresText,
-            number_of_renovations: item.number_of_renovations || 0,
-            product_name: item.product_name || "",
-            stripe_product_id: item.stripe_product_id || "",
-            subscription_id: item.subscription_id,
-            status: statusMap[String(item.status).toLowerCase()],
-            precanceled_date:item.precanceled_date
-            
+      if (relatedItems.length > 0) {
+        const itemInputs = relatedItems.map(item => {
+          let featuresText = "";
+          try {
+            const parsed = typeof item.features === 'string' ? JSON.parse(item.features) : item.features;
+            featuresText = Array.isArray(parsed) ? parsed.join(", ") : String(parsed || "");
+          } catch (e) {
+            featuresText = String(item.features || "");
           }
-        };
-      });
 
-      console.log(`🚀 Sincronizando ${itemInputs.length} Subscription Items para este padre...`);
-      const itemsUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ITEM_OBJECT_ID}/batch/upsert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
-        body: JSON.stringify({ inputs: itemInputs })
-      });
+          const safeItemId = item.item_id || `manual_${item.subscription_id}_${item.product_name?.replace(/\s+/g, '_')}`;
+          const itemName = item.item_id 
+            ? `${item.product_name || 'Item'} - ${item.item_id}` 
+            : (item.product_name || 'Producto Manual');
 
-      const itemsUpsertData = await itemsUpsertRes.json();
-      if (!itemsUpsertRes.ok) {
-        console.error(`❌ Falló Upsert de ítems para ${sub.subscription_id}:`, JSON.stringify(itemsUpsertData));
-        continue;
+          return {
+            id: safeItemId,
+            properties: {
+              subscription_item_name: itemName,
+              stripe_item_id_unique: safeItemId,
+              nup_center_id: sub.nup_center_id,
+              billing_interval: intervalMap[String(item.billing_interval).toLowerCase()] || "monthly", 
+              payment_frequency: item.payment_frequency || 1,
+              unit_price: item.unit_price || 0,
+              quantity: item.quantity,            
+              start_date: formatHsDate(item.start_date),
+              current_period_start: formatHsDate(item.current_period_start),
+              current_period_end: formatHsDate(item.current_period_end),
+              isforever: item.is_forever ? "true" : "false",
+              features: featuresText,
+              number_of_renovations: item.number_of_renovations || 0,
+              product_name: item.product_name || "",
+              stripe_product_id: item.product_id || "", 
+              subscription_id: item.subscription_id,
+              status: statusMap[String(item.status).toLowerCase()],
+              precanceled_date: formatHsDate(item.precanceled_date)
+            }
+          };
+        });
+
+        const itemsUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ITEM_OBJECT_ID}/batch/upsert?idProperty=stripe_item_id_unique`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
+          body: JSON.stringify({ inputs: itemInputs })
+        });
+
+        if (itemsUpsertRes.ok) {
+          const itemsUpsertData = await itemsUpsertRes.json();
+          processedItemsCount += itemInputs.length;
+          
+          for (const record of itemsUpsertData.results) {
+            const hubspotItemId = record.id;
+            await createAssociation(ITEM_OBJECT_ID, hubspotItemId, "company", companyHubspotId, ASSOC_ITEM_TO_COMPANY);
+            await createAssociation(ITEM_OBJECT_ID, hubspotItemId, ACCOUNT_SUB_OBJECT_ID, hubspotSubId, ASSOC_ITEM_TO_SUB);
+          }
+        } else {
+          console.error(`\n❌ Falló Upsert de ítems para ${sub.subscription_id}`);
+        }
       }
-      console.log(`✅ Ítems sincronizados con éxito.`);
 
-      // 4. CREAR LAS ASOCIACIONES DE LOS ÍTEMS (Ítem ➔ Empresa e Ítem ➔ Suscripción Padre)
-      for (const record of itemsUpsertData.results) {
-        const hubspotItemId = record.id;
-
-        // Enlace: Ítem ➔ Empresa
-        await createAssociation(ITEM_OBJECT_ID, hubspotItemId, "company", companyHubspotId, ASSOC_ITEM_TO_COMPANY);
-
-        // Enlace: Ítem ➔ Suscripción Padre
-        await createAssociation(ITEM_OBJECT_ID, hubspotItemId, ACCOUNT_SUB_OBJECT_ID, hubspotSubId, ASSOC_ITEM_TO_SUB);
+      // ==========================================
+      // ⏱️ CHECKPOINT CADA 50 SUSCRIPCIONES
+      // ==========================================
+      processedSubsCount++;
+      if (processedSubsCount % 50 === 0) {
+        console.log(`⏱️ Checkpoint: Procesadas ${processedSubsCount}/${allSubs.length} suscripciones | Ítems subidos: ${processedItemsCount}`);
       }
     }
 
-    console.log("\n-------------------------------------------------------------");
-    console.log("🎉 [FIN] ¡Sincronización masiva completada con éxito!");
+    console.log("\n=============================================================");
+    console.log("🎉 [FIN] ¡Sincronización completada!");
+    console.log(`📊 Resumen:`);
+    console.log(`   - Suscripciones subidas: ${processedSubsCount}`);
+    console.log(`   - Ítems subidos:         ${processedItemsCount}`);
+    console.log(`   - Errores / Saltadas:    ${errorSubsCount} (Por NUP faltante o error API)`);
+    console.log("=============================================================\n");
 
   } catch (error) {
-    console.error("⛔ [ERROR CRÍTICO]:", error.message);
+    console.error("\n⛔ [ERROR CRÍTICO]:", error.message);
   } finally {
     await pool.end();
   }
