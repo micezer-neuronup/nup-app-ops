@@ -56,8 +56,14 @@ async function main() {
       WHERE current_state IN ('active', 'trial', 'trialing', 'past_due');
     `);
     
-    // Traemos los ítems, en JS ya los filtraremos por el ID del padre
-    const { rows: allItems } = await pool.query(`SELECT * FROM subscription_items;`);
+    // Traemos SOLO los ítems que pertenecen a las suscripciones filtradas arriba
+    const { rows: allItems } = await pool.query(`
+      SELECT * FROM subscription_items 
+      WHERE subscription_id IN (
+        SELECT subscription_id FROM subscriptions 
+        WHERE current_state IN ('active', 'trial', 'trialing', 'past_due')
+      );
+    `);
 
     if (allSubs.length === 0) {
       console.log("ℹ️ No hay suscripciones activas en la base de datos para sincronizar.");
