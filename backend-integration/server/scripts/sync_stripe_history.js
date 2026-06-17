@@ -40,18 +40,15 @@ pool.on('error', (err) => {
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-
 const hubspotFeaturesCache = new Map();
 
 async function getHubspotFeaturesCached(nupCenterId) {
   if (!nupCenterId) return [];
   
-  // 1. Miramos si ya tenemos las features de este centro en memoria
   if (hubspotFeaturesCache.has(nupCenterId)) {
     return hubspotFeaturesCache.get(nupCenterId);
   }
 
-  // 2. Si no lo tenemos, llamamos a HubSpot
   try {
     const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
       method: 'POST',
@@ -71,7 +68,7 @@ async function getHubspotFeaturesCached(nupCenterId) {
         const rawFeatures = data.results[0].properties.subscription_features;
         const featuresArray = rawFeatures ? rawFeatures.split(/[,;]/).map(f => f.trim()).filter(Boolean) : [];
         
-        hubspotFeaturesCache.set(nupCenterId, featuresArray); // Guardar en caché
+        hubspotFeaturesCache.set(nupCenterId, featuresArray); 
         return featuresArray;
       }
     }
@@ -79,7 +76,7 @@ async function getHubspotFeaturesCached(nupCenterId) {
     console.error(`[HUBSPOT ERROR] Centro ${nupCenterId}:`, error.message);
   }
   
-  hubspotFeaturesCache.set(nupCenterId, []); // Si falla, guardamos vacío para no repetir el error
+  hubspotFeaturesCache.set(nupCenterId, []); 
   return [];
 }
 
@@ -104,6 +101,7 @@ async function upsertStripeSubscription(data) {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        ON CONFLICT (subscription_id) 
        DO UPDATE SET 
+         -- ✨ BLINDAJE: nup_center_id NO está aquí, por lo que nunca se sobreescribirá si ya existe
          center_name = EXCLUDED.center_name,
          start_date = EXCLUDED.start_date,
          precancelled_date = EXCLUDED.precancelled_date,
@@ -115,7 +113,7 @@ async function upsertStripeSubscription(data) {
          pending_payment = EXCLUDED.pending_payment,
          updated_at = CURRENT_TIMESTAMP`,
       [
-        sub.subscription_id, null, null, sub.segment, 
+        sub.subscription_id, null, sub.nup_center_id, sub.segment, 
         null, sub.center_name, sub.start_date, sub.precancelled_date, 
         sub.cancelation_date, null, sub.current_state, sub.currency, 
         null, 'stripe', sub.payment_method_type, null, sub.is_forever, sub.pending_payment
@@ -126,7 +124,6 @@ async function upsertStripeSubscription(data) {
     if (items && items.length > 0) {
       const currentItemIds = items.map(item => item.item_id);
 
-      // Si un ítem ya no viene en Stripe, pasa a estar cancelado
       await client.query(
         `UPDATE subscription_items 
          SET status = 'canceled', precanceled_date = COALESCE(precanceled_date, CURRENT_DATE), updated_at = CURRENT_TIMESTAMP
@@ -144,6 +141,7 @@ async function upsertStripeSubscription(data) {
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
            ON CONFLICT (item_id) 
            DO UPDATE SET 
+             -- ✨ BLINDAJE: Tampoco tocamos nup_center_id aquí
              product_name = EXCLUDED.product_name,
              billing_interval = EXCLUDED.billing_interval,
              payment_frequency = EXCLUDED.payment_frequency,
@@ -157,7 +155,7 @@ async function upsertStripeSubscription(data) {
              precanceled_date = EXCLUDED.precanceled_date,
              updated_at = CURRENT_TIMESTAMP`,
           [
-            item.item_id, null, sub.subscription_id, null, 
+            item.item_id, null, sub.subscription_id, item.nup_center_id, 
             item.product_id, item.product_name, item.billing_interval, item.payment_frequency, item.unit_price, 
             item.features, item.quantity, item.start_date, item.current_period_start, item.current_period_end, 
             item.is_forever, item.status, item.precanceled_date
@@ -200,7 +198,6 @@ async function processMassiveStripeSync() {
     console.log(`[INFO] Descargados ${productsMap.size} productos.`);
     console.log("[INFO] Iniciando volcado masivo histórico desde Stripe...");
 
-    // Obtenemos todas las suscripciones auto-paginadas
     const subscriptions = stripe.subscriptions.list({
       status: 'all',
       expand: ['data.customer', 'data.customer.invoice_settings.default_payment_method']
@@ -211,15 +208,18 @@ async function processMassiveStripeSync() {
 
     for await (const stripeSub of subscriptions) {
       try {
-        // --- PARSEO DE FECHAS SEGÚN TU LOGIC (CORREGIDO) ---
+        // ✨ NUEVO: Buscamos el nup_center_id actual en tu BD antes de hacer nada más
+        const dbCheck = await pool.query('SELECT nup_center_id FROM subscriptions WHERE subscription_id = $1', [stripeSub.id]);
+        const nupCenterId = dbCheck.rows.length > 0 ? dbCheck.rows[0].nup_center_id : null;
+
+        // ✨ NUEVO: Si tiene ID, le pedimos las features a HubSpot. Si es null, devuelve [] rápido
+        const centerFeatures = nupCenterId ? await getHubspotFeaturesCached(nupCenterId) : [];
+
+        // --- PARSEO DE FECHAS SEGÚN TU LOGIC ---
         const startDate = stripeSub.start_date ? new Date(stripeSub.start_date * 1000) : null;
         const currentPeriodStart = stripeSub.current_period_start ? new Date(stripeSub.current_period_start * 1000) : null;
-        
-        // Tu precancelled_date = Cuando le dan al botón (canceled_at de Stripe)
         const precancelledDate = stripeSub.canceled_at ? new Date(stripeSub.canceled_at * 1000) : null;
         
-        // Tu cancelation_date = Cuando expira de verdad (cancel_at de Stripe)
-        // Si no está programado para cancelar, usamos su fin de periodo habitual como fecha estimada de fin del ciclo actual
         const cancelationDate = stripeSub.cancel_at 
           ? new Date(stripeSub.cancel_at * 1000) 
           : (stripeSub.current_period_end ? new Date(stripeSub.current_period_end * 1000) : null);
@@ -237,28 +237,26 @@ async function processMassiveStripeSync() {
         
         if (customer && typeof customer === 'object') {
           centerName = customer.name || customer.description || null;
-          
           if (customer.invoice_settings?.default_payment_method) {
-            pmType = customer.invoice_settings.default_payment_method.type; // ej: 'card', 'sepa_debit'
+            pmType = customer.invoice_settings.default_payment_method.type; 
           }
         }
-
-        const centerFeatures = await getHubspotFeaturesCached(nupCenterId);
 
         // --- ESTADO DEL PADRE: INFERIR TRIAL_CANCELED ---
         let parentState = stripeSub.status;
         if (parentState === 'canceled' && trialEnd && precancelledDate && precancelledDate <= trialEnd) {
           parentState = 'trial_canceled';
         } else if (parentState === 'trialing') {
-          parentState = 'trial'; // Adaptamos el string nativo de stripe a tu enum
+          parentState = 'trial'; 
         }
 
         const payloadSub = {
           subscription_id: stripeSub.id,
+          nup_center_id: nupCenterId, // Mantenemos el que tenga en la BD (o null si es nueva)
           center_name: centerName,
           start_date: startDate,
           precancelled_date: precancelledDate,
-          cancelation_date: stripeSub.status === 'canceled' || stripeSub.status === 'incomplete_expired' ? cancelationDate : null, // Solo guardamos fin si está muerta
+          cancelation_date: stripeSub.status === 'canceled' || stripeSub.status === 'incomplete_expired' ? cancelationDate : null, 
           current_state: parentState,
           currency: stripeSub.currency ? stripeSub.currency.toUpperCase() : null,
           payment_method_type: pmType,
@@ -272,22 +270,23 @@ async function processMassiveStripeSync() {
           const productName = productsMap.get(productId) || 'Producto Desconocido';
           const itemPeriodEnd = item.price.recurring ? (stripeSub.current_period_end ? new Date(stripeSub.current_period_end * 1000) : null) : null;
 
-          // --- ESTADO DEL HIJO: HERENCIA CONDICIONADA ---
           let childStatus = parentState;
           if (['past_due', 'unpaid', 'incomplete'].includes(parentState)) {
             if (itemPeriodEnd && itemPeriodEnd > today) {
-              childStatus = 'active'; // Sigue pagada/sana de momento
+              childStatus = 'active'; 
             }
           }
 
           return {
             item_id: item.id,
+            nup_center_id: nupCenterId, // Pasamos el ID rescatado
             product_id: productId,
             product_name: productName,
             billing_interval: item.price.recurring?.interval || null,
             payment_frequency: item.price.recurring?.interval_count || 1,
-            unit_price: item.price.unit_amount ? (item.price.unit_amount / 100) : null, // ✅ CORREGIDO: De céntimos a Euros
-            features: JSON.stringify([]), // ✨ INYECTAMOS EL RESULTADO DE HUBSPOT            quantity: item.quantity,
+            unit_price: item.price.unit_amount ? (item.price.unit_amount / 100) : null, 
+            features: JSON.stringify(centerFeatures), // ✨ INYECTAMOS LAS FEATURES DE HUBSPOT
+            quantity: item.quantity,
             start_date: startDate,
             current_period_start: currentPeriodStart,
             current_period_end: itemPeriodEnd,
@@ -303,7 +302,7 @@ async function processMassiveStripeSync() {
         if (successCount % 50 === 0) {
           console.log(`[INFO] Sincronizadas ${successCount} suscripciones de Stripe...`);
         }
-        await delay(100);
+        await delay(100); // Pausa ligeramente más alta para proteger tanto HubSpot como PostgreSQL
 
       } catch (rowError) {
         console.error(`[ERROR] Fallo en suscripción ${stripeSub.id} | error=${rowError.message}`);
