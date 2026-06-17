@@ -80,7 +80,7 @@ export function SubscriptionCard({
   nup2goBalance?: number;
   onOpenModal?: () => void;
 }) {
-  const [isFlipped, setIsFlipped] = useState(false); // ✨ Estado para el giro 3D
+  const [isFlipped, setIsFlipped] = useState(false);
 
   const status = subscriptionData?.current_state || "—";
   const isForever = subscriptionData?.is_forever;
@@ -88,7 +88,7 @@ export function SubscriptionCard({
   const features: string[] = subscriptionData?.subscription_features || [];
   const items = subscriptionData?.subscription_items || [];
 
-  // Asegurar NUP2GO en productos
+  // Asegurar NUP2GO en productos visuales
   let productItems = [...items];
   const hasNup2go = productItems.some((item: any) => item.product_name === "NUP2GO");
   if (!hasNup2go && nup2goBalance !== undefined) {
@@ -100,7 +100,8 @@ export function SubscriptionCard({
     });
   }
 
-  const isActive = status === "active" || status === "trialing";
+  // Comprobación de estado activo (añadimos 'trial' por si acaso)
+  const isActive = status === "active" || status === "trialing" || status === "trial";
   const StatusIcon = isActive ? CheckCircle2 : AlertCircle;
 
   let endDateDisplay = "—";
@@ -116,20 +117,28 @@ export function SubscriptionCard({
     ? `${currencySymbol} (${currency.toUpperCase()})`
     : "—";
 
+  // Mapeo seguro de productos y precios
   const productList = productItems.map((item: any) => {
     if (item.product_name === "NUP2GO") {
-      return { name: "NUP2GO", value: nup2goBalance !== undefined ? `${nup2goBalance} créditos` : "—" };
+      return { 
+        name: "NUP2GO", 
+        value: nup2goBalance !== undefined ? `${nup2goBalance} créditos` : "—" 
+      };
     }
+
+    const price = item.unit_price != null ? item.unit_price : 0;
+    const interval = item.billing_interval === "month" ? "mes" : item.billing_interval === "year" ? "año" : item.billing_interval;
+    const intervalDisplay = interval ? `/${interval}` : "";
+    const quantityDisplay = item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : "";
+
     return {
-      name: item.product_name,
-      value: `${item.unit_price} €/${item.billing_interval === "month" ? "mes" : "año"} ${item.quantity > 1 ? `(x${item.quantity})` : ""}`,
+      name: item.product_name || "Producto Desconocido",
+      value: `${price} ${currencySymbol}${intervalDisplay}${quantityDisplay}`,
     };
   });
 
   return (
-    // 1. Contenedor principal con perspectiva 3D
     <div className="relative h-[450px] w-full [perspective:1000px] group">
-      
       <div 
         className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}
       >
@@ -164,71 +173,71 @@ export function SubscriptionCard({
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto px-4 pb-4 pt-1 space-y-4 text-sm">            <div className="flex-1 overflow-y-auto px-6 space-y-4 pb-4 min-h-0">
-              {/* Métricas fijas */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+          
+          <CardContent className="flex-1 overflow-y-auto px-6 space-y-4 pb-4 min-h-0 pt-2 text-sm">
+            {/* Métricas fijas */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Fin del ciclo
+                </p>
+                <p className="text-sm font-medium">{endDateDisplay}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Users className="h-3 w-3" /> Segmento
+                </p>
+                <p className="text-sm font-medium">{segment}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Días suscrito
+                </p>
+                <p className="text-sm font-medium">{allSubscriptionDays > 0 ? `${allSubscriptionDays} días` : "—"}</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Globe className="h-3 w-3" /> Moneda
+                </p>
+                <p className="text-sm font-medium">{currencyDisplay}</p>
+              </div>
+            </div>
+
+            {/* Productos activos */}
+            {productList.length > 0 && (
+              <div className="space-y-2 pt-4 border-t">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Package className="h-3 w-3" /> Productos de la suscripción
+                </p>
                 <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Calendar className="h-3 w-3" /> Fin del ciclo
-                  </p>
-                  <p className="text-sm font-medium">{endDateDisplay}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Users className="h-3 w-3" /> Segmento
-                  </p>
-                  <p className="text-sm font-medium">{segment}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Calendar className="h-3 w-3" /> Días suscrito
-                  </p>
-                  <p className="text-sm font-medium">{allSubscriptionDays > 0 ? `${allSubscriptionDays} días` : "—"}</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Globe className="h-3 w-3" /> Moneda
-                  </p>
-                  <p className="text-sm font-medium">{currencyDisplay}</p>
+                  {productList.map((product, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <CreditCardIcon className="h-3 w-3 text-muted-foreground" />
+                        <span className="font-medium">{product.name}</span>
+                      </div>
+                      <span className="font-semibold text-muted-foreground">{product.value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
 
-              {/* Productos activos */}
-              {productList.length > 0 && (
-                <div className="space-y-2 pt-2 border-t">
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Package className="h-3 w-3" /> Productos activos
-                  </p>
-                  <div className="space-y-1">
-                    {productList.map((product, idx) => (
-                      <div key={idx} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <CreditCardIcon className="h-3 w-3 text-muted-foreground" />
-                          <span className="font-medium">{product.name}</span>
-                        </div>
-                        <span className="font-semibold">{product.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Módulos (Features) */}
-              <div className="space-y-2 pt-2 border-t">
-                <p className="text-xs text-muted-foreground">Módulos habilitados:</p>
-                <div className="flex flex-wrap gap-2 pb-2">
-                  {features.length > 0 ? (
-                    features.map((featureKey: string, idx: number) => (
-                      <Badge key={idx} variant="secondary" className="font-normal bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                        <ShieldCheck className="h-3 w-3 mr-1" />
-                        {featureLabels[featureKey] || featureKey}
-                        <span className="ml-1 text-[10px] opacity-70">({featureKey})</span>
-                      </Badge>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">Ningún módulo extra</span>
-                  )}
-                </div>
+            {/* Módulos (Features Generales) */}
+            <div className="space-y-2 pt-4 border-t">
+              <p className="text-xs text-muted-foreground">Módulos habilitados:</p>
+              <div className="flex flex-wrap gap-2 pb-2">
+                {features.length > 0 ? (
+                  features.map((featureKey: string, idx: number) => (
+                    <Badge key={idx} variant="secondary" className="font-normal bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                      <ShieldCheck className="h-3 w-3 mr-1" />
+                      {featureLabels[featureKey] || featureKey}
+                      <span className="ml-1 text-[10px] opacity-70">({featureKey})</span>
+                    </Badge>
+                  ))
+                ) : (
+                  <span className="text-sm text-muted-foreground">Ningún módulo extra detectado.</span>
+                )}
               </div>
             </div>
           </CardContent>
@@ -254,7 +263,7 @@ export function SubscriptionCard({
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto px-4 pb-4 pt-1 space-y-4 text-sm">
+          <CardContent className="flex-1 overflow-y-auto px-4 pb-4 pt-4 space-y-4 text-sm">
             <div>
               <p className="font-semibold flex items-center gap-1"><Calendar className="h-3 w-3"/> Fin del ciclo</p>
               <p className="text-muted-foreground text-xs mt-1">
@@ -272,14 +281,14 @@ export function SubscriptionCard({
             <div>
               <p className="font-semibold flex items-center gap-1"><Package className="h-3 w-3"/> Productos vs Módulos</p>
               <p className="text-muted-foreground text-xs mt-1">
-                Los <span className="font-medium text-foreground">Productos</span> son los items de facturación de Stripe. Los <span className="font-medium text-foreground">Módulos</span> son simplemente lo que internamente conocemos como <strong>Features</strong>.
+                Los <span className="font-medium text-foreground">Productos</span> son los items de facturación de Stripe. Los <span className="font-medium text-foreground">Módulos</span> son simplemente lo que internamente conocemos como <strong>Features</strong> (lo que desbloquea el producto).
               </p>
             </div>
 
             <div className="bg-primary/10 p-2 rounded border border-primary/20 mt-2">
               <p className="text-xs text-primary font-medium flex items-center gap-1"><Zap className="h-3 w-3"/> Gestión</p>
               <p className="text-xs text-muted-foreground mt-1">
-                El botón "Modificar" se podrá usar más adelante por el respectivo responsable de la suscripción. Actualmente se encuentra deshabilitado.
+                El botón "Gestionar" se podrá usar más adelante por el respectivo responsable de la suscripción. Actualmente abre una modal en desarrollo.
               </p>
             </div>
           </CardContent>

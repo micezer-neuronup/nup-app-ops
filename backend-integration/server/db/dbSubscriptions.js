@@ -7,12 +7,13 @@ async function getSubscriptionByCenterId(centerId) {
       SELECT 
         s.subscription_id,
         s.current_state,
-        s.precancelled_date, -- ✨ Corregido a doble L
+        s.precancelled_date, -- Padre (con doble L)
         s.is_forever,
         s.pending_payment,
         s.hubspot_subscription_id,
         json_agg(
           json_build_object(
+            'item_id', si.item_id,
             'product_name', si.product_name,
             'billing_interval', si.billing_interval,
             'payment_frequency', si.payment_frequency,
@@ -23,7 +24,7 @@ async function getSubscriptionByCenterId(centerId) {
             'current_period_end', si.current_period_end,
             'is_forever', si.is_forever,
             'status', si.status,
-            'precanceled_date', si.precanceled_date,
+            'precanceled_date', si.precanceled_date, -- Hijo (con una L)
             'features', si.features
           )
         ) as items
@@ -33,7 +34,7 @@ async function getSubscriptionByCenterId(centerId) {
       GROUP BY 
         s.subscription_id, 
         s.current_state, 
-        s.precancelled_date, -- ✨ Corregido
+        s.precancelled_date, 
         s.is_forever,
         s.pending_payment, 
         s.hubspot_subscription_id,
@@ -43,11 +44,13 @@ async function getSubscriptionByCenterId(centerId) {
     `;
 
     const result = await pool.query(query, [centerId]);
-    if (result.rows.length === 0) return null;
+    
+    if (result.rowCount === 0) return null;
 
     const sub = result.rows[0];
     
     let allFeatures = [];
+    
     if (sub.items && Array.isArray(sub.items)) {
       sub.items.forEach(item => {
         if (item.status === 'active' && item.features && Array.isArray(item.features)) {
@@ -59,7 +62,7 @@ async function getSubscriptionByCenterId(centerId) {
     return {
       subscription_id: sub.subscription_id,
       current_state: sub.current_state,
-      precancelled_date: sub.precancelled_date, // ✨ Corregido
+      precancelled_date: sub.precancelled_date, 
       is_forever: sub.is_forever,
       pending_payment: sub.pending_payment,
       hubspot_subscription_id: sub.hubspot_subscription_id,
@@ -68,7 +71,7 @@ async function getSubscriptionByCenterId(centerId) {
     };
 
   } catch (error) {
-    console.error("❌ Error fetching subscription:", error);
+    console.error(`[ERROR] getSubscriptionByCenterId falló para el centro ${centerId}:`, error.message);
     return { error: error.message };
   }
 }
