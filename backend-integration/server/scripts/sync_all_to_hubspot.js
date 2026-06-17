@@ -9,7 +9,7 @@ dotenv.config({ path: envPath });
 // ============================================================================
 // CONFIGURACIÓN DE CREDENCIALES Y OBJETOS
 // ============================================================================
-const HUBSPOT_TOKEN = os.getenv('HUBSPOT_TOKEN')
+const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN
 
 const ITEM_OBJECT_ID = "2-203892072";        
 const ACCOUNT_SUB_OBJECT_ID = "2-203896755"; 
@@ -20,7 +20,7 @@ const ASSOC_ITEM_TO_SUB = 316;
 
 const pool = new Pool({
   user: process.env.DB_USER,
-  host: 'localhost', 
+  host: process.env.DB_HOST,
   database: process.env.DB_NAME, 
   password: process.env.DB_PASSWORD,
   port: process.env.DB_PORT || 5432,

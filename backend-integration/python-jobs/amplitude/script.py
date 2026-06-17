@@ -380,7 +380,7 @@ if __name__ == "__main__":
     )
     
 
-    # start_str, end_str = get_time_window(conn)
+    start_str, end_str = get_time_window(conn)
     
 
     start_str = "20260616T00"
@@ -397,36 +397,36 @@ if __name__ == "__main__":
         cursor = conn.cursor()
         
         # === 🚫 COMENTAMOS TODO LO DE AMPLITUDE PARA ESTE TEST ===
-        # event_batch = []
-        # BATCH_SIZE = 5000
-        # total_processed = 0
+        event_batch = []
+        BATCH_SIZE = 5000
+        total_processed = 0
 
-        # for event in fetch_stream_events(start_str, end_str):
-        #     event_batch.append(event)
-        #     total_processed += 1
+        for event in fetch_stream_events(start_str, end_str):
+             event_batch.append(event)
+             total_processed += 1
         #     
-        #     if len(event_batch) >= BATCH_SIZE:
-        #         process_event_batch(event_batch, cursor)
-        #         event_batch.clear()
+             if len(event_batch) >= BATCH_SIZE:
+                 process_event_batch(event_batch, cursor)
+                 event_batch.clear()
         # 
-        # if event_batch:
-        #     process_event_batch(event_batch, cursor)
+        if event_batch:
+             process_event_batch(event_batch, cursor)
 
-        # conn.commit()
+        conn.commit()
 
-        # if total_processed > 0:
-        #     run_daily_aggregations(cursor, start_str, end_str)
+        if total_processed > 0:
+             run_daily_aggregations(cursor, start_str, end_str)
         # ========================================================
 
 
         # === 🚀 EJECUTAMOS DIRECTAMENTE LA LLAMADA A HUBSPOT ===
         # Le pasamos "20260616T00" para que use el día de hoy como fecha de referencia
         # y calcule los últimos 30 días hacia atrás en la base de datos.
-        sync_hubspot_metrics(cursor, "20260616T00")
+        sync_hubspot_metrics(cursor, start_str)
 
 
         # === 🚫 COMENTAMOS EL MARCAPÁGINAS PARA QUE NO SE MUEVA ===
-        # update_last_fetch_date(conn, end_str) 
+        update_last_fetch_date(conn, end_str) 
         
         conn.commit()
         print("[INFO] [HUBSPOT] Manual test run completed successfully!")
