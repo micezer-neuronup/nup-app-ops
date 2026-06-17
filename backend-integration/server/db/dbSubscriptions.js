@@ -24,7 +24,6 @@ async function getSubscriptionByCenterId(centerId) {
         s.market,
         s.is_forever,
         s.pending_payment,
-        s.created_at,
         s.updated_at,
         
         -- TODOS los campos de los hijos (subscription_items)
@@ -47,7 +46,6 @@ async function getSubscriptionByCenterId(centerId) {
             'is_forever', si.is_forever,
             'status', si.status,
             'precanceled_date', si.precanceled_date,
-            'created_at', si.created_at,
             'updated_at', si.updated_at
           )
         ) as items
@@ -73,7 +71,6 @@ async function getSubscriptionByCenterId(centerId) {
         s.market,
         s.is_forever,
         s.pending_payment,
-        s.created_at,
         s.updated_at
       ORDER BY s.updated_at DESC
       LIMIT 1;
