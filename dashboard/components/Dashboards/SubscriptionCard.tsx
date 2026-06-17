@@ -80,6 +80,30 @@ export function SubscriptionCard({
   nup2goBalance?: number;
   onOpenModal?: () => void;
 }) {
+
+
+  // ==========================================
+  // 🐛 CHIVATO DE DEBUG (Cópialo al principio de tu componente)
+  // ==========================================
+  console.log("🎯 --- DATOS COMPLETOS DE LA SUSCRIPCIÓN ---");
+  console.log("Objeto Padre completo:", subscriptionData);
+  
+  if (subscriptionData) {
+    console.log("Propiedades del Padre:", Object.keys(subscriptionData));
+  }
+
+  const itemsDeDebug = subscriptionData?.subscription_items || subscriptionData?.items || [];
+  console.log(`Hijos (Total: ${itemsDeDebug.length}):`, itemsDeDebug);
+  
+  if (itemsDeDebug.length > 0) {
+    console.log("Propiedades del primer Hijo:", Object.keys(itemsDeDebug[0]));
+  }
+  console.log("--------------------------------------------");
+  // ==========================================
+
+
+
+
   const [isFlipped, setIsFlipped] = useState(false);
 
   const status = subscriptionData?.current_state || "—";
