@@ -84,7 +84,6 @@ export function SubscriptionCard({
 
   const status = subscriptionData?.current_state || "—";
   const isForever = subscriptionData?.is_forever;
-  const source = subscriptionData?.source?.toLowerCase() || ""; // Extraemos el source (stripe o backend)
   const rawEndDate = subscriptionData?.current_period_end;
   const features: string[] = subscriptionData?.subscription_features || [];
   const items = subscriptionData?.subscription_items || [];
@@ -105,15 +104,9 @@ export function SubscriptionCard({
   const isActive = status === "active" || status === "trialing" || status === "trial";
   const StatusIcon = isActive ? CheckCircle2 : AlertCircle;
 
-  // ✨ LÓGICA DE FIN DE CICLO ACTUALIZADA
   let endDateDisplay = "—";
   if (isForever) {
-    if (source === "backend") {
-      endDateDisplay = "Renovación Manual";
-    } else {
-      // Fallback para "stripe" o por defecto
-      endDateDisplay = "Renovación Automática"; 
-    }
+    endDateDisplay = "Renovación Automática";
   } else if (rawEndDate) {
     endDateDisplay = formatDate(rawEndDate);
   }
