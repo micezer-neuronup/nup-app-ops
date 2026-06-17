@@ -5,39 +5,75 @@ async function getSubscriptionByCenterId(centerId) {
   try {
     const query = `
       SELECT 
+        -- TODOS los campos de la tabla padre (subscriptions)
         s.subscription_id,
+        s.hubspot_subscription_id,
+        s.nup_center_id,
+        s.segment,
+        s.manages_own_payment,
+        s.center_name,
+        s.start_date,
+        s.precancelled_date,
+        s.cancelation_date,
+        s.revoked_access_date,
         s.current_state,
-        s.precancelled_date, -- Padre (con doble L)
+        s.currency,
+        s.creation_source,
+        s.source,
+        s.payment_method_type,
+        s.market,
         s.is_forever,
         s.pending_payment,
-        s.hubspot_subscription_id,
+        s.created_at,
+        s.updated_at,
+        
+        -- TODOS los campos de los hijos (subscription_items)
         json_agg(
           json_build_object(
             'item_id', si.item_id,
+            'hubspot_item_id', si.hubspot_item_id,
+            'subscription_id', si.subscription_id,
+            'nup_center_id', si.nup_center_id,
+            'product_id', si.product_id,
             'product_name', si.product_name,
             'billing_interval', si.billing_interval,
             'payment_frequency', si.payment_frequency,
             'unit_price', si.unit_price,
+            'features', si.features,
             'quantity', si.quantity,
             'start_date', si.start_date,
             'current_period_start', si.current_period_start,
             'current_period_end', si.current_period_end,
             'is_forever', si.is_forever,
             'status', si.status,
-            'precanceled_date', si.precanceled_date, -- Hijo (con una L)
-            'features', si.features
+            'precanceled_date', si.precanceled_date,
+            'created_at', si.created_at,
+            'updated_at', si.updated_at
           )
         ) as items
       FROM subscriptions s
       LEFT JOIN subscription_items si ON s.subscription_id = si.subscription_id
       WHERE s.nup_center_id = $1
       GROUP BY 
-        s.subscription_id, 
-        s.current_state, 
-        s.precancelled_date, 
-        s.is_forever,
-        s.pending_payment, 
+        s.subscription_id,
         s.hubspot_subscription_id,
+        s.nup_center_id,
+        s.segment,
+        s.manages_own_payment,
+        s.center_name,
+        s.start_date,
+        s.precancelled_date,
+        s.cancelation_date,
+        s.revoked_access_date,
+        s.current_state,
+        s.currency,
+        s.creation_source,
+        s.source,
+        s.payment_method_type,
+        s.market,
+        s.is_forever,
+        s.pending_payment,
+        s.created_at,
         s.updated_at
       ORDER BY s.updated_at DESC
       LIMIT 1;
@@ -52,6 +88,9 @@ async function getSubscriptionByCenterId(centerId) {
     let allFeatures = [];
     
     if (sub.items && Array.isArray(sub.items)) {
+      // Limpiamos los nulls generados por el LEFT JOIN en caso de que no haya items
+      sub.items = sub.items.filter(item => item.item_id !== null);
+      
       sub.items.forEach(item => {
         if (item.status === 'active' && item.features && Array.isArray(item.features)) {
           allFeatures = [...allFeatures, ...item.features];
@@ -59,14 +98,9 @@ async function getSubscriptionByCenterId(centerId) {
       });
     }
 
+    // Retornamos todos los campos del padre desestructurados + los items corregidos + array de features generales
     return {
-      subscription_id: sub.subscription_id,
-      current_state: sub.current_state,
-      precancelled_date: sub.precancelled_date, 
-      is_forever: sub.is_forever,
-      pending_payment: sub.pending_payment,
-      hubspot_subscription_id: sub.hubspot_subscription_id,
-      items: sub.items,
+      ...sub,
       features: allFeatures
     };
 
