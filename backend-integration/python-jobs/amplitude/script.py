@@ -236,17 +236,23 @@ def sync_hubspot_metrics(cursor, end_str):
     start_30d = ref_date - timedelta(days=30)
     
     # 1. Recuperamos métricas de los últimos 30 días (Ignoramos asignadas, usamos started y finished)
+    
+
+
+    # Consulta optimizada con filtro de estado
     cursor.execute("""
-        SELECT 
-            center_id,
-            COUNT(DISTINCT CASE WHEN total_logins > 0 THEN stat_date END) as active_days,
-            SUM(sessions_started) as sum_started,
-            SUM(sessions_finished) as sum_finished,
-            MAX(stat_date) FILTER (WHERE total_logins > 0) as last_login_date
-        FROM daily_stats
-        WHERE stat_date > %s AND stat_date <= %s
-        GROUP BY center_id;
-    """, (start_30d, ref_date))
+    SELECT 
+        s.center_id,
+        COUNT(DISTINCT CASE WHEN ds.total_logins > 0 THEN ds.stat_date END) as active_days,
+        SUM(ds.sessions_started) as sum_started,
+        SUM(ds.sessions_finished) as sum_finished,
+        MAX(ds.stat_date) FILTER (WHERE ds.total_logins > 0) as last_login_date
+    FROM daily_stats ds
+    JOIN subscriptions s ON ds.center_id = s.center_id
+    WHERE ds.stat_date > %s AND ds.stat_date <= %s
+      AND s.current_state IN ('active', 'trial', 'past_due')
+    GROUP BY s.center_id;
+""", (start_30d, ref_date))
     
     stats_rows = cursor.fetchall()
 
@@ -294,7 +300,7 @@ def sync_hubspot_metrics(cursor, end_str):
         # =========================================================
         
         # Pilar 1: Frecuencia (Max 50 pts) -> Objetivo: 15 días activos al mes
-        freq_score = min(50, (active_days / 15.0) * 50)
+        freq_score = min(50, (active_days / 10.0) * 50)
         
         # Pilar 2: Adopción (Max 50 pts) -> Objetivo: Terminar el 80% (0.8) de lo empezado
         if sum_started > 0:
