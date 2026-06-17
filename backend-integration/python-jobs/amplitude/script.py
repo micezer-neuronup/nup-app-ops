@@ -242,16 +242,16 @@ def sync_hubspot_metrics(cursor, end_str):
     # Consulta optimizada con filtro de estado
     cursor.execute("""
     SELECT 
-        s.center_id,
+        ds.center_id,  -- Mantenemos ds.center_id para que el resto del bucle for no rompa
         COUNT(DISTINCT CASE WHEN ds.total_logins > 0 THEN ds.stat_date END) as active_days,
         SUM(ds.sessions_started) as sum_started,
         SUM(ds.sessions_finished) as sum_finished,
         MAX(ds.stat_date) FILTER (WHERE ds.total_logins > 0) as last_login_date
     FROM daily_stats ds
-    JOIN subscriptions s ON ds.center_id = s.center_id
+    JOIN subscriptions s ON ds.center_id = s.nup_center_id  -- Unido por nup_center_id
     WHERE ds.stat_date > %s AND ds.stat_date <= %s
       AND s.current_state IN ('active', 'trial', 'past_due')
-    GROUP BY s.center_id;
+    GROUP BY ds.center_id;  -- Agrupamos por la misma columna del SELECT
 """, (start_30d, ref_date))
     
     stats_rows = cursor.fetchall()
