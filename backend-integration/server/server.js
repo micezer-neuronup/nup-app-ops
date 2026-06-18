@@ -34,7 +34,7 @@ const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/su
 // ────── Initialization: Script paths ─────────────────────────────
 // ─── We define the path of the scripts the cron job calls
 // ────────────────────────────────────────────────────────────────
-const scriptPath = path.join(__dirname, '../python-jobs/script.py');
+const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
 const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
 
