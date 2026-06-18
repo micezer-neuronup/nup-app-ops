@@ -383,8 +383,8 @@ if __name__ == "__main__":
     start_str, end_str = get_time_window(conn)
     
 
-    start_str = "20260616T00"
-    end_str = "20260617T00"
+    #start_str = "20260616T00"
+    #end_str = "20260617T00"
     
     if not start_str:
         print("[INFO] [AMPLITUDE] No new data ready yet. Exiting gracefully.")
@@ -396,7 +396,6 @@ if __name__ == "__main__":
     try:
         cursor = conn.cursor()
         
-        # === 🚫 COMENTAMOS TODO LO DE AMPLITUDE PARA ESTE TEST ===
         event_batch = []
         BATCH_SIZE = 5000
         total_processed = 0
