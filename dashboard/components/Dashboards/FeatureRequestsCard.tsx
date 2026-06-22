@@ -89,7 +89,7 @@ export function FeatureRequestsCard({ requests = [] }: FeatureRequestsCardProps)
 
   return (
     // 1. Contenedor principal con perspectiva 3D
-    <div className="relative h-[450px] w-full [perspective:1000px] group">
+    <div className="relative h-[500px] w-full [perspective:1000px] group">
       
       <div 
         className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}

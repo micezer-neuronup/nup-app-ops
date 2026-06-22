@@ -13,7 +13,8 @@ import {
   TrendingUp, 
   FileText,
   Info,
-  RotateCcw
+  RotateCcw,
+  CheckSquare // ✨ Icono para las actividades realizadas
 } from "lucide-react";
 
 type Range = 7 | 30 | 90;
@@ -34,7 +35,6 @@ interface UsageDataCardProps {
 
 export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCardProps) {
   const [range, setRange] = useState<Range>(7);
-  // ✨ Nuevo estado para controlar el giro de la tarjeta
   const [isFlipped, setIsFlipped] = useState(false);
 
   const dailyData = analytics?.daily || [];
@@ -53,6 +53,8 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
     const startedSessions = filtered.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
     const completedSessions = filtered.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
     const reportsCreated = filtered.reduce((sum, day) => sum + (day.reports_created || 0), 0);
+    // ✨ Acumulador periodo actual
+    const activitiesStarted = filtered.reduce((sum, day) => sum + (day.activities_started || 0), 0);
     
     const completionRate = startedSessions > 0 ? (completedSessions / startedSessions) * 100 : 0;
 
@@ -61,12 +63,18 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
     const prevStarted = previousPeriod.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
     const prevCompleted = previousPeriod.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
     const prevReports = previousPeriod.reduce((sum, day) => sum + (day.reports_created || 0), 0);
+    // ✨ Acumulador periodo anterior
+    const prevActivities = previousPeriod.reduce((sum, day) => sum + (day.activities_started || 0), 0);
+    
     const prevRate = prevStarted > 0 ? (prevCompleted / prevStarted) * 100 : 0;
 
     const assignedEvolution = prevAssigned ? ((assignedSessions - prevAssigned) / prevAssigned) * 100 : 0;
     const startedEvolution = prevStarted ? ((startedSessions - prevStarted) / prevStarted) * 100 : 0;
     const completedEvolution = prevCompleted ? ((completedSessions - prevCompleted) / prevCompleted) * 100 : 0;
     const reportsEvolution = prevReports ? ((reportsCreated - prevReports) / prevReports) * 100 : 0;
+    // ✨ Cálculo de evolución porcentual
+    const activitiesEvolution = prevActivities ? ((activitiesStarted - prevActivities) / prevActivities) * 100 : 0;
+    
     const rateEvolution = prevRate ? completionRate - prevRate : 0;
 
     return {
@@ -76,12 +84,14 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
       startedSessions,
       completedSessions,
       reportsCreated,
+      activitiesStarted, // ✨ Retorno del total
       completionRate: Math.round(completionRate),
       evolution: {
         assigned: Math.round(assignedEvolution),
         started: Math.round(startedEvolution),
         completed: Math.round(completedEvolution),
         reports: Math.round(reportsEvolution),
+        activities: Math.round(activitiesEvolution), // ✨ Retorno de la evolución
         rate: Math.round(rateEvolution),
       },
     };
@@ -105,8 +115,8 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
   );
 
   return (
-    // 1. Contenedor principal con perspectiva 3D
-    <div className="relative h-[450px] w-full [perspective:1000px] group">
+    // Se ajusta la altura de h-[450px] a h-[480px] para dar espacio a la nueva métrica
+    <div className="relative h-[500px] w-full [perspective:1000px] group">
       
       <div 
         className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}
@@ -127,7 +137,6 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
                   <Button variant={range === 30 ? "default" : "outline"} size="sm" onClick={() => setRange(30)} className="h-7 px-2 text-xs">30d</Button>
                   <Button variant={range === 90 ? "default" : "outline"} size="sm" onClick={() => setRange(90)} className="h-7 px-2 text-xs">90d</Button>
                 </div>
-                {/* Botón para voltear la tarjeta */}
                 <Button 
                   variant="ghost" 
                   size="icon" 
@@ -147,6 +156,8 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
             <MetricRow icon={PlayCircle} label="Sesiones empezadas" value={rangeData?.startedSessions ?? "—"} evolution={rangeData?.evolution.started} />
             <MetricRow icon={TrendingUp} label="Sesiones completadas" value={rangeData?.completedSessions ?? "—"} evolution={rangeData?.evolution.completed} />        
             <MetricRow icon={Activity} label="Tasa de completitud" value={rangeData ? `${rangeData.completionRate}%` : "—"} evolution={rangeData?.evolution.rate} />
+            {/* ✨ Nueva Fila en la interfaz */}
+            <MetricRow icon={CheckSquare} label="Actividades realizadas" value={rangeData?.activitiesStarted ?? "—"} evolution={rangeData?.evolution.activities} />
             <MetricRow icon={FileText} label="Informes creados" value={rangeData?.reportsCreated ?? "—"} evolution={rangeData?.evolution.reports} />
           </CardContent>
         </Card>
@@ -160,7 +171,6 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <Info className="h-4 w-4 text-primary" /> Diccionario de Métricas
               </CardTitle>
-              {/* Botón para volver a los datos */}
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -192,6 +202,11 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
             <div>
               <p className="font-semibold flex items-center gap-1"><Activity className="h-3 w-3"/> Tasa de completitud</p>
               <p className="text-muted-foreground text-xs">Porcentaje que indica cuántas de las sesiones empezadas logran terminarse al 100%.</p>
+            </div>
+            {/* ✨ Nueva sección explicativa en el diccionario */}
+            <div>
+              <p className="font-semibold flex items-center gap-1"><CheckSquare className="h-3 w-3"/> Actividades realizadas</p>
+              <p className="text-muted-foreground text-xs">Cantidad total de ejercicios, dinámicas o tareas individuales completadas por los pacientes dentro de las sesiones.</p>
             </div>
             <div>
               <p className="font-semibold flex items-center gap-1"><FileText className="h-3 w-3"/> Informes creados</p>

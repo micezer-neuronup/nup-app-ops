@@ -48,52 +48,45 @@ export function GeneralDashboard({ data }: { data?: any }) {
   const currency = props.currency__por_definir_ || "—";
   const segment = props.segmento || "—";
   const allSubscriptionDays = props.all_subscription_days ?? 0;
+  const market = props.market_hubspot;
 
 
   // --- DATOS REALES DE ANALYTICS ---
   const analytics = data?.analytics || { totals: {}, daily: [] };
 
-  // --- DATOS REALES DE SUSCRIPCIÓN ---
-  const sub = data?.subscription || {};
-  
-  // ... (tu código anterior)
-  
-  // 🧹 LIMPIEZA DE FEATURES GENERALES
-  const rawFeatures = sub.features || [];
-  const normalizedFeatures = rawFeatures
-    .flatMap((f: string) => (typeof f === "string" ? f.split(",") : [])) 
-    .map((f: string) => f.trim()) 
+const sub = data?.subscription || {};
+
+const rawFeatures = sub.features || [];
+const normalizedFeatures = rawFeatures
+  .flatMap((f: string) => (typeof f === "string" ? f.split(",") : [])) 
+  .map((f: string) => f.trim()) 
+  .filter((f: string) => f.length > 0);
+
+const cleanSubscriptionItems = (sub.items || []).map((item: any) => {
+  const itemRawFeatures = item.features || [];
+  const itemNormalizedFeatures = itemRawFeatures
+    .flatMap((f: string) => (typeof f === "string" ? f.split(",") : []))
+    .map((f: string) => f.trim())
     .filter((f: string) => f.length > 0);
-
-  // 🧹 LIMPIEZA DE FEATURES POR PRODUCTO (NUEVO)
-  const cleanSubscriptionItems = (sub.items || []).map((item: any) => {
-    const itemRawFeatures = item.features || [];
-    const itemNormalizedFeatures = itemRawFeatures
-      .flatMap((f: string) => (typeof f === "string" ? f.split(",") : []))
-      .map((f: string) => f.trim())
-      .filter((f: string) => f.length > 0);
-      
-    return {
-      ...item,
-      features: Array.from(new Set(itemNormalizedFeatures)) // Guardamos las features limpias en el item
-    };
-  });
-
-  // Mapeamos los datos
-  const subscriptionData = {
-    status: sub.current_state || "—",
-    current_state: sub.current_state || "—",
-    is_forever: sub.is_forever || false,
-    precancelled_date: sub.precancelled_date || null,
-    current_period_end: sub.items?.[0]?.current_period_end || null,
-    subscription_features: Array.from(new Set(normalizedFeatures)), 
-    subscription_items: cleanSubscriptionItems, // <-- Pasamos los items ya limpios
-    hasFeatureRequest: { active: false, featureName: "" }
-
+    
+  return {
+    ...item,
+    features: Array.from(new Set(itemNormalizedFeatures))
   };
+});
 
+const subscriptionData = {
+  status: sub.current_state || "—",
+  current_state: sub.current_state || "—",
+  is_forever: sub.is_forever || false,
+  precancelled_date: sub.precancelled_date || null,
+  current_period_end: sub.items?.[0]?.current_period_end || null,
+  subscription_features: Array.from(new Set(normalizedFeatures)), 
+  subscription_items: cleanSubscriptionItems,
+  hasFeatureRequest: { active: false, featureName: "" },
+  history: sub.history || []
+};
 
-  // Filtra y asegura que solo pasen strings limpios a la gráfica
 const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
   ? subscriptionData.subscription_features.filter((f): f is string => typeof f === 'string')
   : [];
@@ -112,6 +105,7 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
           specialty={specialty}
           numPatients={numPatients}
           numEmployees={numEmployees}
+          market={market}
           />
         
         {/* Card 2: Suscripción */}
@@ -136,11 +130,13 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
       <SubscriptionModal
         open={subscriptionModalOpen}
         onOpenChange={setSubscriptionModalOpen}
+        currency={currency}
         subscriptionData={subscriptionData}
         nup2goBalance={nup2goBalance}
         nup2goPatients={nup2goPatients}
         lastNup2goAssignment={lastNup2goAssignment}
         lastNup2goPaymentDate={lastNup2goPaymentDate}
+        market={market}
         />
 
       {/* Gráfica */}

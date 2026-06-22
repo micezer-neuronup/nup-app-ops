@@ -5,7 +5,6 @@ async function getSubscriptionByCenterId(centerId) {
   try {
     const query = `
       SELECT 
-        -- TODOS los campos de la tabla padre (subscriptions)
         s.subscription_id,
         s.hubspot_subscription_id,
         s.nup_center_id,
@@ -25,8 +24,6 @@ async function getSubscriptionByCenterId(centerId) {
         s.is_forever,
         s.pending_payment,
         s.updated_at,
-        
-        -- TODOS los campos de los hijos (subscription_items)
         json_agg(
           json_build_object(
             'item_id', si.item_id,
@@ -53,56 +50,45 @@ async function getSubscriptionByCenterId(centerId) {
       LEFT JOIN subscription_items si ON s.subscription_id = si.subscription_id
       WHERE s.nup_center_id = $1
       GROUP BY 
-        s.subscription_id,
-        s.hubspot_subscription_id,
-        s.nup_center_id,
-        s.segment,
-        s.manages_own_payment,
-        s.center_name,
-        s.start_date,
-        s.precancelled_date,
-        s.cancelation_date,
-        s.revoked_access_date,
-        s.current_state,
-        s.currency,
-        s.creation_source,
-        s.source,
-        s.payment_method_type,
-        s.market,
-        s.is_forever,
-        s.pending_payment,
-        s.updated_at
-      ORDER BY s.updated_at DESC
-      LIMIT 1;
+        s.subscription_id
+      ORDER BY MAX(si.current_period_end) DESC NULLS LAST, s.updated_at DESC;
     `;
 
     const result = await pool.query(query, [centerId]);
     
     if (result.rowCount === 0) return null;
 
-    const sub = result.rows[0];
-    
-    let allFeatures = [];
-    
-    if (sub.items && Array.isArray(sub.items)) {
-      // Limpiamos los nulls generados por el LEFT JOIN en caso de que no haya items
-      sub.items = sub.items.filter(item => item.item_id !== null);
-      
-      sub.items.forEach(item => {
-        if (item.status === 'active' && item.features && Array.isArray(item.features)) {
-          allFeatures = [...allFeatures, ...item.features];
-        }
-      });
+    const allSubs = result.rows;
+
+    allSubs.forEach(sub => {
+      if (sub.items && Array.isArray(sub.items)) {
+        sub.items = sub.items.filter(item => item.item_id !== null);
+      } else {
+        sub.items = [];
+      }
+    });
+
+    const activeStates = ['active', 'trial', 'trialing', 'past_due'];
+    let activeSub = allSubs.find(s => activeStates.includes(s.current_state));
+
+    if (!activeSub) {
+      activeSub = allSubs[0]; 
     }
 
-    // Retornamos todos los campos del padre desestructurados + los items corregidos + array de features generales
+    let activeFeatures = [];
+    activeSub.items.forEach(item => {
+      if ((item.status === 'active' || activeSub.is_forever) && item.features && Array.isArray(item.features)) {
+        activeFeatures = [...activeFeatures, ...item.features];
+      }
+    });
+
     return {
-      ...sub,
-      features: allFeatures
+      ...activeSub,
+      features: [...new Set(activeFeatures)],
+      history: allSubs
     };
 
   } catch (error) {
-    console.error(`[ERROR] getSubscriptionByCenterId falló para el centro ${centerId}:`, error.message);
     return { error: error.message };
   }
 }

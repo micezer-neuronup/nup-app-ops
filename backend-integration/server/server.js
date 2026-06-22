@@ -35,7 +35,7 @@ const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/su
 // ─── We define the path of the scripts the cron job calls
 // ────────────────────────────────────────────────────────────────
 const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
-const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
+// const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
 
 // ────── Initialization: server  ─────────────────────────────────────────────
@@ -155,6 +155,7 @@ async function resolveCompanyData(objectId, objectTypeId) {
   'segmento',
   'currency__por_definir_',
   'all_subscription_days',
+  'market_hubspot',
 ];
   if (objectTypeId === OBJECT_TYPES.COMPANY) {
     const url = `https://api.hubapi.com/crm/v3/objects/company/${objectId}?properties=${companyProperties.join(',')}`;

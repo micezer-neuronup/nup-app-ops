@@ -1,4 +1,3 @@
-// components/Dashboards/SubscriptionCard.tsx
 "use client";
 
 import { useState } from "react";
@@ -81,34 +80,14 @@ export function SubscriptionCard({
   onOpenModal?: () => void;
 }) {
 
-  // ==========================================
-  // 🐛 CHIVATO DE DEBUG
-  // ==========================================
-  console.log("🎯 --- DATOS COMPLETOS DE LA SUSCRIPCIÓN ---");
-  console.log("Objeto Padre completo:", subscriptionData);
-  
-  if (subscriptionData) {
-    console.log("Propiedades del Padre:", Object.keys(subscriptionData));
-  }
-
-  const itemsDeDebug = subscriptionData?.subscription_items || subscriptionData?.items || [];
-  console.log(`Hijos (Total: ${itemsDeDebug.length}):`, itemsDeDebug);
-  
-  if (itemsDeDebug.length > 0) {
-    console.log("Propiedades del primer Hijo:", Object.keys(itemsDeDebug[0]));
-  }
-  console.log("--------------------------------------------");
-  // ==========================================
-
   const [isFlipped, setIsFlipped] = useState(false);
 
   const status = subscriptionData?.current_state || "—";
   const isForever = subscriptionData?.is_forever;
-  const source = subscriptionData?.source?.toLowerCase() || ""; // Extraemos el source (stripe o backend)
+  const source = subscriptionData?.source?.toLowerCase() || "";
   const features: string[] = subscriptionData?.subscription_features || [];
   const items = subscriptionData?.subscription_items || [];
 
-  // Asegurar NUP2GO en productos visuales
   let productItems = [...items];
   const hasNup2go = productItems.some((item: any) => item.product_name === "NUP2GO");
   if (!hasNup2go && nup2goBalance !== undefined) {
@@ -120,32 +99,27 @@ export function SubscriptionCard({
     });
   }
 
-  // Comprobación de estado activo (añadimos 'trial' por si acaso)
   const isActive = status === "active" || status === "trialing" || status === "trial";
   const StatusIcon = isActive ? CheckCircle2 : AlertCircle;
 
-  // ✨ LÓGICA DE FIN DE CICLO ACTUALIZADA
-  // 1. Buscamos la fecha más lejana entre los hijos (ignoramos al padre)
   let rawEndDate = null;
   if (items.length > 0) {
     const endDates = items
       .map((item: any) => item.current_period_end)
-      .filter((date: any) => date != null) // Filtramos los nulos por si acaso
-      .map((date: any) => new Date(date).getTime()); // Pasamos a timestamp para comparar fácil
+      .filter((date: any) => date != null)
+      .map((date: any) => new Date(date).getTime());
 
     if (endDates.length > 0) {
-      rawEndDate = new Date(Math.max(...endDates)); // Cogemos la fecha mayor
+      rawEndDate = new Date(Math.max(...endDates));
     }
   }
 
-  // 2. Aplicamos la lógica visual
   let endDateDisplay = "—";
   
   if (isForever) {
     if (source === "backend") {
       endDateDisplay = "Renovación Manual";
     } else {
-      // Fallback para "stripe" o por defecto
       endDateDisplay = "Renovación Automática"; 
     }
   } else if (rawEndDate) {
@@ -158,7 +132,6 @@ export function SubscriptionCard({
     ? `${currencySymbol} (${currency.toUpperCase()})`
     : "—";
 
-  // Mapeo seguro de productos y precios
   const productList = productItems.map((item: any) => {
     if (item.product_name === "NUP2GO") {
       return { 
@@ -179,14 +152,11 @@ export function SubscriptionCard({
   });
 
   return (
-    <div className="relative h-[450px] w-full [perspective:1000px] group">
+    <div className="relative h-[500px] w-full [perspective:1000px] group">
       <div 
         className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}
       >
         
-        {/* ========================================== */}
-        {/* 🎭 CARA FRONTAL: Datos de Suscripción      */}
-        {/* ========================================== */}
         <Card className="absolute inset-0 [backface-visibility:hidden] flex flex-col overflow-hidden transition-all duration-300 hover:shadow-lg hover:bg-accent/30">
           <CardHeader className="pb-2 flex flex-row items-start justify-between shrink-0">
             <div>
@@ -194,7 +164,10 @@ export function SubscriptionCard({
                 <CreditCard className="h-3 w-3" /> Suscripción
               </CardDescription>
               <CardTitle className="text-xl font-semibold mt-1 flex items-center gap-2">
-                <Badge variant={isActive ? "default" : "destructive"} className="uppercase text-[10px]">
+                <Badge 
+  variant={isActive ? "default" : "destructive"} 
+  className={`uppercase text-[10px] ${isActive ? 'bg-green-600 hover:bg-green-700 text-white border-transparent' : ''}`}
+>
                   <StatusIcon className="h-3 w-3 mr-1" /> {status}
                 </Badge>
               </CardTitle>
@@ -216,7 +189,6 @@ export function SubscriptionCard({
           </CardHeader>
           
           <CardContent className="flex-1 overflow-y-auto px-6 space-y-4 pb-4 min-h-0 pt-2 text-sm">
-            {/* Métricas fijas */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -244,7 +216,6 @@ export function SubscriptionCard({
               </div>
             </div>
 
-            {/* Productos activos */}
             {productList.length > 0 && (
               <div className="space-y-2 pt-4 border-t">
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -264,7 +235,6 @@ export function SubscriptionCard({
               </div>
             )}
 
-            {/* Módulos (Features Generales) */}
             <div className="space-y-2 pt-4 border-t">
               <p className="text-xs text-muted-foreground">Módulos habilitados:</p>
               <div className="flex flex-wrap gap-2 pb-2">
@@ -284,9 +254,6 @@ export function SubscriptionCard({
           </CardContent>
         </Card>
 
-        {/* ========================================== */}
-        {/* 📖 CARA TRASERA: Diccionario de Suscripción*/}
-        {/* ========================================== */}
         <Card className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col overflow-hidden bg-accent/20 border-primary/20 shadow-lg">
           <CardHeader className="pb-2 border-b bg-background/50 shrink-0">
             <div className="flex justify-between items-center">
