@@ -122,7 +122,7 @@ export function SubscriptionModal({
   const getSourceLabel = (source: string) => {
     if (!source) return "—";
     const lower = source.toLowerCase();
-    if (lower === "backend" || lower === "manual" || lower === "stripe" || lower === "admin") {
+    if (lower === "backend") {
       return "Manual";
     }
     return source;
