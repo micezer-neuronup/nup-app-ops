@@ -75,6 +75,11 @@ async function getSubscriptionByCenterId(centerId) {
       activeSub = allSubs[0]; 
     }
 
+    const historyArray = [
+      activeSub,
+      ...allSubs.filter(s => s.subscription_id !== activeSub.subscription_id)
+    ];
+
     let activeFeatures = [];
     activeSub.items.forEach(item => {
       if ((item.status === 'active' || activeSub.is_forever) && item.features && Array.isArray(item.features)) {
@@ -85,7 +90,7 @@ async function getSubscriptionByCenterId(centerId) {
     return {
       ...activeSub,
       features: [...new Set(activeFeatures)],
-      history: allSubs
+      history: historyArray
     };
 
   } catch (error) {

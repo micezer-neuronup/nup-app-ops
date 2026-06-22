@@ -51,6 +51,7 @@ function normalizeFeatures(rawFeatures: any): string[] {
     )
   );
 }
+
 const currencySymbols: Record<string, string> = {
   eur: "€",
   usd: "$",
@@ -60,7 +61,6 @@ const currencySymbols: Record<string, string> = {
   aud: "$",
   inr: "₹",
 };
-
 
 export function SubscriptionModal({ 
   open, 
@@ -89,7 +89,6 @@ export function SubscriptionModal({
   let items = activeSub.subscription_items || activeSub.items || [];
   if (!Array.isArray(items)) items = [];
 
-
   const currencyKey = currency?.toLowerCase();
   const currencySymbol = currencySymbols[currencyKey] || "";
   const currencyDisplay = currency && currency !== "—"
@@ -113,6 +112,12 @@ export function SubscriptionModal({
       }
     ];
   }
+
+  const globalModalFeatures = Array.from(
+    new Set<string>(
+      items.flatMap((item: any) => normalizeFeatures(item.features))
+    )
+  );
 
   const getSourceLabel = (source: string) => {
     if (!source) return "—";
@@ -206,23 +211,51 @@ export function SubscriptionModal({
 
           <div className="flex-1 flex overflow-hidden p-6 gap-6 bg-background">
             
-            <div className="flex-[2] flex flex-col overflow-hidden">
-              <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 sticky top-0 bg-background pb-1 shrink-0">
-                Datos generales
-              </h3>
-              <div className="overflow-y-auto pr-2 pb-4">
-                <Card className="border shadow-sm">
-                  <CardContent className="p-5">
-                    <div className="space-y-2">
-                      {generalFields.map((field, idx) => (
-                        <div 
-                          key={idx} 
-                          className={`flex justify-between items-center py-1.5 px-2 rounded-sm ${idx % 2 === 0 ? 'bg-muted/5' : ''}`}
-                        >
-                          <span className="text-muted-foreground text-xs font-medium">{field.label}</span>
-                          <span className="font-medium text-right">{field.value}</span>
-                        </div>
-                      ))}
+            <div className="flex-[2] flex flex-col overflow-hidden space-y-4">
+              <div className="flex flex-col overflow-hidden flex-1">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3 sticky top-0 bg-background pb-1 shrink-0">
+                  Datos generales
+                </h3>
+                <div className="overflow-y-auto pr-2 pb-2">
+                  <Card className="border shadow-sm">
+                    <CardContent className="p-4">
+                      {/* Reducimos el espaciado entre filas (space-y-0.5) */}
+                      <div className="space-y-0.5">
+                        {generalFields.map((field, idx) => (
+                          <div 
+                            key={idx} 
+                            /* Reducimos el padding vertical (py-1) */
+                            className={`flex justify-between items-center py-1 px-2 rounded-sm ${idx % 2 === 0 ? 'bg-muted/5' : ''}`}
+                          >
+                            <span className="text-muted-foreground text-xs font-medium">{field.label}</span>
+                            {/* Achicamos un poco el texto a text-xs para que quede más integrado */}
+                            <span className="text-xs font-medium text-right">{field.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+
+              <div className="shrink-0 pb-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  Módulos habilitados en esta suscripción
+                </h3>
+                <Card className="border shadow-sm bg-muted/5">
+                  <CardContent className="p-4">
+                    <div className="flex flex-wrap gap-2">
+                      {globalModalFeatures.length > 0 ? (
+                        globalModalFeatures.map((f: string, fIdx: number) => (
+                          <Badge key={fIdx} variant="secondary" className="font-normal text-xs bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 py-1 px-2.5">
+                            <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
+                            {/* Mostramos la etiqueta mapeada y la clave original entre paréntesis */}
+                            {featureLabels[f] || f} <span className="ml-1 text-[10px] opacity-70">({f})</span>
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Ningún módulo extra detectado.</span>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -236,11 +269,10 @@ export function SubscriptionModal({
               <div className="overflow-y-auto pr-2 pb-4 space-y-4">
                 {items.map((item: any, idx: number) => {
                   const isActiveItem = item.status?.toLowerCase() === 'active';
-                  const cleanFeatures = normalizeFeatures(item.features);
                   
                   return (
                     <Card key={idx} className="border shadow-sm relative overflow-hidden">
-                      <CardHeader className="pb-1 pt-4 px-5">
+                      <CardHeader className="pb-4 pt-4 px-5">
                         <div className="flex justify-between items-start">
                           <CardTitle className="text-base font-medium">{item.product_name || "Producto"}</CardTitle>
                           {item.status && (
@@ -289,24 +321,6 @@ export function SubscriptionModal({
                               <span className="font-medium">{formatDate(lastNup2goPaymentDate)}</span>
                             </div>
                           </>
-                        )}
-
-                        {item.product_name !== "NUP2GO" && (
-                          <div className="pt-2 border-t mt-3">
-                            <span className="text-muted-foreground text-xs uppercase tracking-wider block mb-2">Módulos habilitados:</span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {cleanFeatures.length > 0 ? (
-                                cleanFeatures.map((f: string, fIdx: number) => (
-                                  <Badge key={fIdx} variant="secondary" className="font-normal text-[10px] bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                                    <ShieldCheck className="h-3 w-3 mr-1" />
-                                    {featureLabels[f] || f}
-                                  </Badge>
-                                ))
-                              ) : (
-                                <span className="text-xs text-muted-foreground">Ningún módulo extra</span>
-                              )}
-                            </div>
-                          </div>
                         )}
                       </CardContent>
                     </Card>
