@@ -314,10 +314,11 @@ async function markHubspotSyncStatus(subscriptionId, status) {
 }
 
 async function processPendingHubspotSyncs(syncFunction) {
+  // NT: Añadimos 'failed_no_company' al filtro para NO volver a leerlas
   const query = `
     SELECT subscription_id 
     FROM subscriptions 
-    WHERE hubspot_sync_status != 'SYNCED' 
+    WHERE (hubspot_sync_status != 'SYNCED' AND hubspot_sync_status != 'FAILED_NO_COMPANY')
        OR hubspot_sync_status IS NULL
   `;
   
@@ -334,15 +335,21 @@ async function processPendingHubspotSyncs(syncFunction) {
     for (const record of pendingRecords) {
       const subId = record.subscription_id;
       
-      // Llamamos a tu función de sincronización en tiempo real
-      const isSuccess = await syncFunction(subId);
+      // ⏱️ Freno de mano: Esperamos 250ms antes de cada llamada para evitar el RATE_LIMIT
+      await delay(250); 
 
-      // Eliminamos las queries redundantes y usamos tu función
-      if (isSuccess) {
+      const syncResult = await syncFunction(subId);
+
+      if (syncResult === true) {
         await markHubspotSyncStatus(subId, 'SYNCED');
         successCount++;
+      } else if (syncResult === 'NO_COMPANY') {
+        // ✨ Si el error fue por falta de empresa, lo marcamos permanente y no volverá a entrar aquí
+        await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
+        errorCount++;
       } else {
-        await markHubspotSyncStatus(subId, 'PENDING');
+        // Si fue un error de red o de HubSpot (Rate limit), se queda en failed para reintentar
+        await markHubspotSyncStatus(subId, 'FAILED');
         errorCount++;
       }
     }

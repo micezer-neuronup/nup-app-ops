@@ -42,7 +42,9 @@ async function createAssociation(fromType, fromId, toType, toId, assocId) {
   });
 }
 
-// --- FUNCIÓN PRINCIPAL DE SINCRONIZACIÓN ---
+// --- FUNCIÓN AUXILIAR PARA PASAR EL RATE LIMIT ---
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function syncSingleSubscriptionToHubspot(subscriptionId) {
   try {
     // 1. Obtener datos frescos de TU base de datos
@@ -52,10 +54,16 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
 
     if (!sub.nup_center_id) {
       log("WARN", "HUBSPOT-SYNC", `Sub ${subscriptionId} no tiene nup_center_id. Ignorando.`);
-      return true; // Devolvemos true para que deje de estar PENDING
+      return 'NO_COMPANY'; // Cambiamos a 'no_company' para excluirlo permanentemente
     }
 
-    const companyHubspotId = await findCompanyHubspotId(sub.nup_center_id);
+    let companyHubspotId;
+    try {
+      companyHubspotId = await findCompanyHubspotId(sub.nup_center_id);
+    } catch (err) {
+      log("WARN", "HUBSPOT-SYNC", `❌ Empresa nup_center_id '${sub.nup_center_id}' no encontrada en HubSpot para sub ${subscriptionId}.`);
+      return 'NO_COMPANY'; // ✨ DETECTAMOS ERROR CRÍTICO DE DATOS
+    }
 
     // 2. Sincronizar Padre
     const subInputs = [{
@@ -80,9 +88,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     });
     
     const subData = await subRes.json();
-    if (!subRes.ok) {
-      throw new Error(`Fallo Upsert Padre: ${JSON.stringify(subData)}`);
-    }
+    if (!subRes.ok) throw new Error(`Fallo Upsert Padre: ${JSON.stringify(subData)}`);
     
     const hubspotSubId = subData.results[0].id;
     await createAssociation(ACCOUNT_SUB_OBJECT_ID, hubspotSubId, "company", companyHubspotId, ASSOC_SUB_TO_COMPANY);
@@ -98,15 +104,12 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
           featuresText = Array.isArray(parsed) ? parsed.join(", ") : String(parsed || "");
         } catch (e) { featuresText = String(item.features || ""); }
 
-        // ✨ APLICAMOS LA LÓGICA DE SEGURIDAD DEL SCRIPT MANUAL ✨
         const safeItemId = item.item_id || `manual_${item.subscription_id}_${item.product_name?.replace(/\s+/g, '_')}`;
-        const itemName = item.item_id 
-          ? `${item.product_name || 'Item'} - ${item.item_id}` 
-          : (item.product_name || 'Producto Manual');
+        const itemName = item.item_id ? `${item.product_name || 'Item'} - ${item.item_id}` : (item.product_name || 'Producto Manual');
 
         return {
           idProperty: "stripe_item_id_unique",
-          id: String(safeItemId), // 👈 Aseguramos que sea String siempre
+          id: String(safeItemId),
           properties: {
             subscription_item_name: itemName,
             stripe_item_id_unique: safeItemId,
@@ -136,10 +139,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
       });
       
       const itemsData = await itemsRes.json();
-      if (!itemsRes.ok) {
-        // ✨ Ahora imprimirá el error real devuelto por HubSpot
-        throw new Error(`Fallo Upsert Hijos: ${JSON.stringify(itemsData)}`);
-      }
+      if (!itemsRes.ok) throw new Error(`Fallo Upsert Hijos: ${JSON.stringify(itemsData)}`);
 
       for (const record of itemsData.results) {
         await createAssociation(ITEM_OBJECT_ID, record.id, "company", companyHubspotId, ASSOC_ITEM_TO_COMPANY);
@@ -147,12 +147,12 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
       }
     }
 
-    log("INFO", "HUBSPOT-SYNC", `✅ Suscripción ${subscriptionId} enviada a HubSpot en tiempo real.`);
+    log("INFO", "HUBSPOT-SYNC", `✅ Suscripción ${subscriptionId} enviada a HubSpot.`);
     return true; // Éxito
 
   } catch (error) {
     log("ERROR", "HUBSPOT-SYNC", `❌ Error sincronizando ${subscriptionId}: ${error.message}`);
-    return false; // Falló, se quedará en PENDING o pasará a FAILED
+    return false; // Fallo genérico (ej: Rate limit o red)
   }
 }
 
