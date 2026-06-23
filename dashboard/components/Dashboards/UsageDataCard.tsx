@@ -24,9 +24,7 @@ const formatDate = (dateStr: string) => {
   return date.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" });
 };
 
-const getLastNDays = (daily: any[], days: number) => {
-  return daily.slice(-days);
-};
+
 
 interface UsageDataCardProps {
   analytics?: { daily: any[]; totals: any };
@@ -40,62 +38,87 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
   const dailyData = analytics?.daily || [];
 
   const rangeData = useMemo(() => {
-    if (!dailyData.length) return null;
+  if (!dailyData || dailyData.length === 0) return null;
 
-    const filtered = getLastNDays(dailyData, range);
-    if (filtered.length === 0) return null;
+  // 1. Última interacción global
+  const lastRecord = dailyData[dailyData.length - 1];
+  const lastActivityDate = lastRecord?.stat_date || null;
+  const lastActivityDisplay = lastActivityDate ? formatDate(lastActivityDate) : "—";
+  const lastActiveTherapists = lastRecord?.active_therapists ?? 0;
 
-    const lastActivityDate = filtered[filtered.length - 1]?.stat_date || null;
-    const lastActivityDisplay = lastActivityDate ? formatDate(lastActivityDate) : "—";
-    const lastActiveTherapists = filtered[filtered.length - 1]?.active_therapists ?? 0;
+  // 2. Definimos las fechas límite: Empezamos a contar desde AYER
+  const referenceDate = new Date();
+  referenceDate.setDate(referenceDate.getDate() - 1); // Restamos 1 día
+  referenceDate.setHours(0, 0, 0, 0);
 
-    const assignedSessions = filtered.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
-    const startedSessions = filtered.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
-    const completedSessions = filtered.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
-    const reportsCreated = filtered.reduce((sum, day) => sum + (day.reports_created || 0), 0);
-    // ✨ Acumulador periodo actual
-    const activitiesStarted = filtered.reduce((sum, day) => sum + (day.activities_started || 0), 0);
+  const currentPeriod: any[] = [];
+  const previousPeriod: any[] = [];
+
+  // 3. Filtramos por fechas reales de calendario
+  dailyData.forEach(day => {
+    if (!day.stat_date) return;
     
-    const completionRate = startedSessions > 0 ? (completedSessions / startedSessions) * 100 : 0;
+    const d = new Date(day.stat_date);
+    d.setHours(0, 0, 0, 0);
 
-    const previousPeriod = dailyData.slice(-range * 2, -range);
-    const prevAssigned = previousPeriod.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
-    const prevStarted = previousPeriod.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
-    const prevCompleted = previousPeriod.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
-    const prevReports = previousPeriod.reduce((sum, day) => sum + (day.reports_created || 0), 0);
-    // ✨ Acumulador periodo anterior
-    const prevActivities = previousPeriod.reduce((sum, day) => sum + (day.activities_started || 0), 0);
-    
-    const prevRate = prevStarted > 0 ? (prevCompleted / prevStarted) * 100 : 0;
+    // Calculamos la diferencia en días entre "ayer" y la fecha del dato
+    const diffTime = referenceDate.getTime() - d.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-    const assignedEvolution = prevAssigned ? ((assignedSessions - prevAssigned) / prevAssigned) * 100 : 0;
-    const startedEvolution = prevStarted ? ((startedSessions - prevStarted) / prevStarted) * 100 : 0;
-    const completedEvolution = prevCompleted ? ((completedSessions - prevCompleted) / prevCompleted) * 100 : 0;
-    const reportsEvolution = prevReports ? ((reportsCreated - prevReports) / prevReports) * 100 : 0;
-    // ✨ Cálculo de evolución porcentual
-    const activitiesEvolution = prevActivities ? ((activitiesStarted - prevActivities) / prevActivities) * 100 : 0;
-    
-    const rateEvolution = prevRate ? completionRate - prevRate : 0;
+    // Si diffDays < 0, significa que es un dato de "hoy" (o futuro) y lo ignora.
+    // Si diffDays = 0, es "ayer".
+    if (diffDays >= 0 && diffDays < range) {
+      currentPeriod.push(day);
+    } else if (diffDays >= range && diffDays < range * 2) {
+      previousPeriod.push(day);
+    }
+  });
 
-    return {
-      lastActivity: lastActivityDisplay,
-      activeTherapists: lastActiveTherapists,
-      assignedSessions,
-      startedSessions,
-      completedSessions,
-      reportsCreated,
-      activitiesStarted, // ✨ Retorno del total
-      completionRate: Math.round(completionRate),
-      evolution: {
-        assigned: Math.round(assignedEvolution),
-        started: Math.round(startedEvolution),
-        completed: Math.round(completedEvolution),
-        reports: Math.round(reportsEvolution),
-        activities: Math.round(activitiesEvolution), // ✨ Retorno de la evolución
-        rate: Math.round(rateEvolution),
-      },
-    };
-  }, [dailyData, range]);
+  // 4. Sumamos métricas del periodo actual
+  const assignedSessions = currentPeriod.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
+  const startedSessions = currentPeriod.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
+  const completedSessions = currentPeriod.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
+  const reportsCreated = currentPeriod.reduce((sum, day) => sum + (day.reports_created || 0), 0);
+  const activitiesStarted = currentPeriod.reduce((sum, day) => sum + (day.activities_started || 0), 0);
+  
+  const completionRate = startedSessions > 0 ? (completedSessions / startedSessions) * 100 : 0;
+
+  // 5. Sumamos métricas del periodo anterior
+  const prevAssigned = previousPeriod.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
+  const prevStarted = previousPeriod.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
+  const prevCompleted = previousPeriod.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
+  const prevReports = previousPeriod.reduce((sum, day) => sum + (day.reports_created || 0), 0);
+  const prevActivities = previousPeriod.reduce((sum, day) => sum + (day.activities_started || 0), 0);
+  
+  const prevRate = prevStarted > 0 ? (prevCompleted / prevStarted) * 100 : 0;
+
+  // 6. Cálculos de evolución
+  const assignedEvolution = prevAssigned ? ((assignedSessions - prevAssigned) / prevAssigned) * 100 : 0;
+  const startedEvolution = prevStarted ? ((startedSessions - prevStarted) / prevStarted) * 100 : 0;
+  const completedEvolution = prevCompleted ? ((completedSessions - prevCompleted) / prevCompleted) * 100 : 0;
+  const reportsEvolution = prevReports ? ((reportsCreated - prevReports) / prevReports) * 100 : 0;
+  const activitiesEvolution = prevActivities ? ((activitiesStarted - prevActivities) / prevActivities) * 100 : 0;
+  const rateEvolution = prevRate ? completionRate - prevRate : 0;
+
+  return {
+    lastActivity: lastActivityDisplay,
+    activeTherapists: lastActiveTherapists,
+    assignedSessions,
+    startedSessions,
+    completedSessions,
+    reportsCreated,
+    activitiesStarted,
+    completionRate: Math.round(completionRate),
+    evolution: {
+      assigned: Math.round(assignedEvolution),
+      started: Math.round(startedEvolution),
+      completed: Math.round(completedEvolution),
+      reports: Math.round(reportsEvolution),
+      activities: Math.round(activitiesEvolution),
+      rate: Math.round(rateEvolution),
+    },
+  };
+}, [dailyData, range]);
 
   const MetricRow = ({ icon: Icon, label, value, evolution }: any) => (
     <div className="flex items-center justify-between py-2 border-b last:border-0 px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">

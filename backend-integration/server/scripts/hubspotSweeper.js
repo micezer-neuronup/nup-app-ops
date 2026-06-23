@@ -1,6 +1,6 @@
 const { pool } = require('./db');
 const { markHubspotSyncStatus } = require('./dbSubscriptions');
-const { syncSingleSubscriptionToHubspot } = require('./hubspotServices');
+const { syncSingleSubscriptionToHubspot } = require('../services/hubspotServices');
 const { log } = require("../utils/logger");
 
 async function runSweeper() {

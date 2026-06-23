@@ -12,8 +12,14 @@ const ASSOC_ITEM_TO_SUB = 316;
 const intervalMap = { "day": "daily", "daily": "daily", "week": "weekly", "weekly": "weekly", "month": "monthly", "monthly": "monthly", "year": "yearly", "yearly": "yearly" };
 const sourceMap = { "stripe": "Stripe", "manual": "Backend" };
 const statusMap = { "active": "active", "trialing": "trial", "trial": "trial", "canceled": "canceled", "cancelled": "canceled", "trial_canceled": "trial_canceled", "past_due": "past_due" };
-const formatHsDate = (dateVal) => dateVal ? new Date(dateVal).toISOString() : "";
-
+const formatHsDate = (dateVal) => {
+  if (!dateVal) return "";
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) return "";
+  
+  // Extraemos solo la parte YYYY-MM-DD (ej: "2026-06-23")
+  return d.toISOString().split('T')[0]; 
+};
 // --- Funciones auxiliares de tu script original ---
 async function findCompanyHubspotId(nupCenterId) {
   const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
@@ -46,7 +52,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
 
     if (!sub.nup_center_id) {
       log("WARN", "HUBSPOT-SYNC", `Sub ${subscriptionId} no tiene nup_center_id. Ignorando.`);
-      return true; // Devolvemos true para que deje de estar PENDING, ya que no podemos hacer nada
+      return true; // Devolvemos true para que deje de estar PENDING
     }
 
     const companyHubspotId = await findCompanyHubspotId(sub.nup_center_id);
@@ -54,7 +60,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     // 2. Sincronizar Padre
     const subInputs = [{
       idProperty: "subscription_id_unique",
-      id: sub.subscription_id,
+      id: String(sub.subscription_id),
       properties: {
         account_name: sub.center_name ? `Suscripción - ${sub.center_name}` : `Suscripción - ${sub.subscription_id}`,
         subscription_id_unique: sub.subscription_id,
@@ -63,7 +69,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
         payment_method_type: sub.payment_method_type || "",
         source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
         start_date: formatHsDate(sub.start_date),
-        precancelled_date: formatHsDate(sub.precancelled_date), // Ojo: usa el nombre de BD correcto
+        precancelled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
         subscription_finish_date: formatHsDate(sub.cancelation_date)
       }
     }];
@@ -72,8 +78,11 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
       body: JSON.stringify({ inputs: subInputs })
     });
+    
     const subData = await subRes.json();
-    if (!subRes.ok) throw new Error("Fallo Upsert Padre");
+    if (!subRes.ok) {
+      throw new Error(`Fallo Upsert Padre: ${JSON.stringify(subData)}`);
+    }
     
     const hubspotSubId = subData.results[0].id;
     await createAssociation(ACCOUNT_SUB_OBJECT_ID, hubspotSubId, "company", companyHubspotId, ASSOC_SUB_TO_COMPANY);
@@ -89,12 +98,18 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
           featuresText = Array.isArray(parsed) ? parsed.join(", ") : String(parsed || "");
         } catch (e) { featuresText = String(item.features || ""); }
 
+        // ✨ APLICAMOS LA LÓGICA DE SEGURIDAD DEL SCRIPT MANUAL ✨
+        const safeItemId = item.item_id || `manual_${item.subscription_id}_${item.product_name?.replace(/\s+/g, '_')}`;
+        const itemName = item.item_id 
+          ? `${item.product_name || 'Item'} - ${item.item_id}` 
+          : (item.product_name || 'Producto Manual');
+
         return {
           idProperty: "stripe_item_id_unique",
-          id: item.item_id, // ✨ Ahora se llama item_id en BD
+          id: String(safeItemId), // 👈 Aseguramos que sea String siempre
           properties: {
-            subscription_item_name: `${item.product_name || 'Item'} - ${item.item_id}`,
-            stripe_item_id_unique: item.item_id,
+            subscription_item_name: itemName,
+            stripe_item_id_unique: safeItemId,
             nup_center_id: sub.nup_center_id,
             billing_interval: intervalMap[String(item.billing_interval).toLowerCase()] || "monthly", 
             payment_frequency: item.payment_frequency || 1,
@@ -107,10 +122,10 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
             features: featuresText,
             number_of_renovations: item.number_of_renovations || 0,
             product_name: item.product_name || "",
-            stripe_product_id: item.product_id || "", // ✨ Ahora product_id
+            stripe_product_id: item.product_id || "", 
             subscription_id: item.subscription_id,
             status: statusMap[String(item.status).toLowerCase()],
-            precanceled_date: formatHsDate(item.precanceled_date)
+            precanceled_date: formatHsDate(item.precanceled_date || item.precancelled_date)
           }
         };
       });
@@ -119,8 +134,12 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
         body: JSON.stringify({ inputs: itemInputs })
       });
+      
       const itemsData = await itemsRes.json();
-      if (!itemsRes.ok) throw new Error("Fallo Upsert Hijos");
+      if (!itemsRes.ok) {
+        // ✨ Ahora imprimirá el error real devuelto por HubSpot
+        throw new Error(`Fallo Upsert Hijos: ${JSON.stringify(itemsData)}`);
+      }
 
       for (const record of itemsData.results) {
         await createAssociation(ITEM_OBJECT_ID, record.id, "company", companyHubspotId, ASSOC_ITEM_TO_COMPANY);
@@ -133,7 +152,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
 
   } catch (error) {
     log("ERROR", "HUBSPOT-SYNC", `❌ Error sincronizando ${subscriptionId}: ${error.message}`);
-    return false; // Falló, se quedará en PENDING
+    return false; // Falló, se quedará en PENDING o pasará a FAILED
   }
 }
 

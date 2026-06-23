@@ -140,7 +140,7 @@ async function upsertSubscriptionData(data) {
          market = EXCLUDED.market,
          is_forever = EXCLUDED.is_forever,
          pending_payment = EXCLUDED.pending_payment,
-         hubspot_sync_status = 'PENDING'
+         hubspot_sync_status = 'PENDING',
          updated_at = CURRENT_TIMESTAMP`,
       [
         data.subscription_id, data.hubspot_subscription_id, data.nup_center_id, data.segment, 
@@ -301,16 +301,56 @@ async function updateInvoiceData(data) {
 
 
 async function markHubspotSyncStatus(subscriptionId, status) {
-  const client = await pool.connect();
   try {
-    await client.query(
-      `UPDATE subscriptions SET hubspot_sync_status = $1 WHERE subscription_id = $2`,
+    await pool.query(
+      `UPDATE subscriptions 
+       SET hubspot_sync_status = $1, updated_at = NOW() 
+       WHERE subscription_id = $2`,
       [status, subscriptionId]
     );
   } catch (error) {
     console.error(`[ERROR] No se pudo actualizar el estado de sync a ${status} para ${subscriptionId}:`, error.message);
-  } finally {
-    client.release();
+  }
+}
+
+async function processPendingHubspotSyncs(syncFunction) {
+  const query = `
+    SELECT subscription_id 
+    FROM subscriptions 
+    WHERE hubspot_sync_status != 'SYNCED' 
+       OR hubspot_sync_status IS NULL
+  `;
+  
+  let successCount = 0;
+  let errorCount = 0;
+
+  try {
+    const { rows: pendingRecords } = await pool.query(query);
+
+    if (pendingRecords.length === 0) {
+      return { successCount, errorCount, message: "No hay registros pendientes" };
+    }
+
+    for (const record of pendingRecords) {
+      const subId = record.subscription_id;
+      
+      // Llamamos a tu función de sincronización en tiempo real
+      const isSuccess = await syncFunction(subId);
+
+      // Eliminamos las queries redundantes y usamos tu función
+      if (isSuccess) {
+        await markHubspotSyncStatus(subId, 'SYNCED');
+        successCount++;
+      } else {
+        await markHubspotSyncStatus(subId, 'PENDING');
+        errorCount++;
+      }
+    }
+
+    return { successCount, errorCount };
+
+  } catch (error) {
+    throw new Error(`Error en dbSubscriptions al buscar pendientes: ${error.message}`);
   }
 }
 
@@ -318,5 +358,6 @@ module.exports = {
   getSubscriptionByCenterId,
   upsertSubscriptionData,
   updateInvoiceData,
-  markHubspotSyncStatus
+  markHubspotSyncStatus,
+  processPendingHubspotSyncs
 };

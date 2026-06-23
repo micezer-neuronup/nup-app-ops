@@ -27,9 +27,14 @@ dotenv.config({ path: envPath });
 // ──────────────────────────────────────────────────────────────
 const { getAnalyticsByCenterId, updateFeatureRequestStatus} = require('./db/dbAnalytics');
 
-const { getSubscriptionByCenterId } = require('./db/dbSubscriptions');
+const { getSubscriptionByCenterId, processPendingHubspotSyncs  } = require('./db/dbSubscriptions');
 
 const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
+
+const { syncSingleSubscriptionToHubspot } = require('./services/hubspotServices');
+
+
+
 
 // ────── Initialization: Script paths ─────────────────────────────
 // ─── We define the path of the scripts the cron job calls
@@ -325,7 +330,29 @@ cron.schedule('0 6 * * *', () => {
   });
 });
 
+// ────── Cron job: HubSpot Fallback Sync ────────────────────────────────────
+// ─── Cron job that runs every hour (at minute 0)
+// ─── Native JS execution, directly calling the sync service
+// ───────────────────────────────────────────────────────────────────────────
 
+
+cron.schedule('*/5 * * * *', async () => {
+    
+  log("INFO", "CRON", "Iniciando Job de rescate de HubSpot (Intervalo: 5 min)...");
+
+  try {
+    const result = await processPendingHubspotSyncs(syncSingleSubscriptionToHubspot);
+
+    if (result.message) {
+      log("INFO", "CRON", `HubSpot Sync: ${result.message}`);
+    } else {
+      log("INFO", "CRON", `Job de rescate finalizado. Éxitos: ${result.successCount}, Errores: ${result.errorCount}`);
+    }
+
+  } catch (error) {
+    log("ERROR", "CRON", `Fallo crítico en el Job de rescate de HubSpot: ${error.message}`);
+  }
+});
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning
