@@ -335,7 +335,7 @@ cron.schedule('0 6 * * *', () => {
 // ─── Native JS execution, directly calling the sync service
 // ───────────────────────────────────────────────────────────────────────────
 
-/*
+
 cron.schedule('0 * * * *', async () => {
       
   log("INFO", "CRON", "Iniciando Job de rescate de HubSpot (Intervalo: 5 min)...");
@@ -353,7 +353,6 @@ cron.schedule('0 * * * *', async () => {
     log("ERROR", "CRON", `Fallo crítico en el Job de rescate de HubSpot: ${error.message}`);
   }
 });
-*/
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning
