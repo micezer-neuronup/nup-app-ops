@@ -42,9 +42,6 @@ async function createAssociation(fromType, fromId, toType, toId, assocId) {
   });
 }
 
-// --- FUNCIÓN AUXILIAR PARA PASAR EL RATE LIMIT ---
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function syncSingleSubscriptionToHubspot(subscriptionId) {
   try {
     // 1. Obtener datos frescos de TU base de datos

@@ -1,6 +1,8 @@
 const { pool } = require('./db');
 const { log } = require("../utils/logger");
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function getSubscriptionByCenterId(centerId) {
   try {
     const query = `
