@@ -336,8 +336,8 @@ cron.schedule('0 6 * * *', () => {
 // ───────────────────────────────────────────────────────────────────────────
 
 
-cron.schedule('*/5 * * * *', async () => {
-    
+cron.schedule('0 * * * *', async () => {
+      
   log("INFO", "CRON", "Iniciando Job de rescate de HubSpot (Intervalo: 5 min)...");
 
   try {
