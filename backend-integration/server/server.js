@@ -105,7 +105,7 @@ app.post(
 
         // ─── UNHANDLED EVENTS ───────────────────────────────────────────
         default:
-          log("INFO", "STRIPE", `🤷‍♂️ Unhandled event type: ${event.type}`);
+          log("INFO", "STRIPE", `Unhandled event type: ${event.type}`);
       }
 
       // 3. Success Acknowledgment back to Stripe
@@ -330,6 +330,8 @@ cron.schedule('0 6 * * *', () => {
   });
 });
 
+
+
 // ────── Cron job: HubSpot Fallback Sync ────────────────────────────────────
 // ─── Cron job that runs every hour (at minute 0)
 // ─── Native JS execution, directly calling the sync service
@@ -353,6 +355,7 @@ cron.schedule('0 * * * *', async () => {
     log("ERROR", "CRON", `Fallo crítico en el Job de rescate de HubSpot: ${error.message}`);
   }
 });
+
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning

@@ -96,12 +96,11 @@ async function upsertStripeSubscription(data) {
          subscription_id, hubspot_subscription_id, nup_center_id, segment, 
          manages_own_payment, center_name, start_date, precancelled_date, 
          cancelation_date, revoked_access_date, current_state, currency, 
-         creation_source, source, payment_method_type, market, is_forever, pending_payment
+         creation_source, source, payment_method_type, market, is_forever, pending_payment, hubspot_sync_status
        ) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        ON CONFLICT (subscription_id) 
        DO UPDATE SET 
-         -- ✨ BLINDAJE: nup_center_id NO está aquí, por lo que nunca se sobreescribirá si ya existe
          center_name = EXCLUDED.center_name,
          start_date = EXCLUDED.start_date,
          precancelled_date = EXCLUDED.precancelled_date,
@@ -111,12 +110,13 @@ async function upsertStripeSubscription(data) {
          payment_method_type = EXCLUDED.payment_method_type,
          is_forever = EXCLUDED.is_forever,
          pending_payment = EXCLUDED.pending_payment,
+         hubspot_sync_status = EXCLUDED.hubspot_sync_status,
          updated_at = CURRENT_TIMESTAMP`,
       [
         sub.subscription_id, null, sub.nup_center_id, sub.segment, 
         null, sub.center_name, sub.start_date, sub.precancelled_date, 
         sub.cancelation_date, null, sub.current_state, sub.currency, 
-        null, 'stripe', sub.payment_method_type, null, sub.is_forever, sub.pending_payment
+        null, 'stripe', sub.payment_method_type, null, sub.is_forever, sub.pending_payment, 'PENDING'
       ]
     );
 
@@ -141,7 +141,6 @@ async function upsertStripeSubscription(data) {
            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
            ON CONFLICT (item_id) 
            DO UPDATE SET 
-             -- ✨ BLINDAJE: Tampoco tocamos nup_center_id aquí
              product_name = EXCLUDED.product_name,
              billing_interval = EXCLUDED.billing_interval,
              payment_frequency = EXCLUDED.payment_frequency,
@@ -208,11 +207,9 @@ async function processMassiveStripeSync() {
 
     for await (const stripeSub of subscriptions) {
       try {
-        // ✨ NUEVO: Buscamos el nup_center_id actual en tu BD antes de hacer nada más
         const dbCheck = await pool.query('SELECT nup_center_id FROM subscriptions WHERE subscription_id = $1', [stripeSub.id]);
         const nupCenterId = dbCheck.rows.length > 0 ? dbCheck.rows[0].nup_center_id : null;
 
-        // ✨ NUEVO: Si tiene ID, le pedimos las features a HubSpot. Si es null, devuelve [] rápido
         const centerFeatures = nupCenterId ? await getHubspotFeaturesCached(nupCenterId) : [];
 
         // --- PARSEO DE FECHAS SEGÚN TU LOGIC ---
@@ -252,7 +249,7 @@ async function processMassiveStripeSync() {
 
         const payloadSub = {
           subscription_id: stripeSub.id,
-          nup_center_id: nupCenterId, // Mantenemos el que tenga en la BD (o null si es nueva)
+          nup_center_id: nupCenterId,
           center_name: centerName,
           start_date: startDate,
           precancelled_date: precancelledDate,
@@ -279,13 +276,13 @@ async function processMassiveStripeSync() {
 
           return {
             item_id: item.id,
-            nup_center_id: nupCenterId, // Pasamos el ID rescatado
+            nup_center_id: nupCenterId,
             product_id: productId,
             product_name: productName,
             billing_interval: item.price.recurring?.interval || null,
             payment_frequency: item.price.recurring?.interval_count || 1,
             unit_price: item.price.unit_amount ? (item.price.unit_amount / 100) : null, 
-            features: JSON.stringify(centerFeatures), // ✨ INYECTAMOS LAS FEATURES DE HUBSPOT
+            features: JSON.stringify(centerFeatures),
             quantity: item.quantity,
             start_date: startDate,
             current_period_start: currentPeriodStart,
@@ -302,7 +299,7 @@ async function processMassiveStripeSync() {
         if (successCount % 50 === 0) {
           console.log(`[INFO] Sincronizadas ${successCount} suscripciones de Stripe...`);
         }
-        await delay(100); // Pausa ligeramente más alta para proteger tanto HubSpot como PostgreSQL
+        await delay(100);
 
       } catch (rowError) {
         console.error(`[ERROR] Fallo en suscripción ${stripeSub.id} | error=${rowError.message}`);

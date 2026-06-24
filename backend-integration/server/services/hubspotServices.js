@@ -58,8 +58,8 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     try {
       companyHubspotId = await findCompanyHubspotId(sub.nup_center_id);
     } catch (err) {
-      log("WARN", "HUBSPOT-SYNC", `❌ Empresa nup_center_id '${sub.nup_center_id}' no encontrada en HubSpot para sub ${subscriptionId}.`);
-      return 'NO_COMPANY'; // ✨ DETECTAMOS ERROR CRÍTICO DE DATOS
+      log("WARN", "HUBSPOT-SYNC", `Empresa nup_center_id '${sub.nup_center_id}' no encontrada en HubSpot para sub ${subscriptionId}.`);
+      return 'NO_COMPANY'; 
     }
 
     // 2. Sincronizar Padre
@@ -144,11 +144,11 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
       }
     }
 
-    log("INFO", "HUBSPOT-SYNC", `✅ Suscripción ${subscriptionId} enviada a HubSpot.`);
+    log("INFO", "HUBSPOT-SYNC", `Suscripción ${subscriptionId} enviada a HubSpot.`);
     return true; // Éxito
 
   } catch (error) {
-    log("ERROR", "HUBSPOT-SYNC", `❌ Error sincronizando ${subscriptionId}: ${error.message}`);
+    log("ERROR", "HUBSPOT-SYNC", `Error sincronizando ${subscriptionId}: ${error.message}`);
     return false; // Fallo genérico (ej: Rate limit o red)
   }
 }

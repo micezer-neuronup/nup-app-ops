@@ -278,7 +278,7 @@ async function updateInvoiceData(data) {
            SET 
              number_of_renovations = COALESCE(number_of_renovations, 0) + 1,
              updated_at = CURRENT_TIMESTAMP
-           WHERE item_id = $1`, // ✨ item_id
+           WHERE item_id = $1`, 
           [item_id]
         );
       }
@@ -337,7 +337,7 @@ async function processPendingHubspotSyncs(syncFunction) {
     for (const record of pendingRecords) {
       const subId = record.subscription_id;
       
-      // ⏱️ Freno de mano: Esperamos 250ms antes de cada llamada para evitar el RATE_LIMIT
+
       await delay(250); 
 
       const syncResult = await syncFunction(subId);
