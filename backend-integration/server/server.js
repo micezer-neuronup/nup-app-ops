@@ -298,7 +298,7 @@ app.patch('/api/feature-requests/:id', async (req, res) => {
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
 
-
+/*
 cron.schedule('0 6 * * *', () => {
     
   log("INFO", "CRON", "Starting Amplitude fetch job...");
@@ -332,19 +332,29 @@ cron.schedule('0 6 * * *', () => {
   });
 });
 
+*/
 
+// Variable global en el archivo del cron para controlar si ya hay un job corriendo
+let isHubspotJobRunning = false;
 
 // ────── Cron job: HubSpot Fallback Sync ────────────────────────────────────
-// ─── Cron job that runs every hour (at minute 0)
-// ─── Native JS execution, directly calling the sync service
+// ─── Se ejecuta cada 12 horas (a las 00:00 y a las 12:00)
+// ─── Cuenta con sistema de candado de seguridad (Lock)
 // ───────────────────────────────────────────────────────────────────────────
-
-
 cron.schedule('0 * * * *', async () => {
       
-  log("INFO", "CRON", "Iniciando Job de rescate de HubSpot (Intervalo: 5 min)...");
+  // 1. Si el candado está cerrado, saltamos esta pasada inmediatamente
+  if (isHubspotJobRunning) {
+    log("WARN", "CRON", "El Job anterior de HubSpot aún no ha terminado. Saltando esta pasada para evitar duplicidades.");
+    return; 
+  }
+
+  // 2. Si está libre, cerramos el candado antes de empezar
+  isHubspotJobRunning = true;
+  log("INFO", "CRON", "Iniciando Job de rescate semestral de HubSpot...");
 
   try {
+    // Le pasamos tu función de sincronización como callback
     const result = await processPendingHubspotSyncs(syncSingleSubscriptionToHubspot);
 
     if (result.message) {
@@ -355,9 +365,11 @@ cron.schedule('0 * * * *', async () => {
 
   } catch (error) {
     log("ERROR", "CRON", `Fallo crítico en el Job de rescate de HubSpot: ${error.message}`);
+  } finally {
+    // 3. SECCIÓN VITAL: Abrimos el candado pase lo que pase al terminar
+    isHubspotJobRunning = false;
   }
 });
-
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning
