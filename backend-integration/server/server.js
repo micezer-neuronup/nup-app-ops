@@ -296,7 +296,7 @@ app.patch('/api/feature-requests/:id', async (req, res) => {
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
 
-
+/*
 cron.schedule('0 6 * * *', () => {
     
   log("INFO", "CRON", "Starting Amplitude fetch job...");
@@ -330,14 +330,14 @@ cron.schedule('0 6 * * *', () => {
   });
 });
 
-
+*/
 
 // ────── Cron job: HubSpot Fallback Sync ────────────────────────────────────
 // ─── Cron job that runs every hour (at minute 0)
 // ─── Native JS execution, directly calling the sync service
 // ───────────────────────────────────────────────────────────────────────────
 
-
+/*
 cron.schedule('0 * * * *', async () => {
       
   log("INFO", "CRON", "Iniciando Job de rescate de HubSpot (Intervalo: 5 min)...");
@@ -355,7 +355,7 @@ cron.schedule('0 * * * *', async () => {
     log("ERROR", "CRON", `Fallo crítico en el Job de rescate de HubSpot: ${error.message}`);
   }
 });
-
+*/
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning
