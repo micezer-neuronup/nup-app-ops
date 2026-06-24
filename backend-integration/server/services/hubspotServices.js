@@ -12,14 +12,14 @@ const ASSOC_ITEM_TO_SUB = 316;
 const intervalMap = { "day": "daily", "daily": "daily", "week": "weekly", "weekly": "weekly", "month": "monthly", "monthly": "monthly", "year": "yearly", "yearly": "yearly" };
 const sourceMap = { "stripe": "Stripe", "manual": "Backend" };
 const statusMap = { "active": "active", "trialing": "trial", "trial": "trial", "canceled": "canceled", "cancelled": "canceled", "trial_canceled": "trial_canceled", "past_due": "past_due" };
+
 const formatHsDate = (dateVal) => {
   if (!dateVal) return "";
   const d = new Date(dateVal);
   if (isNaN(d.getTime())) return "";
-  
-  // Extraemos solo la parte YYYY-MM-DD (ej: "2026-06-23")
   return d.toISOString().split('T')[0]; 
 };
+
 // --- Funciones auxiliares de tu script original ---
 async function findCompanyHubspotId(nupCenterId) {
   const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
@@ -50,15 +50,17 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     const sub = subRows[0];
 
     if (!sub.nup_center_id) {
-      log("WARN", "HUBSPOT-SYNC", `Sub ${subscriptionId} no tiene nup_center_id. Ignorando.`);
-      return 'NO_COMPANY'; // Cambiamos a 'no_company' para excluirlo permanentemente
+      // Pasado a console para no saturar el archivo de logs
+      console.log(`[HUBSPOT-SYNC][WARN] Sub ${subscriptionId} no tiene nup_center_id. Ignorando.`);
+      return 'NO_COMPANY'; 
     }
 
     let companyHubspotId;
     try {
       companyHubspotId = await findCompanyHubspotId(sub.nup_center_id);
     } catch (err) {
-      log("WARN", "HUBSPOT-SYNC", `Empresa nup_center_id '${sub.nup_center_id}' no encontrada en HubSpot para sub ${subscriptionId}.`);
+      // Pasado a console para no saturar el archivo de logs
+      console.log(`[HUBSPOT-SYNC][WARN] Empresa nup_center_id '${sub.nup_center_id}' no encontrada en HubSpot para sub ${subscriptionId}.`);
       return 'NO_COMPANY'; 
     }
 
@@ -144,12 +146,12 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
       }
     }
 
-    log("INFO", "HUBSPOT-SYNC", `Suscripción ${subscriptionId} enviada a HubSpot.`);
-    return true; // Éxito
+    console.log(`[HUBSPOT-SYNC] Suscripción ${subscriptionId} enviada a HubSpot.`);
+    return true; 
 
   } catch (error) {
-    log("ERROR", "HUBSPOT-SYNC", `Error sincronizando ${subscriptionId}: ${error.message}`);
-    return false; // Fallo genérico (ej: Rate limit o red)
+    console.error(`[HUBSPOT-SYNC][ERROR] Error sincronizando ${subscriptionId}: ${error.message}`);
+    return false; 
   }
 }
 

@@ -333,7 +333,7 @@ cron.schedule('0 6 * * *', () => {
 });
 
 */
-
+/*
 // Variable global en el archivo del cron para controlar si ya hay un job corriendo
 let isHubspotJobRunning = false;
 
@@ -342,7 +342,7 @@ let isHubspotJobRunning = false;
 // ─── Cuenta con sistema de candado de seguridad (Lock)
 // ───────────────────────────────────────────────────────────────────────────
 cron.schedule('0 * * * *', async () => {
-      
+
   // 1. Si el candado está cerrado, saltamos esta pasada inmediatamente
   if (isHubspotJobRunning) {
     log("WARN", "CRON", "El Job anterior de HubSpot aún no ha terminado. Saltando esta pasada para evitar duplicidades.");
@@ -371,6 +371,7 @@ cron.schedule('0 * * * *', async () => {
   }
 });
 
+*/
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning
 // ─── The pyProcess lines capture the logs to add them to app.log
