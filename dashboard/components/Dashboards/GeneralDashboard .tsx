@@ -28,7 +28,7 @@ import { CenterInfoCard } from "./CenterInfoCard";
 
 export function GeneralDashboard({ data }: { data?: any }) {
   const [subscriptionModalOpen, setSubscriptionModalOpen] = useState(false);
-
+  
   // --- DATOS REALES DEL CENTRO ---
   const props = data?.properties || {};
   const name = props.commercial_name || props.name || "—";
@@ -50,9 +50,14 @@ export function GeneralDashboard({ data }: { data?: any }) {
   const allSubscriptionDays = props.all_subscription_days ?? 0;
   const market = props.market_hubspot;
 
+  const healthScore = props.health_score || "—";
+  const churnStatus = props.churn_risk || "—";
+
 
   // --- DATOS REALES DE ANALYTICS ---
+  
   const analytics = data?.analytics || { totals: {}, daily: [] };
+
 
 const sub = data?.subscription || {};
 
@@ -94,6 +99,7 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-semibold mb-3 px-1">{name}</h2>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
         
         {/* Card 1: Centro */}
@@ -106,7 +112,9 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
           numPatients={numPatients}
           numEmployees={numEmployees}
           market={market}
-          />
+          healthScore={healthScore}      
+          churnStatus={churnStatus}      
+        />
         
         {/* Card 2: Suscripción */}
         <SubscriptionCard

@@ -18,7 +18,9 @@ import {
   Briefcase,
   Copy,
   Check,
-  Globe, // ✨ Icono importado para el mercado
+  Globe,
+  Activity,
+  AlertTriangle,
 } from "lucide-react";
 
 interface CenterInfoCardProps {
@@ -30,9 +32,10 @@ interface CenterInfoCardProps {
   numPatients?: string | number;
   numEmployees?: string | number;
   market?: string | number;
+  healthScore?: number;
+  churnStatus?: "alto" | "medio" | "bajo" | string;
 }
 
-// 🗺️ Diccionario para mapear las especialidades de la BD a texto limpio
 const specialtyLabels: Record<string, string> = {
   brain_injury: "Daño Cerebral",
   brain_damage: "Daño Cerebral",
@@ -48,8 +51,7 @@ const specialtyLabels: Record<string, string> = {
   normal_aging: "Envejecimiento Normal",
 };
 
-// MetricRow con tu sistema de copia e iframe fallback integrado
-const MetricRow = ({ icon: Icon, label, value, copyField }: any) => {
+const MetricRow = ({ icon: Icon, label, value, copyField, color }: any) => {
   const displayValue = value === undefined || value === null || value === "" ? "—" : value;
   const [copied, setCopied] = useState(false);
 
@@ -73,6 +75,8 @@ const MetricRow = ({ icon: Icon, label, value, copyField }: any) => {
     }
   };
 
+  const valueClassName = color ? `text-sm font-semibold ${color}` : "text-sm font-semibold";
+
   return (
     <div className="flex items-center justify-between py-2 border-b last:border-0 px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -80,7 +84,7 @@ const MetricRow = ({ icon: Icon, label, value, copyField }: any) => {
         <span className="text-sm font-medium text-muted-foreground shrink-0">{label}</span>
       </div>
       <div className="flex items-center gap-2 max-w-[65%] justify-end">
-        <span className="text-sm font-semibold truncate">{displayValue}</span>
+        <span className={valueClassName}>{displayValue}</span>
         {copyField && displayValue !== "—" && (
           <button
             onClick={handleCopy}
@@ -104,6 +108,55 @@ const MetricRow = ({ icon: Icon, label, value, copyField }: any) => {
   );
 };
 
+// ✨ Nuevo componente para fila combinada (Health Score + Churn)
+const CombinedRow = ({ healthScore, churnStatus }: { healthScore: number; churnStatus: string }) => {
+  const getHealthColor = (score: number) => {
+    if (score >= 80) return "text-emerald-600";
+    if (score >= 50) return "text-amber-600";
+    return "text-rose-600";
+  };
+
+  const getChurnColor = (status: string) => {
+    const lower = status.toLowerCase();
+    if (lower === "bajo" || lower === "low") return "text-emerald-600";
+    if (lower === "medio" || lower === "medium") return "text-amber-600";
+    return "text-rose-600";
+  };
+
+  const formatChurnStatus = (status: string) => {
+    if (!status) return "—";
+    const map: Record<string, string> = {
+      alto: "Alto",
+      medio: "Medio",
+      bajo: "Bajo",
+      low: "Bajo",
+      medium: "Medio",
+      high: "Alto",
+    };
+    return map[status.toLowerCase()] || status;
+  };
+
+  return (
+    <div className="flex items-center justify-between py-2 border-b last:border-0 px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
+        <span className="text-sm font-medium text-muted-foreground shrink-0">Salud</span>
+      </div>
+      <div className="flex items-center gap-4 max-w-[65%] justify-end">
+        <span className={`text-sm font-semibold ${getHealthColor(healthScore)}`}>
+          {healthScore}%
+        </span>
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className={`text-sm font-semibold ${getChurnColor(churnStatus)}`}>
+            {formatChurnStatus(churnStatus)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export function CenterInfoCard({
   centerId,
   email,
@@ -113,12 +166,41 @@ export function CenterInfoCard({
   numPatients,
   numEmployees,
   market,
+  healthScore = 85,
+  churnStatus = "bajo",
 }: CenterInfoCardProps) {
-  
-  // Si la especialidad existe en nuestro diccionario, la traducimos. Si no, dejamos lo que venga.
   const formattedSpecialty = specialty && specialtyLabels[specialty] 
     ? specialtyLabels[specialty] 
     : specialty;
+
+
+   // Función para el color del badge de Health Score
+  const getHealthBadgeColor = (score: number) => {
+    if (score >= 80) return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    if (score >= 50) return "bg-amber-100 text-amber-800 border-amber-200";
+    return "bg-rose-100 text-rose-800 border-rose-200";
+  };
+
+  // Función para el color del badge de Churn
+  const getChurnBadgeColor = (status: string) => {
+    const lower = status.toLowerCase();
+    if (lower === "bajo" || lower === "low") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    if (lower === "medio" || lower === "medium") return "bg-amber-100 text-amber-800 border-amber-200";
+    return "bg-rose-100 text-rose-800 border-rose-200";
+  };
+
+  const formatChurnStatus = (status: string) => {
+    if (!status) return "—";
+    const map: Record<string, string> = {
+      alto: "Alto",
+      medio: "Medio",
+      bajo: "Bajo",
+      low: "Bajo",
+      medium: "Medio",
+      high: "Alto",
+    };
+    return map[status.toLowerCase()] || status;
+  };
 
   return (
     <Card className="group overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 hover:bg-accent/30 h-[500px] flex flex-col">
@@ -132,14 +214,32 @@ export function CenterInfoCard({
         <MetricRow icon={Mail} label="Email" value={email} copyField={true} />
         <MetricRow icon={FileText} label="CIF" value={cif} copyField={true} />
         <MetricRow icon={MapPin} label="Región" value={region} />
-        
-        {/* Pasamos la especialidad ya formateada */}
         <MetricRow icon={Stethoscope} label="Especialidad" value={formattedSpecialty} />
-        
         <MetricRow icon={Users} label="Pacientes" value={numPatients} />
         <MetricRow icon={Briefcase} label="Empleados" value={numEmployees} />
-        {/* ✨ Nueva fila de Mercado sin mapeo previo */}
         <MetricRow icon={Globe} label="Mercado" value={market} />
+
+        {/* ✨ NUEVA FILA COMPARTIDA: Health Score + Churn (Riesgo de Churn) */}
+{/* ✨ FILA COMPARTIDA: Health Score + Riesgo Churn (cada uno ocupa la mitad) */}
+<div className="flex items-center justify-between py-2 border-b last:border-0 px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
+  {/* MITAD IZQUIERDA: Health Score */}
+  <div className="flex items-center gap-2 w-1/2">
+    <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
+    <span className="text-sm font-medium text-muted-foreground shrink-0">Health Score</span>
+    <span className={`text-sm font-semibold px-2.5 py-0.5 rounded-full ${getHealthBadgeColor(healthScore)}`}>
+      {healthScore}%
+    </span>
+  </div>
+
+  {/* MITAD DERECHA: Riesgo Churn */}
+  <div className="flex items-center gap-2 w-1/2 justify-end">
+    <AlertTriangle className="h-4 w-4 text-muted-foreground shrink-0" />
+    <span className="text-sm font-medium text-muted-foreground shrink-0">Riesgo Churn</span>
+    <span className={`text-sm font-semibold px-2.5 py-0.5 rounded-full ${getChurnBadgeColor(churnStatus)}`}>
+      {formatChurnStatus(churnStatus)}
+    </span>
+  </div>
+        </div>
       </CardContent>
     </Card>
   );
