@@ -7,7 +7,12 @@ const cron = require('node-cron');
 const { spawn } = require('child_process');
 const { log } = require("./utils/logger");
 
+
 // ────── Initialization: env ────────────────────────────────────────────────────
+// ─── For development
+// ─── For local run with development env: NODE_ENV=development node server.js
+// ─── For local run with production env: NODE_ENV=production node server.js
+// ───────────────────────────────────────────────────────────────────────────────
 const envFile = process.env.NODE_ENV === 'production'
   ? '../.env.production'
   : '../.env.development';
@@ -15,45 +20,64 @@ const envFile = process.env.NODE_ENV === 'production'
 const envPath = path.resolve(__dirname, envFile);
 dotenv.config({ path: envPath });
 
+
 // ────── Import: database connection and queries ───────────────
+// ─── Database conenction is already imported in dbQueries
+// ──────────────────────────────────────────────────────────────
 const { getAnalyticsByCenterId, updateFeatureRequestStatus} = require('./db/dbAnalytics');
+
 const { getSubscriptionByCenterId, processPendingHubspotSyncs  } = require('./db/dbSubscriptions');
+
 const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
+
 const { syncSingleSubscriptionToHubspot, resolveCompanyData } = require('./services/hubspotServices');
 
+
+
+
 // ────── Initialization: Script paths ─────────────────────────────
+// ─── We define the path of the scripts the cron job calls
+// ────────────────────────────────────────────────────────────────
 const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
+// const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
+
 
 // ────── Initialization: server  ─────────────────────────────────────────────
+// ─── We create the express app
+// ─── We add cors 
+// ─── We define the server port
+// ─── We define the Husbpot token from the enviroment
+// ─── We define the Stripe endpoint secret
+// ────────────────────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 
 const PORT = process.env.PORT;
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
 
-// ────── Global Middleware: JSON Parser con captura de RAW BODY ──────────────
-// ─── Este enfoque intercepta el stream original antes de que Express lo parsee.
-// ─── Guarda los bytes exactos (raw) en req.rawBody si la URL es del webhook.
-// ─── Así evitamos fallos de firma por barras extra o rutas mal emparejadas.
-// ────────────────────────────────────────────────────────────────────────────
-app.use(express.json({
-  verify: (req, res, buf) => {
-    if (req.originalUrl.includes('stripe')) {
-      req.rawBody = buf;
-    }
-  }
-}));
-
 // ────── Webhook Routes ──────────────────────────────────────────────────────
+// ─── Requires Raw Body so we define it before the json global middleware
+// ─── This way Stripe can read the raw buffer to securely verify the signature
+// ─── We manage webhooks to track subscriptions state and historic data
+// ─── Webhook is open to the internet, we secure it using the Webhook Secret
+// ─── Stripe knows this Webhook Secret as weel as the server
+// ─── Stripe generates webhooks and hashes it with the Webhook Secret
+// ─── This creates a unique signature which this endpoint recieves
+// ─── Stripe in the server does the same process using the request.body and Webhook Secret
+// ─── If the result is not the same, its rejeted, it cant be trsuted
+// ─── If the result is the same, then its from Stripe, it can be trusted
+// ────────────────────────────────────────────────────────────────────────────
+
+
 app.post(
-  '/apiwebhooks/stripe', // 💡 Asegúrate de que en Stripe Dashboard esté exactamente igual escrita
+  '/apiwebhooks/stripe', 
+  express.raw({ type: 'application/json' }), 
   async (request, response) => {
     const sig = request.headers['stripe-signature'];
     let event;
 
     try {
-      // ✨ Pasamos request.rawBody (los bytes intactos capturados por el middleware)
-      event = stripe.webhooks.constructEvent(request.rawBody, sig, endpointSecret);
+      event = stripe.webhooks.constructEvent(request.body, sig, endpointSecret);
     } catch (err) {
       log("ERROR", "STRIPE", `Webhook signature verification failed: ${err.message}`);
       return response.status(400).send(`Webhook Error: ${err.message}`);
