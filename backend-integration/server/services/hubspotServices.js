@@ -9,6 +9,92 @@ const ASSOC_ITEM_TO_COMPANY = 295;
 const ASSOC_SUB_TO_COMPANY = 313;   
 const ASSOC_ITEM_TO_SUB = 316;      
 
+
+
+// ────── Function: resolveCompanyData ─────────────────────────────────────────────────────────
+// ─── We have 2 object types, company and deal. We define a dictionary with the object types 
+// ─── We define a list with all the properties we want to fetch
+// ─── If its a company, we do a direct fecth to hubspot and return it
+// ─── If its a deal, we fetch the deals associated companies
+// ─── The first company that has a nup_center_id is returned
+// ────────────────────────────────────────────────────────────────────────────────────────────
+async function resolveCompanyData(objectId, objectTypeId) {
+
+  const OBJECT_TYPES = {
+    COMPANY: '0-2',
+    DEAL: '0-3'
+  };
+
+  const companyProperties = [
+  'nup_center_id',
+  'name',
+  'email',
+  'commercial_name',
+  'company_specialty__por_definir_',
+  'cif',
+  'region_backend',
+  'num_employees',
+  'num_patients',
+  'last_company_login',
+  'nup2go_balance',
+  'nup2go_patients',
+  'last_nup2go_assignment',
+  'last_nup2go_payment_date',
+  'segmento',
+  'currency__por_definir_',
+  'all_subscription_days',
+  'market_hubspot',
+  'health_score',
+  'churn_risk'
+];
+  if (objectTypeId === OBJECT_TYPES.COMPANY) {
+    const url = `https://api.hubapi.com/crm/v3/objects/company/${objectId}?properties=${companyProperties.join(',')}`;
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` } });
+    if (!res.ok) throw new Error(`Company fetch failed: ${res.status}`);
+    const data = await res.json();
+    if (!data.properties?.nup_center_id) throw new Error('Company has no nup_center_id');
+    return data;
+  }
+
+  if (objectTypeId === OBJECT_TYPES.DEAL) {
+
+    const dealUrl = `https://api.hubapi.com/crm/v3/objects/deals/${objectId}?associations=company`;
+
+    const dealRes = await fetch(dealUrl, { 
+    headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` } 
+    });
+
+    if (!dealRes.ok) {
+      const errorText = await dealRes.text();
+      throw new Error(`Failed to fetch deal ${objectId}: ${dealRes.status} ${errorText}`);
+    }
+
+    const dealData = await dealRes.json();
+    const companyIds = dealData.associations?.companies?.results?.map(r => r.id) || [];
+
+    if (companyIds.length === 0) {
+      throw new Error(`Deal ${objectId} has no associated companies`);
+    }
+
+    for (const companyId of companyIds) {
+      const url = `https://api.hubapi.com/crm/v3/objects/company/${companyId}?properties=nup_center_id,${companyProperties.join(',')}`;
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` } });
+    
+      if (!res.ok) continue;
+    
+      const company = await res.json();
+      if (company.properties?.nup_center_id) {
+        return company;
+      }
+    }
+
+    throw new Error('No associated company with nup_center_id found for this deal');
+  }
+
+  throw new Error(`Unsupported object type: ${objectTypeId}`);
+}
+
+
 const intervalMap = { "day": "daily", "daily": "daily", "week": "weekly", "weekly": "weekly", "month": "monthly", "monthly": "monthly", "year": "yearly", "yearly": "yearly" };
 const sourceMap = { "stripe": "Stripe", "manual": "Backend" };
 const statusMap = { "active": "active", "trialing": "trial", "trial": "trial", "canceled": "canceled", "cancelled": "canceled", "trial_canceled": "trial_canceled", "past_due": "past_due" };
@@ -155,4 +241,6 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
   }
 }
 
-module.exports = { syncSingleSubscriptionToHubspot };
+module.exports = { syncSingleSubscriptionToHubspot,
+  resolveCompanyData
+ };
