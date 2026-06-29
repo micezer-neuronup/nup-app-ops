@@ -295,6 +295,7 @@ cron.schedule('0 * * * *', async () => {
 
 
 
+
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning
 // ─── The pyProcess lines capture the logs to add them to app.log
