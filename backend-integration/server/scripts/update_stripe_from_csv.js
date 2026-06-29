@@ -37,7 +37,7 @@ pool.on('error', (err) => {
   console.error("[ERROR] [CSV-UPDATE-DB] Database error:", err.message);
 });
 
-const CSV_FILE_PATH = './suscripciones.csv';
+const CSV_FILE_PATH = './subscriptions.csv';
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ============================================================================
