@@ -200,12 +200,18 @@ async function processSubscriptionUpsert(event) {
   await upsertSubscriptionData(payload);
   log("INFO", "SUBSCRIPTION-SERVICE", `Upsert routed to DB for ${subId}`);
 
-  syncSingleSubscriptionToHubspot(subId).then(async (success) => {
-    if (success) {
+  syncSingleSubscriptionToHubspot(subId).then(async (result) => {
+    if (result === true) {
+      // Sincronización impecable
       await markHubspotSyncStatus(subId, 'SYNCED');
+    } else if (result === 'NO_COMPANY') {
+      // Bloqueo crítico: El centro no existe o no viene informado
+      await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
+    } else {
+      // Errores temporales de red, API o rate limit (false)
+      await markHubspotSyncStatus(subId, 'FAILED');
     }
-
-  });
+});
 }
 
 async function processInvoiceEvent(event) {
@@ -256,12 +262,18 @@ async function processInvoiceEvent(event) {
   await updateInvoiceData(payload);
   log("INFO", "SUBSCRIPTION-SERVICE", `Invoice data routed to DB for ${subId}`);
 
-  syncSingleSubscriptionToHubspot(subId).then(async (success) => {
-    if (success) {
+  syncSingleSubscriptionToHubspot(subId).then(async (result) => {
+    if (result === true) {
+      // Sincronización impecable
       await markHubspotSyncStatus(subId, 'SYNCED');
+    } else if (result === 'NO_COMPANY') {
+      // Bloqueo crítico: El centro no existe o no viene informado
+      await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
+    } else {
+      // Errores temporales de red, API o rate limit (false)
+      await markHubspotSyncStatus(subId, 'FAILED');
     }
-
-  });
+});
 }
 
 module.exports = { 
