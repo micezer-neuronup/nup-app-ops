@@ -215,7 +215,7 @@ app.patch('/api/feature-requests/:id', async (req, res) => {
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
 
-/*
+
 
 cron.schedule('0 6 * * *', () => {
     
@@ -290,7 +290,6 @@ cron.schedule('0 * * * *', async () => {
 
 
 
-*/
 
 
 
