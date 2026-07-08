@@ -181,28 +181,46 @@ app.get('/api/company-data', async (req, res) => {
 });
 
 app.options('/api/feature-requests/:id', cors());
+
 app.patch('/api/feature-requests/:id', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
 
+  log("INFO", "API", "PATCH /api/feature-requests/:id", { id, status });
+
   if (!status || (status !== 'pending' && status !== 'completed')) {
-    return res.status(400).json({ error: "El estado debe ser 'pending' o 'completed'" });
+    log("WARN", "API", "Invalid status received", { id, status });
+    return res.status(400).json({ error: "Status must be 'pending' or 'completed'" });
   }
 
   try {
+    log("INFO", "DB", "Updating feature request status", { id, status });
+
     const updatedRequest = await updateFeatureRequestStatus(id, status);
-    
+
     if (!updatedRequest) {
-      return res.status(404).json({ error: "Petición de feature no encontrada" });
+      log("WARN", "DB", "Feature request not found", { id });
+      return res.status(404).json({ error: "Feature request wasnt found" });
     }
 
     if (updatedRequest.error) {
+      log("ERROR", "DB", "Failed to update feature request", {
+        id,
+        error: updatedRequest.error,
+      });
       return res.status(500).json({ error: updatedRequest.error });
     }
 
+    log("INFO", "DB", "Feature request updated successfully", { id, status });
+
     res.json({ success: true, data: updatedRequest });
+
   } catch (err) {
-    console.error("Error en PATCH /api/feature-requests/:id", err.message);
+    log("ERROR", "API", "Unhandled error in PATCH /api/feature-requests/:id", {
+      id,
+      error: err.message,
+    });
+
     res.status(500).json({ error: err.message });
   }
 });
@@ -252,42 +270,48 @@ cron.schedule('0 6 * * *', () => {
 
 
 
-// Variable global en el archivo del cron para controlar si ya hay un job corriendo
+
 let isHubspotJobRunning = false;
 
 // ────── Cron job: HubSpot Fallback Sync ────────────────────────────────────
 // ─── Se ejecuta cada 12 horas (a las 00:00 y a las 12:00)
 // ─── Cuenta con sistema de candado de seguridad (Lock)
 // ───────────────────────────────────────────────────────────────────────────
-cron.schedule('0 * * * *', async () => {    
-  // 1. Si el candado está cerrado, saltamos esta pasada inmediatamente
+cron.schedule('0 */6 * * *', async () => {
+
   if (isHubspotJobRunning) {
-    log("WARN", "CRON", "El Job anterior de HubSpot aún no ha terminado. Saltando esta pasada para evitar duplicidades.");
-    return; 
+    log(
+      "WARN",
+      "CRON",
+      "Previous HubSpot job is still running. Skipping this execution to avoid duplicates."
+    );
+    return;
   }
 
-  // 2. Si está libre, cerramos el candado antes de empezar
   isHubspotJobRunning = true;
-  log("INFO", "CRON", "Iniciando Job de rescate semestral de HubSpot...");
+  log("INFO", "CRON", "Starting HubSpot recovery job");
 
   try {
-    // Le pasamos tu función de sincronización como callback
+
     const result = await processPendingHubspotSyncs(syncSingleSubscriptionToHubspot);
 
     if (result.message) {
-      log("INFO", "CRON", `HubSpot Sync: ${result.message}`);
+      log("INFO", "CRON", "HubSpot sync completed", { message: result.message });
     } else {
-      log("INFO", "CRON", `Job de rescate finalizado. Éxitos: ${result.successCount}, Errores: ${result.errorCount}`);
+      log("INFO", "CRON", "HubSpot recovery job completed", {
+        successCount: result.successCount,
+        errorCount: result.errorCount,
+      });
     }
 
   } catch (error) {
-    log("ERROR", "CRON", `Fallo crítico en el Job de rescate de HubSpot: ${error.message}`);
+    log("ERROR", "CRON", "Critical failure during HubSpot recovery job", {
+      error: error.message,
+    });
   } finally {
-    // 3. SECCIÓN VITAL: Abrimos el candado pase lo que pase al terminar
     isHubspotJobRunning = false;
   }
 });
-
 
 
 
@@ -336,7 +360,7 @@ cron.schedule('0 2 * * *', () => {
 
 app.listen(PORT, () => {
   
-  log("INFO", "SERVER", `Servidor iniciado`, { url: `http://localhost:${PORT}` });
+  log("INFO", "SERVER", `Server started`, { url: `http://localhost:${PORT}` });
 
 });
 
