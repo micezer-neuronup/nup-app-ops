@@ -106,7 +106,10 @@ const formatHsDate = (dateVal) => {
   return d.toISOString().split('T')[0]; 
 };
 
-// --- Funciones auxiliares de tu script original ---
+
+
+
+
 async function findCompanyHubspotId(nupCenterId) {
   const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
     method: 'POST',
@@ -241,6 +244,65 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
   }
 }
 
-module.exports = { syncSingleSubscriptionToHubspot,
-  resolveCompanyData
+async function getCompanyDataByNupCenterId(nupCenterId) {
+  if (!nupCenterId) return null;
+
+  try {
+    const searchResponse = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        filterGroups: [
+          {
+            filters: [
+              {
+                propertyName: 'nup_center_id',
+                operator: 'EQ',
+                value: String(nupCenterId)
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    if (!searchResponse.ok) {
+      throw new Error(`HubSpot search failed: ${searchResponse.status}`);
+    }
+
+    const searchData = await searchResponse.json();
+
+    if (searchData.total === 0 || searchData.results.length === 0) {
+      log("WARN", "HUBSPOT", `Company not found for nup_center_id: ${nupCenterId}`);
+      return null;
+    }
+
+    const result = searchData.results[0];
+    const companyObjectId = result.id;
+    const portalId = result.portalId;
+    const uiDomain = result.uiDomain || 'app.hubspot.com'; // ✅ Añadido uiDomain
+
+    const companyData = await resolveCompanyData(companyObjectId, '0-2');
+
+    return {
+      ...companyData,
+      portalId: portalId,
+      uiDomain: uiDomain, // ✅ Devuelve uiDomain
+    };
+
+  } catch (error) {
+    log("ERROR", "HUBSPOT", `Error fetching company by nup_center_id ${nupCenterId}: ${error.message}`);
+    return null;
+  }
+}
+
+
+
+module.exports = { 
+  syncSingleSubscriptionToHubspot,
+  resolveCompanyData, 
+  getCompanyDataByNupCenterId,
  };

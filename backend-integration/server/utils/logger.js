@@ -1,6 +1,6 @@
 const fs = require("fs");
 
-const LOG_FILE = "/logs/app.log";
+// LOG_FILE = "/logs/app.log";
 
 const colors = {
   reset: "\x1b[0m",
@@ -30,11 +30,11 @@ function formatMeta(meta) {
     .join(" ");
 }
 
-function writeToFile(line) {
-  fs.appendFile(LOG_FILE, line + "\n", (err) => {
-    if (err) console.error("Failed to write log file:", err);
-  });
-}
+//function writeToFile(line) {
+//  fs.appendFile(LOG_FILE, line + "\n", (err) => {
+//    if (err) console.error("Failed to write log file:", err);
+//  });
+//}
 
 function log(level, context, message, meta = {}) {
   const timestamp = getTimestamp();
@@ -60,7 +60,7 @@ function log(level, context, message, meta = {}) {
   console.log(coloredLine);
 
   // File (no colors)
-  writeToFile(baseLine);
+  //writeToFile(baseLine);
 }
 
 module.exports = {

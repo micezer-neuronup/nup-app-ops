@@ -5,29 +5,32 @@ import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { GeneralDashboard } from "@/components/Dashboards/GeneralDashboard ";
 
-// ────── DashboardFetcher.tsx ─────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// ─── Directive use client is necessary as we use Next.js AppRouter (app folder)
-// ─── This means all ocmponents are Server Components but they cant use React Hooks
-// ─── The directive allows to send the js to the browser to be interactive
-// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ────── Client Component ─────────────────────────────────────────────────────────────────────────────────
+// ─── Directive use client is necessary as we use Next.js AppRouter (app folder).
+// ─── This means all ocmponents are Server Components but they cant use React Hooks.
+// ─── The directive allows to send the js to the browser to be interactive.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ────── DashboardFetcher.tsx ─────────────────────────────────────────────────────────────────────────────
 // ─── The interface is like a rulebook or strcit contract
 // ─── The 1st rule says a component(Dashbaoard in this case) must be passed
 // ─── The 2nd rule says a prop called title must be paased and it must be a string
 // ─── When another file want to use DashboardFetcher, it must fufill both rules
 // ─── If not met, DashboardFetcher will throw an error
 // ─── The intefrace allows us to have resuable code that accepts various dashboards and titles
-// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ────── DashboardFetcher.tsx ─────────────────────────────────────────────────────────────────────────────
 // ─── The hook useSearchParams reads the URL in the browser
 // ─── We use it to extract objectId and objectTypeId
-// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ────── DashboardFetcher.tsx ─────────────────────────────────────────────────────────────────────────────
 // ─── The DashboardFetcher function uses three states, data, loading and error
 // ─── It has a defined useEffect with dependency on objectId and objectTypeId to run 
 // ─── We then fetch the server endpoint with the ids so it can fetch Hubspot API 
-// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ────── DashboardFetcher.tsx ─────────────────────────────────────────────────────────────────────────────
 // ─── The return statement is a defensive implementation
 // ─── We check all the possibilities: loading - error from server - null data - valid data
-// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL;

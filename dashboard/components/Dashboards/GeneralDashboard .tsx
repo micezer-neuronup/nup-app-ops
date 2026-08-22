@@ -56,7 +56,14 @@ export function GeneralDashboard({ data }: { data?: any }) {
 
   // --- DATOS REALES DE ANALYTICS ---
   
-  const analytics = data?.analytics || { totals: {}, daily: [] };
+  const analytics = data?.analytics || { totals: {}, daily: [], feature_requests: [] };
+  const upsellOpportunities = data?.upsellOpportunities || [];
+
+
+
+
+
+
 
 
 const sub = data?.subscription || {};
@@ -127,7 +134,11 @@ const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
 />
 
         {/* Card 3: Productos */}
-        <FeatureRequestsCard requests={analytics?.feature_requests || []} />
+        <FeatureRequestsCard 
+  requests={analytics.feature_requests || []} 
+  upsellOpportunities={upsellOpportunities} 
+/>
+
 
 
         {/* Card 4: Datos de uso */}

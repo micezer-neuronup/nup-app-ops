@@ -1,12 +1,10 @@
 import { cookies } from "next/headers";
-import type { Metadata } from "next";
 
 
 
 
 
-// ────── layout.tsx ───────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ────── Layout ─────────────────────────────────────────────────────────────────────────────────────────────────
 // ─── First thing that renders when the iframe opens in Hubspot is the layout. Its the skeleton
 // ─── Doesnt care about data or props, just builds the skeleton
 // ─── Reads cookies on the server to remember the theme defined before opening the iframe
@@ -14,7 +12,7 @@ import type { Metadata } from "next";
 // ─── The 'body' uses the 'cn' utility to merge base Tailwind classes with the dynamic theme cookies
 // ─── Providers (ThemeProvider & ActiveThemeProvider) act as umbrellas to provide global context to the app
 // ─── Finally, {children} is the exact slot where the requested page (page.tsx) is injected
-// ─────────────────────────────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 
 import "./globals.css";

@@ -1,3 +1,8 @@
+// ────── Client Component ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Directive use client is necessary as we use Next.js AppRouter (app folder).
+// ─── This means all components are Server Components but they cant use React Hooks.
+// ─── The directive allows to send the js to the browser to be interactive.
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 "use client";
 
 import { useState } from "react";
@@ -25,6 +30,10 @@ import {
   Zap
 } from "lucide-react";
 
+
+// ────── Feature Labels ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Mapping of features to readeble name.
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const featureLabels: Record<string, string> = {
   activity_all: "Acceso a todas las actividades",
   adults_digital: "Actividades digitales para adultos",
@@ -48,12 +57,20 @@ const featureLabels: Record<string, string> = {
   testing: "Testing (uso interno)",
 };
 
+
+// ────── Format Date ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Format Date function turns the database date to the js date format.
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const formatDate = (dateStr: string | null) => {
   if (!dateStr) return "—";
   const date = new Date(dateStr);
   return date.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" });
 };
 
+
+// ────── Currency Symbols ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Mapping of currencies to their symbol.
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const currencySymbols: Record<string, string> = {
   eur: "€",
   usd: "$",
@@ -64,6 +81,14 @@ const currencySymbols: Record<string, string> = {
   inr: "₹",
 };
 
+
+// ────── SubscriptionCard ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── SubscriptionCard recieves subscriptionData, currency, segment, allSubscriptionDays, nup2goBalance and onOpenModal.
+// ─── SubscriptionCard function has a isFlipped state.
+// ─── The return statement renders the front card with the analytics.
+// ─── If the isFlipped constant is set to True, the cards flips to the dictionary. 
+// ─── 
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export function SubscriptionCard({
   subscriptionData,
   currency,

@@ -1,4 +1,8 @@
-// components/Dashboards/UsageDataCard.tsx
+// ────── Client Component ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Directive use client is necessary as we use Next.js AppRouter (app folder).
+// ─── This means all components are Server Components but they cant use React Hooks.
+// ─── The directive allows to send the js to the browser to be interactive.
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 "use client";
 
 import { useState, useMemo } from "react";
@@ -17,19 +21,46 @@ import {
   CheckSquare 
 } from "lucide-react";
 
+// ────── Period ranges ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Declaration of possible ranges for the card.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 type Range = 7 | 30 | 90;
 
+
+// ────── Format Date ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Format Date function turns the database date to the js date format.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const formatDate = (dateStr: string) => {
   const date = new Date(dateStr);
   return date.toLocaleDateString("es", { day: "numeric", month: "long", year: "numeric" });
 };
 
+
+// ────── Interface ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── The interface is like a rulebook or strcit contract.
+// ─── The 1st rule says data structure called analytics can be passed, with a daily and total variables inside.
+// ─── The 2nd rule says a prop called numEmployees can be paased and it must be a string or number.
+// ─── When another file want to use UsageDataCard, it doesnt need to fufill both rules, they are optional.
+// ─── If not met, UsageDataCard will simply not display anything.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 interface UsageDataCardProps {
   analytics?: { daily: any[]; totals: any };
   numEmployees?: string | number;
 }
 
+
+// ────── UsageDataCard ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── The UsageDataCard function recieves analytics and numEmployees.
+// ─── The UsageDataCard function uses three states, range, isFlipped and error.
+// ─── Range is set to 7 by default, isFlipped is set to false by default.
+// ─── It has a useMemo hook with dependency on analytics and range to run. It allows to cache calculations.
+// ─── The useMemo hook prevents the component to repeat calculations when something changes, like the theme, or a flipped card.
+// ─── MetricItem is the row component we use in the card. Both normal and double rows.
+// ─── The return statement renders the front card with the analytics.
+// ─── If the isFlipped constant is set to True, the cards flips to the dictionary. 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCardProps) {
+
   const [range, setRange] = useState<Range>(7);
   const [isFlipped, setIsFlipped] = useState(false);
 
@@ -38,28 +69,26 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
   const rangeData = useMemo(() => {
     if (!dailyData || dailyData.length === 0) return null;
 
-    // 1. Última interacción global
     const lastRecord = dailyData[dailyData.length - 1];
     const lastActivityDate = lastRecord?.stat_date || null;
     const lastActivityDisplay = lastActivityDate ? formatDate(lastActivityDate) : "—";
     const lastActiveTherapists = lastRecord?.active_therapists ?? 0;
 
-    // 2. Definimos las fechas límite: Empezamos a contar desde AYER
     const referenceDate = new Date();
-    referenceDate.setDate(referenceDate.getDate() - 1); // Restamos 1 día
+    referenceDate.setDate(referenceDate.getDate() - 1); 
     referenceDate.setHours(0, 0, 0, 0);
 
     const currentPeriod: any[] = [];
     const previousPeriod: any[] = [];
 
-    // 3. Filtramos por fechas reales de calendario
+
     dailyData.forEach(day => {
       if (!day.stat_date) return;
       
       const d = new Date(day.stat_date);
       d.setHours(0, 0, 0, 0);
 
-      // Calculamos la diferencia en días entre "ayer" y la fecha del dato
+
       const diffTime = referenceDate.getTime() - d.getTime();
       const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
@@ -70,30 +99,31 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
       }
     });
 
-    // 4. Sumamos métricas del periodo actual
     const assignedSessions = currentPeriod.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
     const startedSessions = currentPeriod.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
     const completedSessions = currentPeriod.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
     const reportsCreated = currentPeriod.reduce((sum, day) => sum + (day.reports_created || 0), 0);
     const activitiesStarted = currentPeriod.reduce((sum, day) => sum + (day.activities_started || 0), 0);
     
+
     const completionRate = startedSessions > 0 ? (completedSessions / startedSessions) * 100 : 0;
 
-    // Lógica dinámica de semanas según el rango seleccionado
+
     const weeks = range === 7 ? 1 : range === 30 ? 4 : 12;
     const weeklyActivitiesAvg = activitiesStarted / weeks;
 
-    // 5. Sumamos métricas del periodo anterior
+
     const prevAssigned = previousPeriod.reduce((sum, day) => sum + (day.sessions_assigned || 0), 0);
     const prevStarted = previousPeriod.reduce((sum, day) => sum + (day.sessions_started || 0), 0);
     const prevCompleted = previousPeriod.reduce((sum, day) => sum + (day.sessions_finished || 0), 0);
     const prevReports = previousPeriod.reduce((sum, day) => sum + (day.reports_created || 0), 0);
     const prevActivities = previousPeriod.reduce((sum, day) => sum + (day.activities_started || 0), 0);
     
+
     const prevRate = prevStarted > 0 ? (prevCompleted / prevStarted) * 100 : 0;
     const prevWeeklyActivitiesAvg = prevActivities / weeks;
 
-    // 6. Cálculos de evolución
+
     const assignedEvolution = prevAssigned ? ((assignedSessions - prevAssigned) / prevAssigned) * 100 : 0;
     const startedEvolution = prevStarted ? ((startedSessions - prevStarted) / prevStarted) * 100 : 0;
     const completedEvolution = prevCompleted ? ((completedSessions - prevCompleted) / prevCompleted) * 100 : 0;
@@ -124,7 +154,6 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
     };
   }, [dailyData, range]);
 
-  // Se optimizan los tamaños de fuente para garantizar una legibilidad perfecta
   const MetricItem = ({ icon: Icon, label, subLabel, value, evolution }: any) => (
     <div className="flex items-center justify-between w-full min-w-0 gap-2">
       <div className="flex items-center gap-2 min-w-0">
@@ -148,12 +177,7 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
   return (
     <div className="relative h-[500px] w-full [perspective:1000px] group">
       <div 
-        className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}
-      >
-        
-        {/* ========================================== */}
-        {/* 🎭 CARA FRONTAL: Datos de Uso              */}
-        {/* ========================================== */}
+        className={`w-full h-full transition-all duration-500 [transform-style:preserve-3d] ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}>
         <Card className="absolute inset-0 [backface-visibility:hidden] flex flex-col overflow-hidden transition-all duration-300 hover:shadow-lg hover:bg-accent/30">
           <CardHeader className="pb-1">
             <div className="flex justify-between items-start">
@@ -180,34 +204,28 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
           </CardHeader>
           <CardContent className="space-y-1.5 flex-1 flex flex-col justify-between pb-4">
             
-            {/* Fila 1 */}
             <div className="py-1.5 border-b px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
               <MetricItem icon={Calendar} label="Última interacción" value={rangeData?.lastActivity || "—"} />
             </div>
 
-            {/* Fila 2 */}
             <div className="py-1.5 border-b px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
               <MetricItem icon={Users} label="Terapeutas activos" value={rangeData ? `${rangeData.activeTherapists} / ${numEmployees}` : "—"} />
             </div>
 
 
-            {/* Fila 5 */}
             <div className="py-1.5 border-b px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
               <MetricItem icon={FileText} label="Informes creados" value={rangeData?.reportsCreated ?? "—"} evolution={rangeData?.evolution.reports} />
             </div>
 
-            {/* Fila 3 */}
             <div className="py-1.5 border-b px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
               <MetricItem icon={ClipboardCheck} label="Sesiones asignadas" value={rangeData?.assignedSessions ?? "—"} evolution={rangeData?.evolution.assigned} />
             </div>
 
-            {/* Fila 4 */}
             <div className="py-1.5 border-b px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
               <MetricItem icon={Activity} label="Tasa de completitud" value={rangeData ? `${rangeData.completionRate}%` : "—"} evolution={rangeData?.evolution.rate} />
             </div>
 
 
-            {/* 🌟 Fila 6 (DOBLE): Sesiones (Empezadas vs Completadas) */}
             <div className="grid grid-cols-2 gap-4 py-1.5 border-b px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
               <div className="pr-2 border-r border-border/60">
                 <MetricItem icon={PlayCircle} label="Sesiones" subLabel="empezadas" value={rangeData?.startedSessions ?? "—"} evolution={rangeData?.evolution.started} />
@@ -217,7 +235,6 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
               </div>
             </div>
 
-            {/* 🌟 Fila 7 (DOBLE): Actividades (Totales vs Media Semanal) */}
             <div className="grid grid-cols-2 gap-4 py-1.5 px-2 -mx-2 rounded-md transition-colors hover:bg-secondary/50">
               <div className="pr-2 border-r border-border/60">
                 <MetricItem icon={CheckSquare} label="Actividades" subLabel="totales" value={rangeData?.activitiesStarted ?? "—"} evolution={rangeData?.evolution.activities} />
@@ -230,9 +247,7 @@ export function UsageDataCard({ analytics, numEmployees = "—" }: UsageDataCard
           </CardContent>
         </Card>
 
-        {/* ========================================== */}
-        {/* 📖 CARA TRASERA: Diccionario / Ayuda       */}
-        {/* ========================================== */}
+
         <Card className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] flex flex-col overflow-hidden bg-accent/20 border-primary/20 shadow-lg">
           <CardHeader className="pb-2 border-b bg-background/50">
             <div className="flex justify-between items-center">

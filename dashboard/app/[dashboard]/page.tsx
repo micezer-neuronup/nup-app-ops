@@ -3,23 +3,8 @@ import { SiteHeader } from "../../components/site-header";
 import DashboardFetcher from "./DashboardFetcher";
 import { GeneralDashboard } from "@/components/Dashboards/GeneralDashboard ";
 
-
-
-
-// ────── page.tsx ─────────────────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-// ─── Directive use client is not necessary here
-// ─── Recieves the props from the url
-// ─── The folder [dashboard] is a dynamic folder so it accepts more than one "dashboard"
-// ─── When the general prop is recieved, page.tsx extracts general to the params
-// ─── As we can see it checks if its a valid dashbaord or not.
-// ─────────────────────────────────────────────────────────────────────────────────────────────
-
-
-
-
-
 export async function generateStaticParams() {
+  console.log("[BUILD/SSG] Generando parámetros estáticos para las rutas de dashboard...");
   return [{ dashboard: "general" }];
 }
 
@@ -30,7 +15,14 @@ interface PageProps {
 export default async function DashboardPage({ params }: PageProps) {
   const { dashboard } = await params;
 
-  if (dashboard !== "general") notFound();
+  console.log(`[ROUTE] Solicitud recibida para el dashboard: "${dashboard}"`);
+
+  if (dashboard !== "general") {
+    console.warn(`[ROUTE 404] Dashboard no válido: "${dashboard}". Redirigiendo a notFound().`);
+    notFound();
+  }
+
+  console.log(`[ROUTE 200] Cargando componente para dashboard: "${dashboard}"`);
 
   return (
     <div className="flex flex-1 flex-col">

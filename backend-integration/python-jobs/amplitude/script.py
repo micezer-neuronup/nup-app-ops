@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 
 # ────── Initialization: Env ──────────────────────────────────
-env_path = Path(__file__).resolve().parent.parent / ".env.development"
+env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 

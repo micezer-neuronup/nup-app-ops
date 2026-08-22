@@ -3,7 +3,7 @@ import { ModeSwitcher } from "./mode-switcher";
 
 export function SiteHeader() {
   return (
-      <div className="flex w-full items-center gap-1 px-4 lg:gap-2 lg:px-6">
+<div className="flex items-center gap-1 px-4 lg:gap-2 lg:px-6">
         <Separator
           orientation="vertical"
           className="mx-2 data-[orientation=vertical]:h-4"

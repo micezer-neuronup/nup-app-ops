@@ -21,24 +21,23 @@ const envPath = path.resolve(__dirname, envFile);
 dotenv.config({ path: envPath });
 
 
-// ────── Import: database connection and queries ───────────────
+// ────── Import: queries and services ────────────────────────────────────
 // ─── Database conenction is already imported in dbQueries
-// ──────────────────────────────────────────────────────────────
-const { getAnalyticsByCenterId, updateFeatureRequestStatus} = require('./db/dbAnalytics');
-
+// ────────────────────────────────────────────────────────────────────────
+const { getAnalyticsByCenterId, updateFeatureRequestStatus,updateOpportunityStatus,getAllOpportunities,createTaskForOpportunity } = require('./db/dbAnalytics');
 const { getSubscriptionByCenterId, processPendingHubspotSyncs  } = require('./db/dbSubscriptions');
-
 const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
-
-const { syncSingleSubscriptionToHubspot, resolveCompanyData } = require('./services/hubspotServices');
-
+const { syncSingleSubscriptionToHubspot, resolveCompanyData} = require('./services/hubspotServices');
 
 
-
-// ────── Initialization: Script paths ─────────────────────────────
-// ─── We define the path of the scripts the cron job calls
-// ────────────────────────────────────────────────────────────────
+// ────── Initialization: Script paths ───────────────────────────────────
+// ─── We define the path of the python scripts called by cron jobs
+// ─── Zoho cron job is currently deactivated
+// ───────────────────────────────────────────────────────────────────────
 const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
+const quincenalScriptPath = path.join(__dirname, '../python-jobs/amplitude/quincenal_detector.py');
+const dailyScriptPath = path.join(__dirname, '../python-jobs/amplitude/daily_usage_detector.py');
+
 // const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
 
@@ -52,8 +51,10 @@ const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
 
+
 const PORT = process.env.PORT;
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+
 
 // ────── Webhook Routes ──────────────────────────────────────────────────────
 // ─── Requires Raw Body so we define it before the json global middleware
@@ -67,7 +68,6 @@ const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 // ─── If the result is not the same, its rejeted, it cant be trsuted
 // ─── If the result is the same, then its from Stripe, it can be trusted
 // ────────────────────────────────────────────────────────────────────────────
-
 
 app.post(
   '/apiwebhooks/stripe', 
@@ -95,18 +95,18 @@ app.post(
           await processSubscriptionUpsert(event);
           break;
 
-        // ─── PAYMENTS SUCCESS/FAIL ──────────────────────────────────────
+        // ─── PAYMENTS SUCCESS/FAIL ─────────────────────────────────────────────────────
         case 'invoice.paid':
         case 'invoice.payment_failed': 
           await processInvoiceEvent(event);
           break;
 
-        // ─── UNHANDLED EVENTS ───────────────────────────────────────────
+        // ─── UNHANDLED EVENTS ──────────────────────────────────────────────────────────
         default:
           log("INFO", "STRIPE", `Unhandled event type: ${event.type}`);
       }
 
-      // 3. Success Acknowledgment back to Stripe
+      // ─── Success Acknowledgment back to Stripe ───────────────────────────────────────
       response.status(200).send();
 
     } catch (error) {
@@ -120,10 +120,12 @@ app.post(
     }
 });
 
+
 // ────── Global Middleware: JSON Parsers ───────────────────────────
 // ─── We apply JSON parsing. This will apply to all routes defined below
 // ────────────────────────────────────────────────────────────────────────────
 app.use(express.json());
+
 
 
 
@@ -147,9 +149,10 @@ app.get('/api/company-data', async (req, res) => {
     
     let analyticsData = null;
     let subscriptionData = null;
+    let upsellOpportunities = [];
 
     if (nupCenterId) {
-
+      // Solo llamamos a analytics y subscription (sin función separada de upsell)
       const [analyticsResult, subscriptionResult] = await Promise.all([
         getAnalyticsByCenterId(nupCenterId),
         getSubscriptionByCenterId(nupCenterId)
@@ -159,6 +162,8 @@ app.get('/api/company-data', async (req, res) => {
         log("WARN", "API", "Analytics DB down", { error: analyticsResult.error });
       } else {
         analyticsData = analyticsResult;
+
+        upsellOpportunities = analyticsResult?.opportunities || [];
       }
 
       if (subscriptionResult && subscriptionResult.error) {
@@ -168,10 +173,12 @@ app.get('/api/company-data', async (req, res) => {
       }
     }
 
+    // Enviamos la respuesta incluyendo las oportunidades
     res.json({
       ...companyData,
       analytics: analyticsData,
-      subscription: subscriptionData 
+      subscription: subscriptionData,
+      upsellOpportunities: upsellOpportunities
     });
 
   } catch (err) {
@@ -180,8 +187,43 @@ app.get('/api/company-data', async (req, res) => {
   }
 });
 
-app.options('/api/feature-requests/:id', cors());
+app.options('/api/opportunities', cors());
+app.get('/api/opportunities', async (req, res) => {
+  const { status, search } = req.query;
 
+  try {
+    const opportunities = await getAllOpportunities({ status, search });
+    res.json(opportunities);
+  } catch (error) {
+    log("ERROR", "API", "Error in /api/opportunities", { error: error.message });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
+app.post('/api/commercial-opportunities/:id/create-task', async (req, res) => {
+  const { id } = req.params;
+  const { subject, body } = req.body;
+
+  try {
+    const result = await createTaskForOpportunity(id, { subject, body });
+    res.json(result);
+  } catch (error) {
+    console.error('Error creating task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
+// ────── Endpoint: feature requests ──────────────────────────────────────────────────────────────────
+// ─── The endpoint recieves the husbpot objectId and objectTypeId from the dashboard
+// ─── Then the company data is fetched calling resolveCompanyData()
+// ─── Once obtained, the nup_center_id is used to query the nalytics calling getAnalyticsByCenterId
+// ─── The analytics data is appended to the company data and sent back to the dashboard
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────
+app.options('/api/feature-requests/:id', cors());
 app.patch('/api/feature-requests/:id', async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -226,15 +268,37 @@ app.patch('/api/feature-requests/:id', async (req, res) => {
 });
 
 
+app.patch('/api/commercial-opportunities/:id', async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  
+  // Validar que el estado sea válido
+  const validStatuses = ['pending', 'completed']; // solo usamos esos
+  if (!status || !validStatuses.includes(status)) {
+    return res.status(400).json({ error: 'Invalid status. Allowed: ' + validStatuses.join(', ') });
+  }
+  
+  try {
 
-// ────── Cron job: fetch events from amplitude ──────────────────────────────
+    const result = await updateOpportunityStatus(id, status);
+    
+    if (!result || result.error) {
+      return res.status(404).json({ error: result?.error || 'Opportunity not found' });
+    }
+    
+    res.json(result);
+  } catch (error) {
+    console.error("❌ Error updating opportunity:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+// ────── Cron job: Amplitude events fetch ──────────────────────────────
 // ─── Cron job that runs everyday at 6 in the morning
 // ─── The pyProcess lines capture the logs to add them to app.log
 // ─── Timezone discrepancy was solved with TZ=Europe/Madrid on env files
 // ───────────────────────────────────────────────────────────────────────────
-
-
-
 cron.schedule('0 6 * * *', () => {
     
   log("INFO", "CRON", "Starting Amplitude fetch job...");
@@ -271,12 +335,14 @@ cron.schedule('0 6 * * *', () => {
 
 
 
-let isHubspotJobRunning = false;
 
 // ────── Cron job: HubSpot Fallback Sync ────────────────────────────────────
-// ─── Se ejecuta cada 12 horas (a las 00:00 y a las 12:00)
-// ─── Cuenta con sistema de candado de seguridad (Lock)
+// ─── Wakes up every 6 hours
+// ─── Lock system to prevent parallel executions
 // ───────────────────────────────────────────────────────────────────────────
+
+let isHubspotJobRunning = false;
+
 cron.schedule('0 */6 * * *', async () => {
 
   if (isHubspotJobRunning) {
@@ -314,7 +380,71 @@ cron.schedule('0 */6 * * *', async () => {
 });
 
 
+cron.schedule('0 6 * * 1', () => { 
+  log("INFO", "CRON", "Starting quincenal opportunity detection job...");
 
+  const pyProcess = spawn('python3', ['-u', quincenalScriptPath]);
+
+  pyProcess.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("INFO", "CRON_QUINCENAL", line.trim());
+      }
+    });
+  });
+
+  pyProcess.stderr.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("ERROR", "CRON_QUINCENAL", line.trim());
+      }
+    });
+  });
+
+  pyProcess.on('close', (code) => {
+    if (code === 0) {
+      log("INFO", "CRON_QUINCENAL", "Quincenal detector finished successfully.");
+    } else {
+      log("WARN", "CRON_QUINCENAL", `Quincenal detector exited with code ${code}`);
+    }
+  });
+});
+
+
+cron.schedule('0 7 * * *', () => {
+    
+  log("INFO", "CRON", "Starting daily usage detection job...");
+
+  const pyProcess = spawn('python3', ['-u', dailyScriptPath]);
+
+  pyProcess.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("INFO", "CRON_DAILY", line.trim());
+      }
+    });
+  });
+
+  pyProcess.stderr.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("ERROR", "CRON_DAILY", line.trim());
+      }
+    });
+  });
+
+  pyProcess.on('close', (code) => {
+    if (code === 0) {
+      log("INFO", "CRON_DAILY", "Daily usage detector finished successfully.");
+    } else {
+      log("WARN", "CRON_DAILY", `Daily usage detector exited with code ${code}`);
+    }
+  });
+});
 
 
 
