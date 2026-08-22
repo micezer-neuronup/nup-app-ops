@@ -353,7 +353,6 @@ export function ModalOpp({
               </div>
 
               {/* Botones de acción */}
-             // Solo muestro la parte de los botones, el resto del modal es igual
 
 {/* Botones de acción */}
 <div className="space-y-2">

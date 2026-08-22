@@ -22,7 +22,8 @@ OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-BACKFILL_DATE = '2026-08-01' 
+# BACKFILL_DATE = '2026-08-01'  # Fecha de la primera detección
+
 UMBRAL = 45
 WINDOW_DAYS = 60
 
@@ -88,6 +89,8 @@ def run_quincenal_detection():
 
     try:
         # 1. Calcular métricas y percentil exacto para cada centro
+        # Backfill: WHERE stat_date >= '2026-08-01'::date - INTERVAL '%s days'
+
         query = """
             WITH usage AS (
                 SELECT
@@ -96,7 +99,7 @@ def run_quincenal_detection():
                     COUNT(DISTINCT stat_date) AS active_days,
                     ROUND(AVG(tests_finished)::NUMERIC, 2) AS avg_daily
                 FROM daily_stats
-                WHERE stat_date >= '2026-08-01'::date - INTERVAL '%s days'
+                WHERE stat_date >= CURRENT_DATE - INTERVAL '%s days'
                 GROUP BY center_id
                 HAVING SUM(tests_finished) > 0
             )
@@ -169,7 +172,8 @@ def run_quincenal_detection():
                 "percentile_85": float(p85) if p85 else None,
                 "avg_usage": float(avg_usage) if avg_usage else None
             })
-
+            
+            # Bacfill: Cambia NOW() por porcentaje y añade CURRENT_DATE despues de (str(center_id)
             cursor.execute("""
                 INSERT INTO commercial_opportunity
                     (center_id, product, status, created_at, total_tests_60d, active_days_60d, avg_daily_60d, score, ai_justification, trigger_details)

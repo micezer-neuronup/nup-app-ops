@@ -243,9 +243,20 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     return false; 
   }
 }
+// En hubspotServices.js
+let lastHubspotCall = 0;
+const HUBSPOT_CALL_DELAY = 200; // 200ms entre llamadas (5 llamadas/segundo)
 
 async function getCompanyDataByNupCenterId(nupCenterId) {
   if (!nupCenterId) return null;
+
+  // Rate limiting: esperar si es necesario
+  const now = Date.now();
+  const timeSinceLastCall = now - lastHubspotCall;
+  if (timeSinceLastCall < HUBSPOT_CALL_DELAY) {
+    await new Promise(resolve => setTimeout(resolve, HUBSPOT_CALL_DELAY - timeSinceLastCall));
+  }
+  lastHubspotCall = Date.now();
 
   try {
     const searchResponse = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
@@ -269,6 +280,15 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
       })
     });
 
+    // Manejar rate limit 429
+    if (searchResponse.status === 429) {
+      const retryAfter = parseInt(searchResponse.headers.get('retry-after') || '5');
+      log("WARN", "HUBSPOT", `Rate limit (429). Waiting ${retryAfter} seconds for center ${nupCenterId}`);
+      await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+      // Reintentar una vez
+      return getCompanyDataByNupCenterId(nupCenterId);
+    }
+
     if (!searchResponse.ok) {
       throw new Error(`HubSpot search failed: ${searchResponse.status}`);
     }
@@ -283,14 +303,14 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
     const result = searchData.results[0];
     const companyObjectId = result.id;
     const portalId = result.portalId;
-    const uiDomain = result.uiDomain || 'app.hubspot.com'; // ✅ Añadido uiDomain
+    const uiDomain = result.uiDomain || 'app.hubspot.com';
 
     const companyData = await resolveCompanyData(companyObjectId, '0-2');
 
     return {
       ...companyData,
       portalId: portalId,
-      uiDomain: uiDomain, // ✅ Devuelve uiDomain
+      uiDomain: uiDomain,
     };
 
   } catch (error) {
