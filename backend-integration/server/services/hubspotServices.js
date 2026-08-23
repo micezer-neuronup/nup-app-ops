@@ -247,10 +247,13 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
 }
 
 
+const HUBSPOT_CALL_DELAY = 200; // 200ms entre llamadas para evitar rate limit
 
-// En hubspotServices.js
 async function getCompanyDataByNupCenterId(nupCenterId) {
   if (!nupCenterId) return null;
+
+  // ⏱️ Delay para evitar rate limit (429)
+  await new Promise(resolve => setTimeout(resolve, HUBSPOT_CALL_DELAY));
 
   try {
     // 1. Buscar la compañía por nup_center_id
@@ -283,6 +286,15 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
         ]
       })
     });
+
+    // Manejar rate limit 429
+    if (searchResponse.status === 429) {
+      const retryAfter = parseInt(searchResponse.headers.get('retry-after') || '5');
+      log('WARN', 'HUBSPOT', `Rate limit (429). Waiting ${retryAfter} seconds for center ${nupCenterId}`);
+      await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+      // Reintentar una vez
+      return getCompanyDataByNupCenterId(nupCenterId);
+    }
 
     if (!searchResponse.ok) {
       throw new Error(`HubSpot search failed: ${searchResponse.status}`);
@@ -365,7 +377,6 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
 }
 
 
-
 // ✅ NUEVA: Obtener datos con caché (simple)
 async function getCompanyDataWithCache(nupCenterId) {
   const cacheKey = `company:${nupCenterId}`;
@@ -415,6 +426,7 @@ async function refreshAllActiveCaches() {
     try {
       await refreshCompanyCache(centerId);
       success++;
+      // ⏱️ Delay entre llamadas en el cron job también
       await new Promise(resolve => setTimeout(resolve, 200));
     } catch (err) {
       log('WARN', 'CACHE', `Failed to refresh ${centerId}: ${err.message}`);
