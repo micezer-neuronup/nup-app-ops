@@ -244,10 +244,14 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
   }
 }
 
+
+
+// En hubspotServices.js
 async function getCompanyDataByNupCenterId(nupCenterId) {
   if (!nupCenterId) return null;
 
   try {
+    // 1. Buscar la compañía por nup_center_id
     const searchResponse = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
       method: 'POST',
       headers: {
@@ -265,6 +269,15 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
               }
             ]
           }
+        ],
+        properties: [
+          'name',
+          'commercial_name',
+          'email',
+          'phone_backend',
+          'segmento',
+          'market_hubspot',
+          'nup_center_id'
         ]
       })
     });
@@ -280,17 +293,67 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
       return null;
     }
 
-    const result = searchData.results[0];
-    const companyObjectId = result.id;
-    const portalId = result.portalId;
-    const uiDomain = result.uiDomain || 'app.hubspot.com'; // ✅ Añadido uiDomain
+    const company = searchData.results[0];
+    const props = company.properties || {};
+    const companyId = company.id;
+    const portalId = company.portalId || process.env.HUBSPOT_PORTAL_ID || '148915792';
 
-    const companyData = await resolveCompanyData(companyObjectId, '0-2');
+    // 2. Inicializar valores con los de la compañía (fallback)
+    let email = props.email || '-';
+    let marketHubspot = props.market_hubspot || '-';
+    let phone = props.phone_backend || '-';
 
+    // 3. Si el email no está en la compañía, buscar en contactos asociados
+    if (email === '-' || !email) {
+      try {
+        const assocResponse = await fetch(
+          `https://api.hubapi.com/crm/v4/objects/company/${companyId}/associations/contact`,
+          {
+            headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` }
+          }
+        );
+
+        if (assocResponse.ok) {
+          const assocData = await assocResponse.json();
+          // ✅ Usar toObjectId (el campo correcto)
+          const contactIds = assocData.results?.map(r => r.toObjectId) || [];
+
+          if (contactIds.length > 0) {
+            const contactResponse = await fetch(
+              `https://api.hubapi.com/crm/v3/objects/contacts/${contactIds[0]}?properties=contact__email_first_contact_created,email,market_hubspot,phone_backend`,
+              {
+                headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` }
+              }
+            );
+
+            if (contactResponse.ok) {
+              const contactData = await contactResponse.json();
+              const contactProps = contactData.properties || {};
+
+              email = contactProps.contact__email_first_contact_created || contactProps.email || email;
+              marketHubspot = contactProps.market_hubspot || marketHubspot;
+              phone = contactProps.phone_backend || phone;
+            }
+          }
+        }
+      } catch (contactError) {
+        log("WARN", "HUBSPOT", `Error fetching contact for company ${companyId}: ${contactError.message}`);
+      }
+    }
+
+    // 4. Devolver los datos
     return {
-      ...companyData,
+      id: companyId,
       portalId: portalId,
-      uiDomain: uiDomain, // ✅ Devuelve uiDomain
+      uiDomain: 'app-eu1.hubspot.com',
+      properties: {
+        commercial_name: props.commercial_name || props.name || `Centro ${nupCenterId}`,
+        email: email,
+        phone: phone,
+        segmento: props.segmento || '-',
+        market_hubspot: marketHubspot,
+        nup_center_id: props.nup_center_id || nupCenterId
+      }
     };
 
   } catch (error) {
