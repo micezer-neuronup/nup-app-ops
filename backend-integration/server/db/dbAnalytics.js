@@ -339,15 +339,15 @@ async function createTaskForOpportunity(opportunityId, taskData) {
   const hsData = await hsResponse.json();
   const taskId = hsData.id;
 
-
-  // Después de guardar taskId
+  // 5. Guardar taskId en la BD y cambiar estado a 'completed'
   await pool.query(
-  `UPDATE commercial_opportunity SET hubspot_task_id = $1, status = 'completed' WHERE id = $2`,
-  [taskId, opportunityId]
-);
+    `UPDATE commercial_opportunity SET hubspot_task_id = $1, status = 'completed' WHERE id = $2`,
+    [taskId, opportunityId]
+  );
 
-  // 6. Devolver la URL de la tarea
-  const taskUrl = `https://app.hubspot.com/contacts/${portalId}/task/${taskId}`;
+  // 6. Devolver la URL de la lista de tareas con el taskId como parámetro
+  const taskUrl = `https://app-eu1.hubspot.com/contacts/${portalId}/objects/0-27/views/all/list?taskId=${taskId}`;
+  
   return { taskId, taskUrl };
 }
 

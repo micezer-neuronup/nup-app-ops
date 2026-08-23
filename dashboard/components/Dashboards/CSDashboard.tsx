@@ -67,7 +67,7 @@ export function CSDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [taskSuccess, setTaskSuccess] = useState<{ taskUrl: string; centerName: string } | null>(null);
+  const [taskSuccess, setTaskSuccess] = useState<{ taskUrl: string; taskId: string; centerName: string } | null>(null);
 
   // Cargar todas las oportunidades
   const fetchOpportunities = async () => {
@@ -192,9 +192,10 @@ export function CSDashboard() {
     
     // Mostrar modal de éxito con la nueva URL
     setTaskSuccess({
-      taskUrl: data.taskUrl, // ✅ Nueva URL
-      centerName: opp.center_name || `Centro ${opp.center_id}`,
-    });
+  taskUrl: data.taskUrl,
+  taskId: data.taskId,
+  centerName: opp.center_name || `Centro ${opp.center_id}`,
+});
     
   } catch (error: any) {
     console.error('Error creating task:', error);
@@ -334,12 +335,15 @@ export function CSDashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-center">
-              <div className="text-4xl mb-2">✅</div>
-              <h3 className="text-lg font-bold mb-1">Tarea creada</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Se ha creado la tarea para {taskSuccess.centerName}.
-              </p>
-              <div className="flex gap-2">
+  <div className="text-4xl mb-2">✅</div>
+  <h3 className="text-lg font-bold mb-1">Tarea creada</h3>
+  <p className="text-sm text-muted-foreground mb-1">
+    Se ha creado la tarea para {taskSuccess.centerName}.
+  </p>
+  <p className="text-xs text-muted-foreground mb-4">
+    ID: {taskSuccess.taskId}  {/* ← Mostrar el ID */}
+  </p>
+  <div className="flex gap-2">
                 <Button
                   variant="outline"
                   className="flex-1"
