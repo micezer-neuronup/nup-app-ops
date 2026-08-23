@@ -1,6 +1,8 @@
 const { pool } = require('../db/db'); // Ajusta la ruta a tu conexión DB
 const fetch = require('node-fetch'); // O el fetch nativo si usas Node 18+
 const { log } = require("../utils/logger");
+const { getCache, setCache } = require('../redisClient');
+
 
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 const ACCOUNT_SUB_OBJECT_ID = "2-203896755"; 
@@ -364,8 +366,69 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
 
 
 
+// ✅ NUEVA: Obtener datos con caché (simple)
+async function getCompanyDataWithCache(nupCenterId) {
+  const cacheKey = `company:${nupCenterId}`;
+  
+  // 1. Intentar leer de caché
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    log('INFO', 'CACHE', `✅ Cache hit for ${nupCenterId}`);
+    return cached;
+  }
+  
+  // 2. Si no está en caché, llamar a HubSpot
+  log('INFO', 'CACHE', `🔄 Cache miss for ${nupCenterId}, calling HubSpot...`);
+  const data = await getCompanyDataByNupCenterId(nupCenterId);
+  
+  if (data) {
+    await setCache(cacheKey, data, 14400); // 4 horas
+    log('INFO', 'CACHE', `💾 Cached data for ${nupCenterId}`);
+  }
+  
+  return data;
+}
+
+// ✅ NUEVA: Forzar actualización de caché (para el cron job)
+async function refreshCompanyCache(nupCenterId) {
+  const cacheKey = `company:${nupCenterId}`;
+  log('INFO', 'CACHE', `🔄 Refreshing cache for ${nupCenterId}...`);
+  
+  const data = await getCompanyDataByNupCenterId(nupCenterId);
+  if (data) {
+    await setCache(cacheKey, data, 14400);
+    log('INFO', 'CACHE', `💾 Cache refreshed for ${nupCenterId}`);
+  }
+  return data;
+}
+
+async function refreshAllActiveCaches() {
+  const result = await pool.query(
+    `SELECT DISTINCT center_id FROM commercial_opportunity WHERE status = 'pending'`
+  );
+  
+  const centers = result.rows.map(row => row.center_id);
+  log('INFO', 'CACHE', `Refreshing cache for ${centers.length} centers...`);
+  
+  let success = 0;
+  for (const centerId of centers) {
+    try {
+      await refreshCompanyCache(centerId);
+      success++;
+      await new Promise(resolve => setTimeout(resolve, 200));
+    } catch (err) {
+      log('WARN', 'CACHE', `Failed to refresh ${centerId}: ${err.message}`);
+    }
+  }
+  
+  log('INFO', 'CACHE', `Cache refresh completed. Success: ${success}/${centers.length}`);
+}
+
 module.exports = { 
   syncSingleSubscriptionToHubspot,
   resolveCompanyData, 
   getCompanyDataByNupCenterId,
+  getCompanyDataWithCache,
+  refreshCompanyCache,
+  refreshAllActiveCaches
  };

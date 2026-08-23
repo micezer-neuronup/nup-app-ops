@@ -1,11 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
+//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 const dotenv = require('dotenv');
 const path = require('path');
 const cron = require('node-cron');
 const { spawn } = require('child_process');
 const { log } = require("./utils/logger");
+
 
 
 // ────── Initialization: env ────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ dotenv.config({ path: envPath });
 const { getAnalyticsByCenterId, updateFeatureRequestStatus,updateOpportunityStatus,getAllOpportunities,createTaskForOpportunity } = require('./db/dbAnalytics');
 const { getSubscriptionByCenterId, processPendingHubspotSyncs  } = require('./db/dbSubscriptions');
 const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
-const { syncSingleSubscriptionToHubspot, resolveCompanyData} = require('./services/hubspotServices');
+const { syncSingleSubscriptionToHubspot, resolveCompanyData, refreshAllActiveCaches  } = require('./services/hubspotServices');
 
 
 // ────── Initialization: Script paths ───────────────────────────────────
@@ -187,15 +188,13 @@ app.get('/api/company-data', async (req, res) => {
   }
 });
 
-app.options('/api/opportunities', cors());
+// server.js
 app.get('/api/opportunities', async (req, res) => {
-  const { status, search } = req.query;
-
   try {
-    const opportunities = await getAllOpportunities({ status, search });
+    // Obtener oportunidades sin enriquecer con HubSpot
+    const opportunities = await getAllOpportunities({}); // Sin enriquecer
     res.json(opportunities);
   } catch (error) {
-    log("ERROR", "API", "Error in /api/opportunities", { error: error.message });
     res.status(500).json({ error: error.message });
   }
 });
@@ -447,6 +446,16 @@ cron.schedule('0 7 * * *', () => {
 });
 
 
+// Cron job: cada 4 horas
+cron.schedule('0 */4 * * *', async () => {
+  log('INFO', 'CRON', 'Starting HubSpot cache refresh...');
+  try {
+    await refreshAllActiveCaches();
+    log('INFO', 'CRON', 'HubSpot cache refresh completed.');
+  } catch (error) {
+    log('ERROR', 'CRON', `Cache refresh failed: ${error.message}`);
+  }
+});
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
 // ─── Cron job that runs everyday at 2 in the morning

@@ -2,7 +2,7 @@ const { pool } = require('./db');
 const { log } = require("../utils/logger");
 
 
-const { getCompanyDataByNupCenterId } = require('../services/hubspotServices');
+const { getCompanyDataWithCache } = require('../services/hubspotServices');
 
 
 async function getAnalyticsByCenterId(centerId) {
@@ -200,21 +200,24 @@ async function getAllOpportunities(filters = {}) {
     // En dbAnalytics.js, dentro de getAllOpportunities
 const enriched = await Promise.all(opportunities.map(async (opp) => {
   try {
-    const companyData = await getCompanyDataByNupCenterId(opp.center_id);
-    if (companyData && companyData.id) {
+    const companyData = await getCompanyDataWithCache(opp.center_id);
+     if (companyData && companyData.id) {
+      const features = companyData.properties?.subscription_features || '';
+      const hasTestAll = features.includes('test_all');
+      
       return {
         ...opp,
         hubspot_company_id: companyData.id,
         hubspot_portal_id: companyData.portalId || null,
-        hubspot_ui_domain: companyData.uiDomain || 'app.hubspot.com', // ✅ Propagar uiDomain
-        center_name: companyData.properties?.commercial_name || companyData.properties?.name || `Centro ${opp.center_id}`,
+        center_name: companyData.properties?.commercial_name || `Centro ${opp.center_id}`,
         email: companyData.properties?.email || '-',
         phone: companyData.properties?.phone || '-',
         segment: companyData.properties?.segmento || '-',
         market: companyData.properties?.market_hubspot || '-',
-        trigger_details: opp.trigger_details || null,
+        has_test_all: hasTestAll,
       };
     }
+
   } catch (error) {
     log("WARN", "HUBSPOT", `Error enriching opportunity ${opp.id}: ${error.message}`);
   }
@@ -230,10 +233,12 @@ const enriched = await Promise.all(opportunities.map(async (opp) => {
     segment: '-',
     market: '-',
     trigger_details: opp.trigger_details || null,
+    has_test_all: false
   };
 }));
 
-    return enriched;
+    return enriched.filter(opp => !opp.has_test_all);
+
 
   } catch (error) {
     log("ERROR", "DB", `Error fetching opportunities: ${error.message}`);
