@@ -2,7 +2,7 @@ const { pool } = require('./db');
 const { log } = require("../utils/logger");
 
 
-const { getCompanyDataWithCache } = require('../services/hubspotServices');
+const { getCompanyDataWithCache,getCompanyDataByNupCenterId  } = require('../services/hubspotServices');
 
 
 async function getAnalyticsByCenterId(centerId) {
