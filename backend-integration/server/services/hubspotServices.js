@@ -311,7 +311,7 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
     const company = searchData.results[0];
     const props = company.properties || {};
     const companyId = company.id;
-    const portalId = company.portalId || process.env.HUBSPOT_PORTAL_ID || '148915792';
+    const portalId = company.portalId || process.env.HUBSPOT_PORTAL_ID || '143501970';
 
     // 2. Inicializar valores con los de la compañía (fallback)
     let email = props.email || '-';
