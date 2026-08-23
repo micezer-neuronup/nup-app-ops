@@ -529,7 +529,7 @@ function OpportunityCard({
               onClick={(e) => {
                 e.stopPropagation();
                 const companyId = opp.hubspot_company_id;
-                const portalId = opp.hubspot_portal_id || "148915792";
+                const portalId = opp.hubspot_portal_id || "143501970";
                 const uiDomain = "app-eu1.hubspot.com";
                 if (companyId) {
                   window.open(
