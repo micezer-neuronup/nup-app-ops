@@ -282,7 +282,8 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
           'phone_backend',
           'segmento',
           'market_hubspot',
-          'nup_center_id'
+          'nup_center_id',
+          'subscription_features'
         ]
       })
     });
@@ -355,6 +356,9 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
       }
     }
 
+    const subscriptionFeatures = props.subscription_features || '';
+
+
     // 4. Devolver los datos
     return {
       id: companyId,
@@ -366,7 +370,9 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
         phone: phone,
         segmento: props.segmento || '-',
         market_hubspot: marketHubspot,
-        nup_center_id: props.nup_center_id || nupCenterId
+        nup_center_id: props.nup_center_id || nupCenterId,
+        subscription_features: subscriptionFeatures,  // ✅ AÑADIR ESTO
+
       }
     };
 

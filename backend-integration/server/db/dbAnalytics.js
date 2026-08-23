@@ -237,7 +237,7 @@ const enriched = await Promise.all(opportunities.map(async (opp) => {
   };
 }));
 
-    return enriched.filter(opp => !opp.has_test_all);
+  return enriched.filter(opp => !opp.has_test_all);
 
 
   } catch (error) {
