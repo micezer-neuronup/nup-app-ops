@@ -3,6 +3,13 @@ const { syncSingleSubscriptionToHubspot } = require('./hubspotServices');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { log } = require("../utils/logger");
 
+
+// ==========================================
+// NUEVO: Constantes para Ops API
+// ==========================================
+const OPS_API_URL = 'https://api.neuronup.com/ops/subscriptions';
+const OPS_API_TOKEN = process.env.OPS_API_TOKEN || '6p48*mf65TH$cU**';
+
 function formatStripeDate(unixTimestamp) {
   if (!unixTimestamp) return null; 
   return new Date(unixTimestamp * 1000).toISOString();
@@ -63,53 +70,122 @@ async function fetchLatestSubscription(subId) {
   }
 }
 
+
+
+// ==========================================
+// NUEVO: Función para obtener datos de Ops API
+// ==========================================
+async function fetchSubscriptionFromOps(stripeSubscriptionId) {
+  try {
+    const url = `${OPS_API_URL}?page=1&kind=stripe`;
+    const response = await fetch(url, {
+      headers: {
+        'X-Api-Token': process.env.OPS_API_TOKEN || '6p48*mf65TH$cU**',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      log('WARN', 'OPS-API', `Failed to fetch list: ${response.status}`);
+      return null;
+    }
+
+    const subscriptions = await response.json();
+    const found = subscriptions.find(s => s.stripeSubscriptionId === stripeSubscriptionId);
+
+    if (found) {
+      log('INFO', 'OPS-API', `Found subscription ${stripeSubscriptionId} in Ops API`);
+      return {
+        backendSubscriptionId: found.id,
+        nupCenterId: found.center.id,
+        features: found.features ? found.features.map(f => f.identifier) : []
+      };
+    } else {
+      log('WARN', 'OPS-API', `Subscription ${stripeSubscriptionId} not found in Ops API`);
+      return null;
+    }
+  } catch (error) {
+    log('ERROR', 'OPS-API', `Error fetching from Ops API: ${error.message}`);
+    return null;
+  }
+}
+
+
+
+
+
+
+// ==========================================
+// FUNCIÓN PRINCIPAL MODIFICADA
+// ==========================================
 async function processSubscriptionUpsert(event) {
   const subId = event.data.object.id;
   const subscription = await fetchLatestSubscription(subId);
 
   log("INFO", "SUBSCRIPTION-SERVICE", `Subscription Upsert: ${subId}`);
 
+  // ─── 1. OBTENER DATOS DE OPS API ──────────────────────────────────────
+  const opsData = await fetchSubscriptionFromOps(subId);
+  
+  let nupCenterId = null;
+  let backendSubscriptionId = null;
+  let opsFeatures = [];
+
+  if (opsData) {
+    nupCenterId = opsData.nupCenterId;
+    backendSubscriptionId = opsData.backendSubscriptionId;
+    opsFeatures = opsData.features;
+    log("INFO", "OPS-API", `Using Ops API data: center=${nupCenterId}, backendId=${backendSubscriptionId}`);
+  } else {
+    log("WARN", "OPS-API", `Falling back to HubSpot for ${subId}`);
+  }
+
+  // ─── 2. OBTENER CUSTOMER DE STRIPE ────────────────────────────────────
   const customer = await stripe.customers.retrieve(subscription.customer, {
     expand: ['invoice_settings.default_payment_method']
   });
   
-  const nupCenterId = customer.metadata?.nup_center_id || null;
+  const nupCenterIdFromStripe = customer.metadata?.nup_center_id || null;
   const centerName = customer.name || customer.description || null;
 
+  // ─── 3. PAYMENT METHOD ─────────────────────────────────────────────────
   let paymentMethodType = null;
   if (subscription.default_payment_method) {
-    paymentMethodType = subscription.default_payment_method.type; 
+    paymentMethodType = subscription.default_payment_method.type;
   } else if (customer.invoice_settings?.default_payment_method) {
     paymentMethodType = customer.invoice_settings.default_payment_method.type;
   }
 
+  // ─── 4. FEATURES: Priorizar Ops API, fallback a HubSpot ──────────────
   let centerFeatures = [];
-  if (nupCenterId) {
-    centerFeatures = await getHubspotFeatures(nupCenterId);
-    log("INFO", "HUBSPOT", `Extracted ${centerFeatures.length} features for center ${nupCenterId}`);
+  if (opsData) {
+    centerFeatures = opsFeatures;
+    log("INFO", "FEATURES", `Using ${centerFeatures.length} features from Ops API`);
+  } else if (nupCenterId || nupCenterIdFromStripe) {
+    const fallbackCenterId = nupCenterId || nupCenterIdFromStripe;
+    centerFeatures = await getHubspotFeatures(fallbackCenterId);
+    log("INFO", "FEATURES", `Fallback: ${centerFeatures.length} features from HubSpot for center ${fallbackCenterId}`);
   }
 
+  // ─── 5. PENDING PAYMENT ────────────────────────────────────────────────
   const openInvoices = await stripe.invoices.list({ subscription: subId, status: 'open', limit: 1 });
   const pendingPayment = openInvoices.data.length > 0;
 
-  // --- LÓGICA DE FECHAS CRUZADAS ---
+  // ─── 6. FECHAS ──────────────────────────────────────────────────────────
   const startDate = formatStripeDate(subscription.start_date);
-  const precancelledDate = formatStripeDate(subscription.canceled_at); // Cuando dieron al botón
+  const precancelledDate = formatStripeDate(subscription.canceled_at);
   
-  // Cuando caduca de verdad (si está muerta o programada para morir)
   let cancelationDate = null;
   if (subscription.cancel_at) {
-    // Si la dejaste programada para final de mes (Stripe usa cancel_at)
     cancelationDate = formatStripeDate(subscription.cancel_at);
   } else if (subscription.status === 'canceled') {
-    // Si la has matado HOY fulminantemente (Stripe usa ended_at o canceled_at)
     cancelationDate = formatStripeDate(subscription.ended_at || subscription.canceled_at);
   }
 
-  const revokedAccessDate = cancelationDate; 
+  const revokedAccessDate = cancelationDate;
   const isForever = (subscription.cancel_at_period_end === false && subscription.cancel_at === null);
 
-  // --- INFERENCIA DEL TRIAL_CANCELED ---
+  // ─── 7. ESTADO ──────────────────────────────────────────────────────────
   let parentState = subscription.status;
   const trialEnd = subscription.trial_end;
   if (parentState === 'canceled' && trialEnd && subscription.canceled_at && subscription.canceled_at <= trialEnd) {
@@ -118,78 +194,84 @@ async function processSubscriptionUpsert(event) {
     parentState = 'trial';
   }
 
+  // ─── 8. ITEMS ──────────────────────────────────────────────────────────
   const subscriptionItems = [];
   const items = subscription.items.data;
-  
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   for (const item of items) {
-    const stripeItemId = item.id; 
-    const productId = item.price.product; 
+    const stripeItemId = item.id;
+    const productId = item.price.product;
     const quantity = item.quantity;
-    const unitPrice = item.price.unit_amount ? item.price.unit_amount / 100 : null; // ✅ Céntimos a Euros
+    const unitPrice = item.price.unit_amount ? item.price.unit_amount / 100 : null;
     const billingInterval = item.price.recurring?.interval || 'month';
     const paymentFrequency = item.price.recurring?.interval_count || 1;
 
-    // Metadato del producto (Por si en el futuro los rellenáis ahí)
-    const product = await stripe.products.retrieve(productId);
+    let product = { name: 'Producto Desconocido', metadata: {} };
+    try {
+  product = await stripe.products.retrieve(productId);
+} catch (error) {
+  log('WARN', 'STRIPE', `Product ${productId} not found in Stripe. Using fallback.`);
+}
+
     const featureName = product.metadata?.entitlement_feature;
     const featuresArray = featureName ? [featureName] : [];
 
-    // --- HERENCIA CONDICIONADA DEL HIJO ---
     let childStatus = parentState;
     const itemPeriodEndStr = formatStripeDate(item.current_period_end || subscription.current_period_end);
     const itemPeriodEndDate = itemPeriodEndStr ? new Date(itemPeriodEndStr) : null;
 
     if (['past_due', 'unpaid', 'incomplete'].includes(parentState)) {
       if (itemPeriodEndDate && itemPeriodEndDate > today) {
-        childStatus = 'active'; // Sigue pagada
+        childStatus = 'active';
       }
     }
 
     subscriptionItems.push({
-      item_id: stripeItemId,           // ✨ Modificado para BD
-      hubspot_item_id: null,           
+      item_id: stripeItemId,
+      hubspot_item_id: null,
       subscription_id: subId,
-      nup_center_id: nupCenterId,
-      product_id: productId,           // ✨ Modificado para BD
+      nup_center_id: nupCenterId || nupCenterIdFromStripe,
+      product_id: productId,
       product_name: product.name,
       billing_interval: billingInterval,
       payment_frequency: paymentFrequency,
       unit_price: unitPrice,
-      features: JSON.stringify(centerFeatures), // ✨ NUEVO: Inyección directa desde HubSpot
+      features: JSON.stringify(centerFeatures),
       quantity: quantity,
       start_date: formatStripeDate(item.created),
       current_period_start: formatStripeDate(item.current_period_start || subscription.current_period_start),
       current_period_end: itemPeriodEndStr,
       is_forever: isForever,
       number_of_renovations: 0,
-      
-      status: childStatus,             // ✨ Estado evaluado
+      status: childStatus,
       precanceled_date: precancelledDate
     });
   }
 
+  // ─── 9. PAYLOAD FINAL ──────────────────────────────────────────────────
   const payload = {
     subscription_id: subId,
-    hubspot_subscription_id: null,    
-    nup_center_id: nupCenterId,
-    segment: subscription.metadata?.segment || null,                    
-    manages_own_payment: null,   
-    center_name: centerName,          // ✨ Rescatado del customer      
+    hubspot_subscription_id: null,
+    nup_center_id: nupCenterId,                    // 🔥 Desde Ops API
+    backend_subscription_id: backendSubscriptionId, // 🔥 Desde Ops API
+    segment: subscription.metadata?.segment || null,
+    manages_own_payment: null,
+    center_name: centerName,
     start_date: startDate,
-    precancelled_date: precancelledDate, // ✨ Corregido
+    precancelled_date: precancelledDate,
     cancelation_date: cancelationDate,
     revoked_access_date: revokedAccessDate,
-    current_state: parentState,       // ✨ Estado evaluado
-    currency: subscription.currency ? subscription.currency.toUpperCase() : 'EUR', 
+    current_state: parentState,
+    currency: subscription.currency ? subscription.currency.toUpperCase() : 'EUR',
     creation_source: null,
-    source: 'stripe',                 // ✨ Faltaba
+    source: 'stripe',
     payment_method_type: paymentMethodType,
-    market: null,                     
+    market: null,
     is_forever: isForever,
     pending_payment: pendingPayment,
+    features: centerFeatures,                      // 🔥 Desde Ops API o fallback
     items: subscriptionItems,
     stripe_event_id: event.id,
     event_type: event.type,
@@ -200,18 +282,16 @@ async function processSubscriptionUpsert(event) {
   await upsertSubscriptionData(payload);
   log("INFO", "SUBSCRIPTION-SERVICE", `Upsert routed to DB for ${subId}`);
 
+  // ─── 10. SYNC A HUBSPOT ──────────────────────────────────────────────
   syncSingleSubscriptionToHubspot(subId).then(async (result) => {
     if (result === true) {
-      // Sincronización impecable
       await markHubspotSyncStatus(subId, 'SYNCED');
     } else if (result === 'NO_COMPANY') {
-      // Bloqueo crítico: El centro no existe o no viene informado
       await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
     } else {
-      // Errores temporales de red, API o rate limit (false)
       await markHubspotSyncStatus(subId, 'FAILED');
     }
-});
+  });
 }
 
 async function processInvoiceEvent(event) {

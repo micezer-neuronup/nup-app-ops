@@ -38,6 +38,7 @@ const { syncSingleSubscriptionToHubspot, resolveCompanyData, refreshAllActiveCac
 const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
 const quincenalScriptPath = path.join(__dirname, '../python-jobs/amplitude/quincenal_detector.py');
 const dailyScriptPath = path.join(__dirname, '../python-jobs/amplitude/daily_usage_detector.py');
+const manualSyncScriptPath = path.join(__dirname, 'scripts/syncManualSubscriptions.js');
 
 // const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
@@ -188,7 +189,7 @@ app.get('/api/company-data', async (req, res) => {
   }
 });
 
-// server.js
+
 app.get('/api/opportunities', async (req, res) => {
   try {
     // Obtener oportunidades sin enriquecer con HubSpot
@@ -455,6 +456,55 @@ cron.schedule('0 */4 * * *', async () => {
   } catch (error) {
     log('ERROR', 'CRON', `Cache refresh failed: ${error.message}`);
   }
+});
+
+
+// ────── Cron job: Sync manual subscriptions ─────────────────────────────
+// ─── Runs 3 times a day: 9:00, 12:00, 15:00
+// ─── Fetches all manual subscriptions from Ops API and upserts them
+// ───────────────────────────────────────────────────────────────────────────
+let isManualSyncRunning = false;
+
+cron.schedule('0 9,12,15 * * *', () => {
+  if (isManualSyncRunning) {
+    log("WARN", "CRON", "Previous manual sync is still running. Skipping.");
+    return;
+  }
+
+  isManualSyncRunning = true;
+  log("INFO", "CRON", "Starting manual subscriptions sync...");
+
+  const child = spawn('node', [manualSyncScriptPath], {
+    cwd: __dirname,
+    env: process.env
+  });
+
+  child.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("INFO", "CRON-MANUAL", line.trim());
+      }
+    });
+  });
+
+  child.stderr.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("ERROR", "CRON-MANUAL", line.trim());
+      }
+    });
+  });
+
+  child.on('close', (code) => {
+    if (code === 0) {
+      log("INFO", "CRON-MANUAL", "Manual sync finished successfully.");
+    } else {
+      log("WARN", "CRON-MANUAL", `Manual sync exited with code ${code}`);
+    }
+    isManualSyncRunning = false;
+  });
 });
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────

@@ -218,7 +218,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
             stripe_product_id: item.product_id || "", 
             subscription_id: item.subscription_id,
             status: statusMap[String(item.status).toLowerCase()],
-            precanceled_date: formatHsDate(item.precanceled_date || item.precancelled_date)
+            precancelled_date: formatHsDate(item.precancelled_date || item.precanceled_date)
           }
         };
       });
@@ -449,4 +449,4 @@ module.exports = {
   getCompanyDataWithCache,
   refreshCompanyCache,
   refreshAllActiveCaches
- };
+};
