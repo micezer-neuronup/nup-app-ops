@@ -5,7 +5,7 @@ const { log } = require("../utils/logger");
 
 
 // ==========================================
-// NUEVO: Constantes para Ops API
+// Constantes para Ops API
 // ==========================================
 const OPS_API_URL = 'https://api.neuronup.com/ops/subscriptions';
 const OPS_API_TOKEN = process.env.OPS_API_TOKEN || '6p48*mf65TH$cU**';
@@ -49,7 +49,6 @@ async function getHubspotFeatures(nupCenterId) {
       const rawFeatures = data.results[0].properties.subscription_features;
       if (!rawFeatures) return [];
       
-      // HubSpot suele separar los campos multiselección por punto y coma (;) o comas (,)
       return rawFeatures.split(/[,;]/).map(f => f.trim()).filter(Boolean); 
     }
     return [];
@@ -71,39 +70,53 @@ async function fetchLatestSubscription(subId) {
 }
 
 
-
 // ==========================================
-// NUEVO: Función para obtener datos de Ops API
+// Función para obtener datos de Ops API (TODAS las páginas)
 // ==========================================
 async function fetchSubscriptionFromOps(stripeSubscriptionId) {
   try {
-    const url = `${OPS_API_URL}?page=1&kind=stripe`;
-    const response = await fetch(url, {
-      headers: {
-        'X-Api-Token': process.env.OPS_API_TOKEN || '6p48*mf65TH$cU**',
-        'Content-Type': 'application/json'
+    let page = 1;
+    const maxPages = 400; // Límite de seguridad
+
+    while (page <= maxPages) {
+      const url = `${OPS_API_URL}?page=${page}&kind=stripe`;
+      const response = await fetch(url, {
+        headers: {
+          'X-Api-Token': OPS_API_TOKEN,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        log('WARN', 'OPS-API', `Failed to fetch page ${page}: ${response.status}`);
+        return null;
       }
-    });
 
-    if (!response.ok) {
-      log('WARN', 'OPS-API', `Failed to fetch list: ${response.status}`);
-      return null;
+      const subscriptions = await response.json();
+
+      if (!subscriptions || subscriptions.length === 0) {
+        // No hay más páginas
+        log('WARN', 'OPS-API', `Subscription ${stripeSubscriptionId} not found in Ops API (searched ${page - 1} pages)`);
+        return null;
+      }
+
+      const found = subscriptions.find(s => s.stripeSubscriptionId === stripeSubscriptionId);
+
+      if (found) {
+        log('INFO', 'OPS-API', `Found subscription ${stripeSubscriptionId} in Ops API (page ${page})`);
+        return {
+          backendSubscriptionId: found.id,
+          nupCenterId: found.center.id,
+          features: found.features ? found.features.map(f => f.identifier) : []
+        };
+      }
+
+      page++;
     }
 
-    const subscriptions = await response.json();
-    const found = subscriptions.find(s => s.stripeSubscriptionId === stripeSubscriptionId);
+    log('WARN', 'OPS-API', `Subscription ${stripeSubscriptionId} not found after ${maxPages} pages`);
+    return null;
 
-    if (found) {
-      log('INFO', 'OPS-API', `Found subscription ${stripeSubscriptionId} in Ops API`);
-      return {
-        backendSubscriptionId: found.id,
-        nupCenterId: found.center.id,
-        features: found.features ? found.features.map(f => f.identifier) : []
-      };
-    } else {
-      log('WARN', 'OPS-API', `Subscription ${stripeSubscriptionId} not found in Ops API`);
-      return null;
-    }
   } catch (error) {
     log('ERROR', 'OPS-API', `Error fetching from Ops API: ${error.message}`);
     return null;
@@ -111,12 +124,8 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
 }
 
 
-
-
-
-
 // ==========================================
-// FUNCIÓN PRINCIPAL MODIFICADA
+// FUNCIÓN PRINCIPAL
 // ==========================================
 async function processSubscriptionUpsert(event) {
   const subId = event.data.object.id;
@@ -161,10 +170,9 @@ async function processSubscriptionUpsert(event) {
   if (opsData) {
     centerFeatures = opsFeatures;
     log("INFO", "FEATURES", `Using ${centerFeatures.length} features from Ops API`);
-  } else if (nupCenterId || nupCenterIdFromStripe) {
-    const fallbackCenterId = nupCenterId || nupCenterIdFromStripe;
-    centerFeatures = await getHubspotFeatures(fallbackCenterId);
-    log("INFO", "FEATURES", `Fallback: ${centerFeatures.length} features from HubSpot for center ${fallbackCenterId}`);
+  } else if (nupCenterIdFromStripe) {
+    centerFeatures = await getHubspotFeatures(nupCenterIdFromStripe);
+    log("INFO", "FEATURES", `Fallback: ${centerFeatures.length} features from HubSpot for center ${nupCenterIdFromStripe}`);
   }
 
   // ─── 5. PENDING PAYMENT ────────────────────────────────────────────────
@@ -210,13 +218,10 @@ async function processSubscriptionUpsert(event) {
 
     let product = { name: 'Producto Desconocido', metadata: {} };
     try {
-  product = await stripe.products.retrieve(productId);
-} catch (error) {
-  log('WARN', 'STRIPE', `Product ${productId} not found in Stripe. Using fallback.`);
-}
-
-    const featureName = product.metadata?.entitlement_feature;
-    const featuresArray = featureName ? [featureName] : [];
+      product = await stripe.products.retrieve(productId);
+    } catch (error) {
+      log('WARN', 'STRIPE', `Product ${productId} not found in Stripe. Using fallback.`);
+    }
 
     let childStatus = parentState;
     const itemPeriodEndStr = formatStripeDate(item.current_period_end || subscription.current_period_end);
@@ -232,7 +237,7 @@ async function processSubscriptionUpsert(event) {
       item_id: stripeItemId,
       hubspot_item_id: null,
       subscription_id: subId,
-      nup_center_id: nupCenterId || nupCenterIdFromStripe,
+      nup_center_id: nupCenterId,
       product_id: productId,
       product_name: product.name,
       billing_interval: billingInterval,
@@ -246,7 +251,7 @@ async function processSubscriptionUpsert(event) {
       is_forever: isForever,
       number_of_renovations: 0,
       status: childStatus,
-      precanceled_date: precancelledDate
+      precancelled_date: precancelledDate
     });
   }
 
@@ -254,8 +259,8 @@ async function processSubscriptionUpsert(event) {
   const payload = {
     subscription_id: subId,
     hubspot_subscription_id: null,
-    nup_center_id: nupCenterId,                    // 🔥 Desde Ops API
-    backend_subscription_id: backendSubscriptionId, // 🔥 Desde Ops API
+    nup_center_id: nupCenterId,
+    backend_subscription_id: backendSubscriptionId,
     segment: subscription.metadata?.segment || null,
     manages_own_payment: null,
     center_name: centerName,
@@ -271,7 +276,6 @@ async function processSubscriptionUpsert(event) {
     market: null,
     is_forever: isForever,
     pending_payment: pendingPayment,
-    features: centerFeatures,                      // 🔥 Desde Ops API o fallback
     items: subscriptionItems,
     stripe_event_id: event.id,
     event_type: event.type,
@@ -282,7 +286,6 @@ async function processSubscriptionUpsert(event) {
   await upsertSubscriptionData(payload);
   log("INFO", "SUBSCRIPTION-SERVICE", `Upsert routed to DB for ${subId}`);
 
-  // ─── 10. SYNC A HUBSPOT ──────────────────────────────────────────────
   syncSingleSubscriptionToHubspot(subId).then(async (result) => {
     if (result === true) {
       await markHubspotSyncStatus(subId, 'SYNCED');
@@ -305,7 +308,6 @@ async function processInvoiceEvent(event) {
 
   log("INFO", "SUBSCRIPTION-SERVICE", `Processing Invoice for Sub: ${subId}`);
 
-  // Fetch fresco de la suscripción para asegurarnos de que el estado general se actualiza
   const liveSubscription = await fetchLatestSubscription(subId);
   await processSubscriptionUpsert({
     id: `manual_fetch_for_invoice_${event.id}`, 
@@ -315,7 +317,7 @@ async function processInvoiceEvent(event) {
   });
 
   const status = invoice.status; 
-  const amount = invoice.amount_due ? (invoice.amount_due / 100) : 0; // ✅ Céntimos a Euros
+  const amount = invoice.amount_due ? (invoice.amount_due / 100) : 0;
   const invoiceDate = formatStripeDate(invoice.created); 
 
   const paidItemIds = [];
@@ -344,16 +346,13 @@ async function processInvoiceEvent(event) {
 
   syncSingleSubscriptionToHubspot(subId).then(async (result) => {
     if (result === true) {
-      // Sincronización impecable
       await markHubspotSyncStatus(subId, 'SYNCED');
     } else if (result === 'NO_COMPANY') {
-      // Bloqueo crítico: El centro no existe o no viene informado
       await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
     } else {
-      // Errores temporales de red, API o rate limit (false)
       await markHubspotSyncStatus(subId, 'FAILED');
     }
-});
+  });
 }
 
 module.exports = { 

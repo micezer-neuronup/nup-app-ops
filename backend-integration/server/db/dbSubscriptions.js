@@ -94,9 +94,6 @@ async function getSubscriptionByCenterId(centerId) {
       }
     });
 
-    console.log('DEBUG - activeFeatures:', JSON.stringify(activeFeatures));
-    console.log('DEBUG - return features:', JSON.stringify([...new Set(activeFeatures)]));
-
     return {
       ...activeSub,
       features: [...new Set(activeFeatures)],
@@ -111,7 +108,6 @@ async function getSubscriptionByCenterId(centerId) {
 async function upsertSubscriptionData(data) {
   const client = await pool.connect();
   
-  // Seguro de vida para las variables conflictivas
   const is_forever = data.is_forever !== undefined ? data.is_forever : data.isForever;
   const pending_payment = data.pending_payment !== undefined ? data.pending_payment : data.pendingPayment;
   const safePrecancelledDate = data.precancelled_date || data.precanceled_date || null;
@@ -121,7 +117,7 @@ async function upsertSubscriptionData(data) {
     await client.query('BEGIN');
 
     // ==========================================
-    // 1. UPSERT PADRE (DOBLE 'L')
+    // 1. UPSERT PADRE
     // ==========================================
     await client.query(
       `INSERT INTO subscriptions (
@@ -135,8 +131,8 @@ async function upsertSubscriptionData(data) {
        ON CONFLICT (subscription_id) 
        DO UPDATE SET 
          hubspot_subscription_id = EXCLUDED.hubspot_subscription_id,
-         nup_center_id = EXCLUDED.nup_center_id,
-         backend_subscription_id = EXCLUDED.backend_subscription_id,
+         nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
+         backend_subscription_id = COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id),
          segment = EXCLUDED.segment,
          manages_own_payment = EXCLUDED.manages_own_payment,
          center_name = EXCLUDED.center_name,
@@ -163,12 +159,11 @@ async function upsertSubscriptionData(data) {
     );
 
     // ==========================================
-    // 2. UPSERT HIJOS (DOBLE 'L')
+    // 2. UPSERT HIJOS
     // ==========================================
     if (data.items && data.items.length > 0) {
       const currentItemIds = data.items.map(item => item.item_id);
 
-      // Limpiar los que ya no están
       await client.query(
         `UPDATE subscription_items 
          SET 
@@ -179,7 +174,6 @@ async function upsertSubscriptionData(data) {
         [data.subscription_id, currentItemIds, data.event_date]
       );
 
-      // Insertar o actualizar los vigentes
       for (const item of data.items) {
         const itemFrequency = item.payment_frequency || item.interval_count || 1;
         const itemIsForever = item.is_forever !== undefined ? item.is_forever : is_forever;
@@ -196,13 +190,13 @@ async function upsertSubscriptionData(data) {
            DO UPDATE SET 
              hubspot_item_id = EXCLUDED.hubspot_item_id,
              subscription_id = EXCLUDED.subscription_id,
-             nup_center_id = EXCLUDED.nup_center_id,
+             nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscription_items.nup_center_id),
              product_id = EXCLUDED.product_id,
              product_name = EXCLUDED.product_name,
              billing_interval = EXCLUDED.billing_interval,
              payment_frequency = EXCLUDED.payment_frequency,
              unit_price = EXCLUDED.unit_price,
-             features = EXCLUDED.features,
+             features = COALESCE(EXCLUDED.features, subscription_items.features),
              quantity = EXCLUDED.quantity,
              start_date = EXCLUDED.start_date,
              current_period_start = EXCLUDED.current_period_start,
@@ -221,7 +215,6 @@ async function upsertSubscriptionData(data) {
         );
       }
     } else {
-      // Si vienen 0 ítems
       await client.query(
         `UPDATE subscription_items 
          SET 
@@ -325,7 +318,6 @@ async function markHubspotSyncStatus(subscriptionId, status) {
 }
 
 async function processPendingHubspotSyncs(syncFunction) {
-  // NT: Añadimos 'failed_no_company' al filtro para NO volver a leerlas
   const query = `
     SELECT subscription_id 
     FROM subscriptions 
@@ -346,7 +338,6 @@ async function processPendingHubspotSyncs(syncFunction) {
     for (const record of pendingRecords) {
       const subId = record.subscription_id;
       
-
       await delay(250); 
 
       const syncResult = await syncFunction(subId);
@@ -355,11 +346,9 @@ async function processPendingHubspotSyncs(syncFunction) {
         await markHubspotSyncStatus(subId, 'SYNCED');
         successCount++;
       } else if (syncResult === 'NO_COMPANY') {
-        // ✨ Si el error fue por falta de empresa, lo marcamos permanente y no volverá a entrar aquí
         await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
         errorCount++;
       } else {
-        // Si fue un error de red o de HubSpot (Rate limit), se queda en failed para reintentar
         await markHubspotSyncStatus(subId, 'FAILED');
         errorCount++;
       }
