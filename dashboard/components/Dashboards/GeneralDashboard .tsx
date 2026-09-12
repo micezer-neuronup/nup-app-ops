@@ -64,8 +64,6 @@ export function GeneralDashboard({ data }: { data?: any }) {
 
 
 
-
-
 const sub = data?.subscription || {};
 
 const rawFeatures = sub.features || [];
@@ -93,14 +91,14 @@ const subscriptionData = {
   is_forever: sub.is_forever || false,
   precancelled_date: sub.precancelled_date || null,
   current_period_end: sub.items?.[0]?.current_period_end || null,
-  subscription_features: Array.from(new Set(normalizedFeatures)), 
-  subscription_items: cleanSubscriptionItems,
+  features: Array.from(new Set(normalizedFeatures)),   // ← cambiado
+  items: cleanSubscriptionItems,                        // ← cambiado
   hasFeatureRequest: { active: false, featureName: "" },
   history: sub.history || []
 };
 
-const safeFeatures = Array.isArray(subscriptionData?.subscription_features)
-  ? subscriptionData.subscription_features.filter((f): f is string => typeof f === 'string')
+const safeFeatures = Array.isArray(subscriptionData?.features)
+  ? subscriptionData.features.filter((f): f is string => typeof f === 'string')
   : [];
 
   return (
