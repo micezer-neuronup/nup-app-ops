@@ -86,7 +86,7 @@ export function SubscriptionModal({
   const history = subscriptionData?.history || [subscriptionData || {}];
   const activeSub = history[selectedIndex] || {};
 
-  let items = activeSub.subscription_items || activeSub.items || [];
+  let items = activeSub.items || activeSub.subscription_items || [];
   if (!Array.isArray(items)) items = [];
 
   const currencyKey = currency?.toLowerCase();
@@ -201,7 +201,7 @@ export function SubscriptionModal({
                       <span className="capitalize">{getSourceLabel(histSub.source || histSub.creation_source)}</span>
                     </span>
                     <span>
-                      {(histSub.subscription_items || histSub.items || []).length} items
+                      {(histSub.items || histSub.subscription_items || []).length} items
                     </span>
                   </div>
                 </button>

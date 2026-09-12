@@ -110,8 +110,8 @@ export function SubscriptionCard({
   const status = subscriptionData?.current_state || "—";
   const isForever = subscriptionData?.is_forever;
   const source = subscriptionData?.source?.toLowerCase() || "";
-  const features: string[] = subscriptionData?.subscription_features || [];
-  const items = subscriptionData?.subscription_items || [];
+  const features: string[] = subscriptionData?.features || [];
+  const items = subscriptionData?.items || [];
 
   let productItems = [...items];
   const hasNup2go = productItems.some((item: any) => item.product_name === "NUP2GO");

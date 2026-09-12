@@ -10,6 +10,7 @@ async function getSubscriptionByCenterId(centerId) {
         s.subscription_id,
         s.hubspot_subscription_id,
         s.nup_center_id,
+        s.backend_subscription_id,
         s.segment,
         s.manages_own_payment,
         s.center_name,
@@ -25,6 +26,9 @@ async function getSubscriptionByCenterId(centerId) {
         s.market,
         s.is_forever,
         s.pending_payment,
+        s.last_invoice_status,
+        s.last_invoice_amount,
+        s.last_invoice_date,
         s.updated_at,
         json_agg(
           json_build_object(
@@ -39,6 +43,7 @@ async function getSubscriptionByCenterId(centerId) {
             'unit_price', si.unit_price,
             'features', si.features,
             'quantity', si.quantity,
+            'number_of_renovations', si.number_of_renovations,
             'start_date', si.start_date,
             'current_period_start', si.current_period_start,
             'current_period_end', si.current_period_end,
