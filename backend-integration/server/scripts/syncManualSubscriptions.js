@@ -2,7 +2,9 @@
 const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.resolve(__dirname, '../../.env.development') });
+const envFile = process.env.NODE_ENV === 'production' ? '../.env.production' : '../.env.development';
+const envPath = path.resolve(__dirname, envFile);
+dotenv.config({ path: envPath });
 
 const { pool } = require('../db/db');
 const { log } = require('../utils/logger');
