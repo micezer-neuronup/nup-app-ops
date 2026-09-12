@@ -38,7 +38,7 @@ const { syncSingleSubscriptionToHubspot, resolveCompanyData, refreshAllActiveCac
 const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
 const quincenalScriptPath = path.join(__dirname, '../python-jobs/amplitude/quincenal_detector.py');
 const dailyScriptPath = path.join(__dirname, '../python-jobs/amplitude/daily_usage_detector.py');
-const manualSyncScriptPath = path.join(__dirname, 'scripts/syncManualSubscriptions.js');
+const manualSyncScriptPath = path.join(__dirname, 'scripts/fullBackfillManual.js');
 
 // const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
@@ -465,7 +465,7 @@ cron.schedule('0 */4 * * *', async () => {
 // ───────────────────────────────────────────────────────────────────────────
 let isManualSyncRunning = false;
 
-cron.schedule('0 9,12,15 * * *', () => {
+cron.schedule('0 9,12,16 * * *', () => {
   if (isManualSyncRunning) {
     log("WARN", "CRON", "Previous manual sync is still running. Skipping.");
     return;
