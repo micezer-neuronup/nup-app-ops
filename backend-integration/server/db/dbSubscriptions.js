@@ -94,6 +94,9 @@ async function getSubscriptionByCenterId(centerId) {
       }
     });
 
+    console.log('DEBUG - activeFeatures:', JSON.stringify(activeFeatures));
+    console.log('DEBUG - return features:', JSON.stringify([...new Set(activeFeatures)]));
+
     return {
       ...activeSub,
       features: [...new Set(activeFeatures)],

@@ -170,6 +170,8 @@ export function SubscriptionCard({
     const intervalDisplay = interval ? `/${interval}` : "";
     const quantityDisplay = item.quantity && item.quantity > 1 ? ` (x${item.quantity})` : "";
 
+    console.log('DEBUG - subscriptionData.features:', subscriptionData?.features);
+
     return {
       name: item.product_name || "Producto Desconocido",
       value: `${price} ${currencySymbol}${intervalDisplay}${quantityDisplay}`,
