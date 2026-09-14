@@ -6,7 +6,7 @@ const envFile = process.env.NODE_ENV === 'production' ? '../.env.production' : '
 const envPath = path.resolve(__dirname, envFile);
 dotenv.config({ path: envPath });
 
-const { markHubspotSyncStatus } = require('./dbSubscriptions');
+const { markHubspotSyncStatus } = require('../db/dbSubscriptions');
 
 // ============================================================================
 // CONFIGURACIÓN DE CREDENCIALES Y OBJETOS
