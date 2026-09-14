@@ -168,7 +168,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
         source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
         start_date: formatHsDate(sub.start_date),
         // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L)
-        precanceled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
+        precancelled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
         subscription_finish_date: formatHsDate(sub.cancelation_date)
       }
     }];
@@ -220,7 +220,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
             subscription_id: item.subscription_id,
             status: statusMap[String(item.status).toLowerCase()],
             // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L)
-            precanceled_date: formatHsDate(item.precancelled_date || item.precanceled_date)
+            precancelled_date: formatHsDate(item.precancelled_date || item.precanceled_date)
           }
         };
       });
