@@ -140,6 +140,13 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     if (subRows.length === 0) return false;
     const sub = subRows[0];
 
+    // 🔥 FILTRO: Solo sincronizar con HubSpot si el estado es válido
+    const validStates = ['active', 'trial', 'trialing', 'past_due'];
+    if (!validStates.includes(String(sub.current_state).toLowerCase())) {
+      console.log(`[HUBSPOT-SYNC][SKIP] Sub ${subscriptionId} está en estado "${sub.current_state}". No se sincroniza con HubSpot.`);
+      return 'SKIPPED_STATE';
+    }
+
     if (!sub.nup_center_id) {
       // Pasado a console para no saturar el archivo de logs
       console.log(`[HUBSPOT-SYNC][WARN] Sub ${subscriptionId} no tiene nup_center_id. Ignorando.`);
@@ -167,7 +174,6 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
         payment_method_type: sub.payment_method_type || "",
         source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
         start_date: formatHsDate(sub.start_date),
-        // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L)
         precancelled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
         subscription_finish_date: formatHsDate(sub.cancelation_date)
       }
@@ -219,7 +225,6 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
             stripe_product_id: item.product_id || "", 
             subscription_id: item.subscription_id,
             status: statusMap[String(item.status).toLowerCase()],
-            // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L)
             precancelled_date: formatHsDate(item.precancelled_date || item.precanceled_date)
           }
         };
@@ -373,8 +378,7 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
         segmento: props.segmento || '-',
         market_hubspot: marketHubspot,
         nup_center_id: props.nup_center_id || nupCenterId,
-        subscription_features: subscriptionFeatures,  // ✅ AÑADIR ESTO
-
+        subscription_features: subscriptionFeatures,
       }
     };
 

@@ -6,6 +6,8 @@ const envFile = process.env.NODE_ENV === 'production' ? '../.env.production' : '
 const envPath = path.resolve(__dirname, envFile);
 dotenv.config({ path: envPath });
 
+const { markHubspotSyncStatus } = require('./dbSubscriptions');
+
 // ============================================================================
 // CONFIGURACIÓN DE CREDENCIALES Y OBJETOS
 // ============================================================================
@@ -75,12 +77,17 @@ async function main() {
     let processedSubsCount = 0;
     let processedItemsCount = 0;
     let errorSubsCount = 0;
+    let syncedCount = 0;
+    let failedCount = 0;
+    let noCompanyCount = 0;
 
     // 2. PROCESAR CADA SUSCRIPCIÓN (PADRE)
     for (const sub of allSubs) {
       
       if (!sub.nup_center_id) {
         errorSubsCount++;
+        noCompanyCount++;
+        await markHubspotSyncStatus(sub.subscription_id, 'FAILED_NO_COMPANY');
         continue; // Saltamos silenciosamente las que no tienen NUP
       }
 
@@ -89,6 +96,8 @@ async function main() {
         companyHubspotId = await findCompanyHubspotId(sub.nup_center_id);
       } catch (err) {
         errorSubsCount++;
+        noCompanyCount++;
+        await markHubspotSyncStatus(sub.subscription_id, 'FAILED_NO_COMPANY');
         continue; // Saltamos si no encontramos la empresa en HubSpot
       }
 
@@ -104,7 +113,7 @@ async function main() {
           payment_method_type: sub.payment_method_type || "",
           source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
           start_date: formatHsDate(sub.start_date),
-          // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L). Valor de BD: "precancelled_date" (doble L).
+          // 🔥 Nombre interno en HubSpot: "precancelled_date" (doble L)
           precancelled_date: formatHsDate(sub.precancelled_date),
           subscription_finish_date: formatHsDate(sub.cancelation_date)
         }
@@ -119,7 +128,9 @@ async function main() {
       const subUpsertData = await subUpsertRes.json();
       if (!subUpsertRes.ok) {
         errorSubsCount++;
+        failedCount++;
         console.error(`\n❌ Falló Upsert de Suscripción ${sub.subscription_id}:`, JSON.stringify(subUpsertData));
+        await markHubspotSyncStatus(sub.subscription_id, 'FAILED');
         continue;
       }
 
@@ -132,6 +143,8 @@ async function main() {
       // 3. PROCESAR LOS ÍTEMS HIJOS
       const relatedItems = allItems.filter(item => item.subscription_id === sub.subscription_id);
       
+      let itemsFailed = false;
+
       if (relatedItems.length > 0) {
         const itemInputs = relatedItems.map(item => {
           let featuresText = "";
@@ -168,7 +181,7 @@ async function main() {
               stripe_product_id: item.product_id || "", 
               subscription_id: item.subscription_id,
               status: statusMap[String(item.status).toLowerCase()],
-              // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L). Valor de BD: "precancelled_date" (doble L).
+              // 🔥 Nombre interno en HubSpot: "precancelled_date" (doble L)
               precancelled_date: formatHsDate(item.precancelled_date)
             }
           };
@@ -190,8 +203,18 @@ async function main() {
             await createAssociation(ITEM_OBJECT_ID, hubspotItemId, ACCOUNT_SUB_OBJECT_ID, hubspotSubId, ASSOC_ITEM_TO_SUB);
           }
         } else {
+          itemsFailed = true;
           console.error(`\n❌ Falló Upsert de ítems para ${sub.subscription_id}`);
         }
+      }
+
+      // 🔥 ACTUALIZAR ESTADO SEGÚN RESULTADO
+      if (itemsFailed) {
+        await markHubspotSyncStatus(sub.subscription_id, 'FAILED');
+        failedCount++;
+      } else {
+        await markHubspotSyncStatus(sub.subscription_id, 'SYNCED');
+        syncedCount++;
       }
 
       // ==========================================
@@ -208,7 +231,10 @@ async function main() {
     console.log(`📊 Resumen:`);
     console.log(`   - Suscripciones subidas: ${processedSubsCount}`);
     console.log(`   - Ítems subidos:         ${processedItemsCount}`);
-    console.log(`   - Errores / Saltadas:    ${errorSubsCount} (Por NUP faltante o error API)`);
+    console.log(`   - Sincronizadas:         ${syncedCount}`);
+    console.log(`   - Fallidas:              ${failedCount}`);
+    console.log(`   - Sin empresa:           ${noCompanyCount}`);
+    console.log(`   - Errores / Saltadas:    ${errorSubsCount}`);
     console.log("=============================================================\n");
 
   } catch (error) {

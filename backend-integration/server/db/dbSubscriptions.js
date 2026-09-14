@@ -318,10 +318,13 @@ async function markHubspotSyncStatus(subscriptionId, status) {
 }
 
 async function processPendingHubspotSyncs(syncFunction) {
+  // 🔥 Añadido 'SKIPPED_STATE' al filtro para no reintentar las que están en estado no válido
   const query = `
     SELECT subscription_id 
     FROM subscriptions 
-    WHERE (hubspot_sync_status != 'SYNCED' AND hubspot_sync_status != 'FAILED_NO_COMPANY')
+    WHERE (hubspot_sync_status != 'SYNCED' 
+       AND hubspot_sync_status != 'FAILED_NO_COMPANY'
+       AND hubspot_sync_status != 'SKIPPED_STATE')
        OR hubspot_sync_status IS NULL
   `;
   
@@ -348,6 +351,9 @@ async function processPendingHubspotSyncs(syncFunction) {
       } else if (syncResult === 'NO_COMPANY') {
         await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
         errorCount++;
+      } else if (syncResult === 'SKIPPED_STATE') {
+        // 🔥 Estado no válido: marcar como SKIPPED_STATE para no reintentar
+        await markHubspotSyncStatus(subId, 'SKIPPED_STATE');
       } else {
         await markHubspotSyncStatus(subId, 'FAILED');
         errorCount++;

@@ -291,6 +291,8 @@ async function processSubscriptionUpsert(event) {
       await markHubspotSyncStatus(subId, 'SYNCED');
     } else if (result === 'NO_COMPANY') {
       await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
+    } else if (result === 'SKIPPED_STATE') {
+      await markHubspotSyncStatus(subId, 'SKIPPED_STATE');
     } else {
       await markHubspotSyncStatus(subId, 'FAILED');
     }
@@ -349,6 +351,8 @@ async function processInvoiceEvent(event) {
       await markHubspotSyncStatus(subId, 'SYNCED');
     } else if (result === 'NO_COMPANY') {
       await markHubspotSyncStatus(subId, 'FAILED_NO_COMPANY');
+    } else if (result === 'SKIPPED_STATE') {
+      await markHubspotSyncStatus(subId, 'SKIPPED_STATE');
     } else {
       await markHubspotSyncStatus(subId, 'FAILED');
     }
