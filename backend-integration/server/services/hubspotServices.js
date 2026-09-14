@@ -167,7 +167,8 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
         payment_method_type: sub.payment_method_type || "",
         source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
         start_date: formatHsDate(sub.start_date),
-        precancelled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
+        // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L)
+        precanceled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
         subscription_finish_date: formatHsDate(sub.cancelation_date)
       }
     }];
@@ -218,7 +219,8 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
             stripe_product_id: item.product_id || "", 
             subscription_id: item.subscription_id,
             status: statusMap[String(item.status).toLowerCase()],
-            precancelled_date: formatHsDate(item.precancelled_date || item.precanceled_date)
+            // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L)
+            precanceled_date: formatHsDate(item.precancelled_date || item.precanceled_date)
           }
         };
       });

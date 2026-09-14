@@ -43,9 +43,6 @@ const statusMap = {
 // ============================================================================
 // FLUJO PRINCIPAL DE MIGRACIÓN / SINCRONIZACIÓN MASIVA
 // ============================================================================
-// ============================================================================
-// FLUJO PRINCIPAL DE MIGRACIÓN / SINCRONIZACIÓN MASIVA
-// ============================================================================
 async function main() {
   console.log("🚀 [INICIO] Sincronización masiva filtrada (solo activas/trial/past_due)...");
 
@@ -96,24 +93,23 @@ async function main() {
       }
 
       // Preparar payload del Padre
-      // Preparar payload del Padre
       const subInputs = [{
-        idProperty: "subscription_id_unique", // 👈 LO DEVOLVEMOS AQUÍ
-        id: String(sub.subscription_id),      // (Mejor asegurarnos de que el ID es un string)
+        idProperty: "subscription_id_unique",
+        id: String(sub.subscription_id),
         properties: {
           account_name: sub.center_name ? `Suscripción - ${sub.center_name}` : `Suscripción - ${sub.subscription_id}`,
           subscription_id_unique: sub.subscription_id,
           status: statusMap[String(sub.current_state).toLowerCase()] || "active",
           isforever: sub.is_forever ? "true" : "false",
           payment_method_type: sub.payment_method_type || "",
-          source: sourceMap[String(sub.creation_source).toLowerCase()] || "Stripe",
+          source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
           start_date: formatHsDate(sub.start_date),
-          precancelled_date: formatHsDate(sub.precanceled_date),
+          // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L). Valor de BD: "precancelled_date" (doble L).
+          precanceled_date: formatHsDate(sub.precancelled_date),
           subscription_finish_date: formatHsDate(sub.cancelation_date)
         }
       }];
 
-      // 👈 QUITAMOS EL ?idProperty DE LA URL
       const subUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ACCOUNT_SUB_OBJECT_ID}/batch/upsert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
@@ -152,7 +148,7 @@ async function main() {
             : (item.product_name || 'Producto Manual');
 
           return {
-            idProperty: "stripe_item_id_unique", // 👈 LO DEVOLVEMOS AQUÍ
+            idProperty: "stripe_item_id_unique",
             id: String(safeItemId),
             properties: {
               subscription_item_name: itemName,
@@ -172,12 +168,12 @@ async function main() {
               stripe_product_id: item.product_id || "", 
               subscription_id: item.subscription_id,
               status: statusMap[String(item.status).toLowerCase()],
-              precanceled_date: formatHsDate(item.precanceled_date)
+              // 🔥 Nombre interno en HubSpot: "precanceled_date" (una L). Valor de BD: "precancelled_date" (doble L).
+              precanceled_date: formatHsDate(item.precancelled_date)
             }
           };
         });
 
-        // 👈 QUITAMOS EL ?idProperty DE LA URL
         const itemsUpsertRes = await fetch(`https://api.hubapi.com/crm/v3/objects/${ITEM_OBJECT_ID}/batch/upsert`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },
