@@ -25,10 +25,10 @@ dotenv.config({ path: envPath });
 // ────── Import: queries and services ────────────────────────────────────
 // ─── Database conenction is already imported in dbQueries
 // ────────────────────────────────────────────────────────────────────────
-const { getAnalyticsByCenterId, updateFeatureRequestStatus,updateOpportunityStatus,getAllOpportunities,createTaskForOpportunity } = require('./db/dbAnalytics');
+const { getAnalyticsByCenterId, updateFeatureRequestStatus,updateOpportunityStatus,getAllOpportunities,assignUpsellOpportunity } = require('./db/dbAnalytics');
 const { getSubscriptionByCenterId, processPendingHubspotSyncs  } = require('./db/dbSubscriptions');
 const { processSubscriptionUpsert, processInvoiceEvent} = require('./services/subscriptionServices');
-const { syncSingleSubscriptionToHubspot, resolveCompanyData, refreshAllActiveCaches  } = require('./services/hubspotServices');
+const { syncSingleSubscriptionToHubspot, resolveCompanyData, refreshAllActiveCaches, getAllOwners } = require('./services/hubspotServices');
 
 
 // ────── Initialization: Script paths ───────────────────────────────────
@@ -202,19 +202,34 @@ app.get('/api/opportunities', async (req, res) => {
 
 
 
-app.post('/api/commercial-opportunities/:id/create-task', async (req, res) => {
-  const { id } = req.params;
-  const { subject, body } = req.body;
-
+// Endpoint para listar owners
+app.get('/api/hubspot/owners', async (req, res) => {
   try {
-    const result = await createTaskForOpportunity(id, { subject, body });
-    res.json(result);
+    const owners = await getAllOwners();
+    res.json(owners);
   } catch (error) {
-    console.error('Error creating task:', error);
+    console.error('Error fetching owners:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
+// Endpoint para asignar oportunidad (upsell)
+app.post('/api/commercial-opportunities/:id/assign-upsell', async (req, res) => {
+  const { id } = req.params;
+  const { upsellObject, upsellOwnerId, upsellOwnerName } = req.body;
+
+  try {
+    const result = await assignUpsellOpportunity(id, {
+      upsellObject,
+      upsellOwnerId,
+      upsellOwnerName,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Error assigning upsell opportunity:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 
 // ────── Endpoint: feature requests ──────────────────────────────────────────────────────────────────

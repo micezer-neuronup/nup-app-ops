@@ -1,6 +1,6 @@
 const { upsertSubscriptionData, updateInvoiceData, markHubspotSyncStatus } = require('../db/dbSubscriptions');
 const { syncSingleSubscriptionToHubspot } = require('./hubspotServices');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { log } = require("../utils/logger");
 
 

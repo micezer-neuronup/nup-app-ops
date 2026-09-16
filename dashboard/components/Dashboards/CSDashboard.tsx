@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SiteHeader } from "../site-header";
 import { ModalOpp } from "./ModalOpp";
+import { AssignUpsellModal } from "./AssignUpsellModal";
 import {
   Phone,
   Mail,
@@ -50,6 +51,9 @@ export interface Opportunity {
   segment?: string;
   market?: string;
   hubspot_task_id?: string | null;
+  upsell_object?: string | null;
+  upsell_owner_id?: string | null;
+  upsell_owner_name?: string | null;
 }
 
 // ---------- HELPERS ----------
@@ -67,9 +71,10 @@ export function CSDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [taskSuccess, setTaskSuccess] = useState<{ taskUrl: string; taskId: string; centerName: string } | null>(null);
 
-  // Cargar todas las oportunidades
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignModalOpp, setAssignModalOpp] = useState<Opportunity | null>(null);
+
   const fetchOpportunities = async () => {
     setLoading(true);
     setError(null);
@@ -91,6 +96,9 @@ export function CSDashboard() {
         hubspot_portal_id: opp.hubspot_portal_id || null,
         hubspot_ui_domain: opp.hubspot_ui_domain || "app.hubspot.com",
         hubspot_task_id: opp.hubspot_task_id || null,
+        upsell_object: opp.upsell_object || null,
+        upsell_owner_id: opp.upsell_owner_id || null,
+        upsell_owner_name: opp.upsell_owner_name || null,
         avg_daily_60d: typeof opp.avg_daily_60d === "number" ? opp.avg_daily_60d : 0,
         score: typeof opp.score === "number" ? opp.score : 0,
         total_tests_60d: typeof opp.total_tests_60d === "number" ? opp.total_tests_60d : 0,
@@ -110,7 +118,6 @@ export function CSDashboard() {
     fetchOpportunities();
   }, []);
 
-  // Búsqueda local
   const filteredOpportunities = useMemo(() => {
     if (!searchTerm.trim()) return allOpportunities;
     const term = searchTerm.toLowerCase().trim();
@@ -128,7 +135,6 @@ export function CSDashboard() {
   const pending = useMemo(() => sorted.filter((o) => o.status === "pending"), [sorted]);
   const completed = useMemo(() => sorted.filter((o) => o.status === "completed"), [sorted]);
 
-  // Actualizar estado
   const updateStatus = async (id: number, newStatus: "pending" | "completed") => {
     try {
       const res = await fetch(`${SERVER_URL}/api/commercial-opportunities/${id}`, {
@@ -162,46 +168,30 @@ export function CSDashboard() {
   const totalPending = pending.length;
   const totalCompleted = completed.length;
 
-  // Crear tarea directamente
-  const handleCreateTask = async (opp: Opportunity) => {
-  try {
-    const res = await fetch(`${SERVER_URL}/api/commercial-opportunities/${opp.id}/create-task`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        subject: `Assessment - ${opp.center_name || `Centro ${opp.center_id}`}`,
-        body: opp.ai_justification || 'Contactar para ofrecer Assessment.',
-      }),
-    });
-    
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || 'Error creating task');
-    }
-    
-    const data = await res.json();
-    
-    // Actualizar oportunidad local (taskId y status completado)
-    setAllOpportunities(prev =>
-      prev.map(o =>
-        o.id === opp.id 
-          ? { ...o, hubspot_task_id: data.taskId, status: 'completed' } 
+  const openAssignModal = (opp: Opportunity) => {
+    setAssignModalOpp(opp);
+    setAssignModalOpen(true);
+  };
+
+  const handleAssigned = (data: {
+    upsellObject: string;
+    upsellOwnerId: string;
+    upsellOwnerName: string;
+  }) => {
+    if (!assignModalOpp) return;
+    setAllOpportunities((prev) =>
+      prev.map((o) =>
+        o.id === assignModalOpp.id
+          ? {
+              ...o,
+              upsell_object: data.upsellObject,
+              upsell_owner_id: data.upsellOwnerId,
+              upsell_owner_name: data.upsellOwnerName,
+            }
           : o
       )
     );
-    
-    // Mostrar modal de éxito con la nueva URL
-    setTaskSuccess({
-  taskUrl: data.taskUrl,
-  taskId: data.taskId,
-  centerName: opp.center_name || `Centro ${opp.center_id}`,
-});
-    
-  } catch (error: any) {
-    console.error('Error creating task:', error);
-    alert(error.message || 'Error al crear la tarea');
-  }
-};
+  };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -276,7 +266,7 @@ export function CSDashboard() {
                     onClick={() => setSelectedOpp(opp)}
                     onCopy={handleCopy}
                     copiedField={copiedField}
-                    onCreateTask={handleCreateTask}
+                    onAssignUpsell={openAssignModal}
                   />
                 ))
               )}
@@ -304,7 +294,7 @@ export function CSDashboard() {
                     onClick={() => setSelectedOpp(opp)}
                     onCopy={handleCopy}
                     copiedField={copiedField}
-                    onCreateTask={handleCreateTask}
+                    onAssignUpsell={openAssignModal}
                     isReviewed
                   />
                 ))
@@ -320,50 +310,24 @@ export function CSDashboard() {
           onClose={() => setSelectedOpp(null)}
           onReview={handleMarkAsReviewed}
           onUndo={handleMarkAsPending}
-          onCreateTask={handleCreateTask}
+          onAssignUpsell={openAssignModal}
         />
       )}
 
-      {/* Modal de éxito de tarea */}
-      {taskSuccess && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => setTaskSuccess(null)}
-        >
-          <div
-            className="bg-background border border-border rounded-xl shadow-2xl p-6 max-w-md w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="text-center">
-  <div className="text-4xl mb-2">✅</div>
-  <h3 className="text-lg font-bold mb-1">Tarea creada</h3>
-  <p className="text-sm text-muted-foreground mb-1">
-    Se ha creado la tarea para {taskSuccess.centerName}.
-  </p>
-  <p className="text-xs text-muted-foreground mb-4">
-    ID: {taskSuccess.taskId}  {/* ← Mostrar el ID */}
-  </p>
-  <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => setTaskSuccess(null)}
-                >
-                  Cerrar
-                </Button>
-                <Button
-                  className="flex-1 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border-orange-500/20"
-                  onClick={() => {
-                    window.open(taskSuccess.taskUrl, "_blank");
-                    setTaskSuccess(null);
-                  }}
-                >
-                  Ir a tarea
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+      {assignModalOpp && (
+        <AssignUpsellModal
+          open={assignModalOpen}
+          onClose={() => {
+            setAssignModalOpen(false);
+            setAssignModalOpp(null);
+          }}
+          opportunityId={assignModalOpp.id}
+          centerName={assignModalOpp.center_name || `Centro ${assignModalOpp.center_id}`}
+          currentObject={assignModalOpp.upsell_object || ""}
+          currentOwnerId={assignModalOpp.upsell_owner_id || ""}
+          currentOwnerName={assignModalOpp.upsell_owner_name || ""}
+          onAssigned={handleAssigned}
+        />
       )}
     </div>
   );
@@ -377,7 +341,7 @@ function OpportunityCard({
   onClick,
   onCopy,
   copiedField,
-  onCreateTask,
+  onAssignUpsell,
   isReviewed = false,
 }: {
   opp: Opportunity;
@@ -386,7 +350,7 @@ function OpportunityCard({
   onClick: () => void;
   onCopy: (id: number, field: string, value: string) => void;
   copiedField: { id: number; field: string } | null;
-  onCreateTask: (opp: Opportunity) => void;
+  onAssignUpsell: (opp: Opportunity) => void;
   isReviewed?: boolean;
 }) {
   const isEmailCopied = copiedField?.id === opp.id && copiedField?.field === "email";
@@ -466,6 +430,13 @@ function OpportunityCard({
                   +{totalDetections} nuevos usos
                 </Badge>
               )}
+              {/* ✅ Badge del objeto + owner juntos */}
+              {opp.upsell_object && (
+                <Badge className="text-[10px] font-medium border-blue-500/30 bg-blue-500/10 text-blue-500">
+                  {opp.upsell_object}
+                  {opp.upsell_owner_name && ` · ${opp.upsell_owner_name}`}
+                </Badge>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5">
@@ -525,7 +496,6 @@ function OpportunityCard({
           </div>
 
           <div className="flex flex-col gap-1.5 ml-2 shrink-0">
-            {/* Botón HubSpot */}
             <Button
               variant="ghost"
               size="sm"
@@ -550,38 +520,19 @@ function OpportunityCard({
               HubSpot
             </Button>
 
-            {/* Botón de tarea */}
-           {opp.hubspot_task_id ? (
-  <Button
-    variant="ghost"
-    size="sm"
-    className="h-9 px-3 rounded-md text-blue-400 hover:text-blue-300 hover:bg-blue-400/10 gap-1.5 text-xs font-medium"
-    onClick={(e) => {
-      e.stopPropagation();
-      const portalId = opp.hubspot_portal_id || '148915792';
-      const taskUrl = `https://app-eu1.hubspot.com/contacts/${portalId}/objects/0-27/views/all/list?taskId=${opp.hubspot_task_id}`;
-      window.open(taskUrl, '_blank');
-    }}
-  >
-    <CheckCircle className="h-4 w-4" />
-    Ir a tareas
-  </Button>
-) : (
-  <Button
-    variant="ghost"
-    size="sm"
-    className="h-9 px-3 rounded-md text-orange-400 hover:text-orange-300 hover:bg-orange-400/10 gap-1.5 text-xs font-medium"
-    onClick={(e) => {
-      e.stopPropagation();
-      onCreateTask(opp);
-    }}
-  >
-    <Calendar className="h-4 w-4" />
-    Crear tarea
-  </Button>
-)}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-9 px-3 rounded-md text-orange-400 hover:text-orange-300 hover:bg-orange-400/10 gap-1.5 text-xs font-medium"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAssignUpsell(opp);
+              }}
+            >
+              <Calendar className="h-4 w-4" />
+              {opp.upsell_object ? "Editar asignación" : "Asignar oportunidad"}
+            </Button>
 
-            {/* Botón Revisar / Deshacer */}
             {!isReviewed ? (
               <Button
                 variant="ghost"

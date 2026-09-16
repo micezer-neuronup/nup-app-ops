@@ -17,7 +17,7 @@ import {
   Clock,
   ArrowUp,
 } from "lucide-react";
-import { Opportunity } from "./CSDashboard"; // Importamos el tipo desde el archivo principal
+import { Opportunity } from "./CSDashboard";
 
 // ---------- TYPEWRITER ----------
 function TypewriterText({
@@ -108,7 +108,7 @@ interface ModalOppProps {
   onClose: () => void;
   onReview?: (id: number) => void;
   onUndo?: (id: number) => void;
-  onCreateTask?: (opp: Opportunity) => void; // ✅ nueva prop
+  onAssignUpsell?: (opp: Opportunity) => void;
 }
 
 export function ModalOpp({
@@ -116,7 +116,7 @@ export function ModalOpp({
   onClose,
   onReview,
   onUndo,
-  onCreateTask , // ✅ Recibir prop
+  onAssignUpsell,
 }: ModalOppProps) {
   const [isTypingActive, setIsTypingActive] = useState(true);
 
@@ -164,16 +164,6 @@ export function ModalOpp({
     }
   };
 
-  const getTaskCreationUrl = () => {
-    const portalId = opp.hubspot_portal_id || "148915792";
-    const companyId = opp.hubspot_company_id || opp.center_id;
-    const subject = encodeURIComponent(`Assessment - Centro ${opp.center_id}`);
-    const body = encodeURIComponent(
-      opp.ai_justification || "Contactar para ofrecer Assessment."
-    );
-    return `https://app.hubspot.com/contacts/${portalId}/task/create?taskType=TODO&subject=${subject}&body=${body}&associatedCompanyId=${companyId}`;
-  };
-
   const testsPerActiveDay =
     opp.active_days_60d > 0
       ? (opp.total_tests_60d / opp.active_days_60d).toFixed(1)
@@ -209,6 +199,13 @@ export function ModalOpp({
               {opp.product}
             </Badge>
             <span className="text-sm text-muted-foreground">ID: {opp.center_id}</span>
+            {/* ✅ Badge del objeto + owner juntos */}
+            {opp.upsell_object && (
+              <Badge className="text-[10px] font-medium border-blue-500/30 bg-blue-500/10 text-blue-500">
+                {opp.upsell_object}
+                {opp.upsell_owner_name && ` · ${opp.upsell_owner_name}`}
+              </Badge>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -353,78 +350,57 @@ export function ModalOpp({
               </div>
 
               {/* Botones de acción */}
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  className={`w-full text-sm h-9 ${
+                    opp.status === "pending"
+                      ? "bg-green-500/10 hover:bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/30"
+                      : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border-border"
+                  }`}
+                  onClick={handleAction}
+                >
+                  {opp.status === "pending" ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Revisar
+                    </>
+                  ) : (
+                    <>
+                      <X className="h-4 w-4 mr-2" />
+                      Deshacer
+                    </>
+                  )}
+                </Button>
 
-{/* Botones de acción */}
-<div className="space-y-2">
-  {/* Botón Revisar / Deshacer */}
-  <Button
-    variant="outline"
-    className={`w-full text-sm h-9 ${
-      opp.status === "pending"
-        ? "bg-green-500/10 hover:bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/30"
-        : "text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border-border"
-    }`}
-    onClick={handleAction}
-  >
-    {opp.status === "pending" ? (
-      <>
-        <CheckCircle className="h-4 w-4 mr-2" />
-        Revisar
-      </>
-    ) : (
-      <>
-        <X className="h-4 w-4 mr-2" />
-        Deshacer
-      </>
-    )}
-  </Button>
+                <Button
+                  className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border-orange-500/30 text-sm h-9"
+                  onClick={() => onAssignUpsell?.(opp)}
+                >
+                  <Calendar className="h-4 w-4 mr-2" />
+                  {opp.upsell_object ? "Editar asignación" : "Asignar oportunidad"}
+                </Button>
 
-  {/* Botón de tarea (dinámico) */}
-    {opp.hubspot_task_id ? (
-  <Button
-    className="w-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border-blue-500/30 text-sm h-9"
-    onClick={() => {
-      const portalId = opp.hubspot_portal_id || '148915792';
-      const taskUrl = `https://app-eu1.hubspot.com/contacts/${portalId}/objects/0-27/views/all/list?taskId=${opp.hubspot_task_id}`;
-      window.open(taskUrl, '_blank');
-    }}
-  >
-    <CheckCircle className="h-4 w-4 mr-2" />
-    Ir a tareas
-  </Button>
-) : (
-  <Button
-    className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 border-orange-500/30 text-sm h-9"
-    onClick={() => onCreateTask?.(opp)}
-  >
-    <Calendar className="h-4 w-4 mr-2" />
-    Crear tarea en HubSpot
-  </Button>
-)}
-
-
-
-  {/* Botón HubSpot */}
-  <Button
-    className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-600 dark:text-orange-400 border-orange-500/30 text-sm h-9"
-    onClick={() => {
-      const companyId = opp.hubspot_company_id;
-      const portalId = opp.hubspot_portal_id || "148915792";
-      const uiDomain = "app-eu1.hubspot.com";
-      if (companyId) {
-        window.open(
-          `https://${uiDomain}/contacts/${portalId}/record/0-2/${companyId}/`,
-          "_blank"
-        );
-      } else {
-        alert("No se encontró el ID de HubSpot para este centro.");
-      }
-    }}
-  >
-    <HubSpotIcon className="h-4 w-4 mr-2" />
-    Abrir en HubSpot
-  </Button>
-</div>
+                <Button
+                  className="w-full bg-orange-500/20 hover:bg-orange-500/30 text-orange-600 dark:text-orange-400 border-orange-500/30 text-sm h-9"
+                  onClick={() => {
+                    const companyId = opp.hubspot_company_id;
+                    const portalId = opp.hubspot_portal_id || "143501970";
+                    const uiDomain = "app-eu1.hubspot.com";
+                    if (companyId) {
+                      window.open(
+                        `https://${uiDomain}/contacts/${portalId}/record/0-2/${companyId}/`,
+                        "_blank"
+                      );
+                    } else {
+                      alert("No se encontró el ID de HubSpot para este centro.");
+                    }
+                  }}
+                >
+                  <HubSpotIcon className="h-4 w-4 mr-2" />
+                  Abrir en HubSpot
+                </Button>
+              </div>
             </div>
           </div>
         </div>

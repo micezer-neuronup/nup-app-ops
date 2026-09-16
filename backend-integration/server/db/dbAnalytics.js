@@ -161,6 +161,9 @@ async function getAllOpportunities(filters = {}) {
         o.active_days_60d,
         o.avg_daily_60d,
         o.score,
+        o.upsell_object,
+        o.upsell_owner_id,
+        o.upsell_owner_name,
         COALESCE(
           (SELECT json_agg(
              json_build_object(
@@ -265,11 +268,8 @@ async function getAllOpportunities(filters = {}) {
 }
 
 
-
-async function createTaskForOpportunity(opportunityId, taskData) {
-  const { ownerId, dueDate, subject, body } = taskData;
-  
-  // 1. Obtener center_id de la oportunidad
+async function assignUpsellOpportunity(opportunityId, { upsellObject, upsellOwnerId, upsellOwnerName }) {
+  // 1. Obtener center_id
   const result = await pool.query(
     `SELECT center_id FROM commercial_opportunity WHERE id = $1`,
     [opportunityId]
@@ -279,76 +279,51 @@ async function createTaskForOpportunity(opportunityId, taskData) {
   }
   const centerId = result.rows[0].center_id;
 
-  // 2. Obtener datos de HubSpot (companyId, portalId, etc.)
+  // 2. Obtener companyId de HubSpot
   const companyData = await getCompanyDataByNupCenterId(centerId);
   if (!companyData || !companyData.id) {
     throw new Error('HubSpot company not found');
   }
   const companyId = companyData.id;
-  const portalId = companyData.portalId || '148915792';
 
-  // 3. Construir payload para HubSpot
-  const taskPayload = {
+  // 3. PATCH a la compañía en HubSpot con las dos propiedades
+  const patchPayload = {
     properties: {
-      hs_task_subject: subject || `Assessment - Centro ${centerId}`,
-      hs_task_body: body || 'Contactar para ofrecer Assessment.',
-      hs_task_status: 'NOT_STARTED',
-      hs_task_priority: 'HIGH',
-      hs_task_type: 'TODO'
-    },
-    associations: [
-      {
-        to: { id: companyId },
-        types: [
-          {
-            associationCategory: 'HUBSPOT_DEFINED',
-            associationTypeId: 192  // Tarea → Compañía
-          }
-        ]
-      }
-    ]
+      upsell_opportunity_object: upsellObject || '',
+      upsell_opportunity_owner: upsellOwnerId || '',
+    }
   };
 
-  // Añadir dueño si se proporcionó
-  if (ownerId) {
-    taskPayload.properties.hubspot_owner_id = ownerId;
-  }
-
-  // Añadir fecha de vencimiento si se proporcionó
-  if (dueDate) {
-    taskPayload.properties.hs_timestamp = new Date(dueDate).toISOString();
-  } else {
-    // Si no se proporciona, usar +3 días
-    taskPayload.properties.hs_timestamp = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
-  }
-
-  // 4. Llamar a la API de HubSpot para crear la tarea
-  const hsResponse = await fetch('https://api.hubapi.com/crm/objects/2026-03/tasks', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.HUBSPOT_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(taskPayload)
-  });
+  const hsResponse = await fetch(
+    `https://api.hubapi.com/crm/v3/objects/companies/${companyId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${process.env.HUBSPOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(patchPayload)
+    }
+  );
 
   if (!hsResponse.ok) {
     const errorText = await hsResponse.text();
     throw new Error(`HubSpot API error: ${hsResponse.status} - ${errorText}`);
   }
-  const hsData = await hsResponse.json();
-  const taskId = hsData.id;
 
-  // 5. Guardar taskId en la BD y cambiar estado a 'completed'
+  // 4. Guardar en BD
   await pool.query(
-    `UPDATE commercial_opportunity SET hubspot_task_id = $1, status = 'completed' WHERE id = $2`,
-    [taskId, opportunityId]
+    `UPDATE commercial_opportunity 
+     SET upsell_object = $1, upsell_owner_id = $2, upsell_owner_name = $3, updated_at = NOW()
+     WHERE id = $4`,
+    [upsellObject || null, upsellOwnerId || null, upsellOwnerName || null, opportunityId]
   );
 
-  // 6. Devolver la URL de la lista de tareas con el taskId como parámetro
-  const taskUrl = `https://app-eu1.hubspot.com/contacts/${portalId}/objects/0-27/views/all/list?taskId=${taskId}`;
-  
-  return { taskId, taskUrl };
+  return {
+    upsellObject,
+    upsellOwnerId,
+    upsellOwnerName,
+  };
 }
 
 
@@ -358,5 +333,5 @@ module.exports = {
   updateFeatureRequestStatus,
   updateOpportunityStatus,
   getAllOpportunities,
-  createTaskForOpportunity
+  assignUpsellOpportunity
 };

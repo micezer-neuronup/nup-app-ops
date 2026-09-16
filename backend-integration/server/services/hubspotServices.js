@@ -448,11 +448,41 @@ async function refreshAllActiveCaches() {
   log('INFO', 'CACHE', `Cache refresh completed. Success: ${success}/${centers.length}`);
 }
 
+async function getAllOwners() {
+  try {
+    const response = await fetch('https://api.hubapi.com/crm/v3/owners?limit=500', {
+      headers: {
+        'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HubSpot Owners API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    
+    // Devolver solo los campos que necesitamos
+    return (data.results || []).map(owner => ({
+      id: owner.id,
+      firstName: owner.firstName || '',
+      lastName: owner.lastName || '',
+      email: owner.email || '',
+    }));
+  } catch (error) {
+    log('ERROR', 'HUBSPOT', `Error fetching owners: ${error.message}`);
+    throw error;
+  }
+}
+
 module.exports = { 
   syncSingleSubscriptionToHubspot,
   resolveCompanyData, 
   getCompanyDataByNupCenterId,
   getCompanyDataWithCache,
   refreshCompanyCache,
-  refreshAllActiveCaches
+  refreshAllActiveCaches,
+  getAllOwners
 };
