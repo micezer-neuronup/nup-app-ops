@@ -20,7 +20,7 @@ interface Market {
   automation_enabled: boolean;
 }
 
-const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL;
+const SERVER_URL = process.env.NEXT_PUBLIC_STOCK_CONTROL_URL || 'http://localhost:5000'
 
 const STATE_FULL_MAP: Record<string, string> = {
   "New": "New",
@@ -169,7 +169,7 @@ export default function StockControlDashboard() {
     async function fetchAutomationState() {
       try {
         const response = await fetch(`${SERVER_URL}/api/global-automation`, {
-          headers: { 'ngrok-skip-browser-warning': 'true' },
+          headers: {},
         });
         const data = await response.json();
         setGlobalAutomation(data.automation_enabled);
