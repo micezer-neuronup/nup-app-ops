@@ -202,12 +202,13 @@ export default function StockControlDashboard() {
   }, []);
 
   const [markets, setMarkets] = useState<Market[]>([
-    { id: 1, name: 'España', flag: '🇪🇸', automation_enabled: true },
-    { id: 2, name: 'Brasil - Portugal', flag: '🇧🇷', automation_enabled: true },
-    { id: 3, name: 'Francia', flag: '🇫🇷', automation_enabled: false },
-    { id: 4, name: 'LATAM', flag: '🌎', automation_enabled: true },
-    { id: 5, name: 'Italia', flag: '🇮🇹', automation_enabled: true },
-  ]);
+  { id: 1, name: 'España', flag: '🇪🇸', automation_enabled: true },
+  { id: 2, name: 'Brasil - Portugal', flag: '🇧🇷', automation_enabled: true },
+  { id: 3, name: 'Francia', flag: '🇫🇷', automation_enabled: false },
+  { id: 4, name: 'LATAM', flag: '🌎', automation_enabled: true },
+  { id: 5, name: 'Italia', flag: '🇮🇹', automation_enabled: true },
+  { id: 6, name: 'USA', flag: '🇺🇸', automation_enabled: false },
+]);
 
   const fetchStats = async () => {
     try {

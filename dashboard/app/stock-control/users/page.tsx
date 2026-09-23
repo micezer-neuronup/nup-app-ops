@@ -377,15 +377,19 @@ export default function UsersPage() {
          {/* Mercados con datos reales - mismo tamaño que otros contenedores */}
   <div className="flex items-center gap-3 shrink-0 rounded-lg border border-foreground/10 bg-card px-3 py-1.5">
     {headerStats?.marketStackedData?.map((m: any) => (
-      <div key={m.name} className="flex flex-col items-center gap-0.5">
-        <img 
-          src={`https://flagcdn.com/w40/${m.flagCode || 'es'}.png`} 
-          alt={m.name} 
-          className="w-5 h-3.5 object-cover rounded-sm" 
-        />
-        <span className="text-[11px] font-bold text-foreground leading-none">{m.pct}%</span>
-      </div>
-    ))}
+  <div key={m.name} className="flex flex-col items-center gap-0.5">
+    {m.flagCode ? (
+      <img 
+        src={`https://flagcdn.com/w40/${m.flagCode}.png`} 
+        alt={m.name} 
+        className="w-5 h-3.5 object-cover rounded-sm" 
+      />
+    ) : (
+      <div className="w-5 h-3.5 rounded-sm bg-muted border border-border flex items-center justify-center text-[8px] font-bold text-muted-foreground">?</div>
+    )}
+    <span className="text-[11px] font-bold text-foreground leading-none">{m.pct}%</span>
+  </div>
+))}
   </div>
 
 
@@ -958,37 +962,50 @@ export default function UsersPage() {
           <div className="space-y-2">
             <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mb-2">Por Mercado</p>
 
-            {(editingUser.market_ids || []).map((mid: number) => {
-              const marketName = MARKET_LIST[mid - 1] || `Mercado ${mid}`;
-              const flagCode = MARKET_FLAG_CODES[marketName];
-              const mb = (editingUser.market_breakdown || {})[mid] || { total: 0, inbound: 0, outbound: 0, mm: 0, ent: 0 };
-              return (
-                <div key={mid} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
-                  {flagCode ? (
-                    <img src={`https://flagcdn.com/w40/${flagCode}.png`} alt={marketName} title={marketName} className="w-6 h-4 object-cover rounded-sm shrink-0" />
-                  ) : (
-                    <span className="w-6 text-center shrink-0">❓</span>
-                  )}
-                  <span className="text-sm font-bold text-foreground w-8">{mb.total}</span>
-                  <div className="flex-1 grid grid-cols-4 gap-1 text-center">
-                    <div>
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase">IN</p>
-                      <p className="text-xs font-bold text-blue-500">{mb.inbound}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase">OUT</p>
-                      <p className="text-xs font-bold text-cyan-500">{mb.outbound}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase">MM</p>
-                      <p className="text-xs font-bold text-indigo-500">{mb.mm}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] text-muted-foreground font-bold uppercase">ENT</p>
-                      <p className="text-xs font-bold text-emerald-500">{mb.ent}</p>
-                    </div>
-                  </div>
-                </div>
+           {Object.keys(editingUser.market_breakdown || {})
+  .map(k => parseInt(k))
+  .sort((a, b) => a - b)
+  .map((mid) => {
+                const marketName = MARKET_LIST[mid - 1] || `Mercado ${mid}`;
+    const flagCode = MARKET_FLAG_CODES[marketName];
+    const mb = (editingUser.market_breakdown || {})[mid] || { total: 0, inbound: 0, outbound: 0, mm: 0, ent: 0 };
+        const isAssigned = (editingUser.market_ids || []).includes(mid);
+
+             return (
+      <div key={mid} className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
+        isAssigned ? 'border-border bg-card' : 'border-amber-500/40 bg-amber-500/5'
+      }`}>
+        {flagCode ? (
+          <img src={`https://flagcdn.com/w40/${flagCode}.png`} alt={marketName} title={marketName} className="w-6 h-4 object-cover rounded-sm shrink-0" />
+        ) : (
+          <span className="w-6 text-center shrink-0">❓</span>
+        )}
+        <span className="text-sm font-bold text-foreground w-8">{mb.total}</span>
+        <div className="flex-1 grid grid-cols-4 gap-1 text-center">
+          <div>
+            <p className="text-[9px] text-muted-foreground font-bold uppercase">IN</p>
+            <p className="text-xs font-bold text-blue-500">{mb.inbound}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-muted-foreground font-bold uppercase">OUT</p>
+            <p className="text-xs font-bold text-cyan-500">{mb.outbound}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-muted-foreground font-bold uppercase">MM</p>
+            <p className="text-xs font-bold text-indigo-500">{mb.mm}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-muted-foreground font-bold uppercase">ENT</p>
+            <p className="text-xs font-bold text-emerald-500">{mb.ent}</p>
+          </div>
+        </div>
+         {!isAssigned && (
+          <div className="shrink-0" title="Mercado no asignado a este usuario">
+            <span className="text-amber-500 text-base">⚠️</span>
+          </div>
+        )}
+              </div>
+
               );
             })}
 
