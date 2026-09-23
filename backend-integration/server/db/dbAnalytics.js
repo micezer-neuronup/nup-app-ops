@@ -269,15 +269,16 @@ async function getAllOpportunities(filters = {}) {
 
 
 async function assignUpsellOpportunity(opportunityId, { upsellObject, upsellOwnerId, upsellOwnerName }) {
-  // 1. Obtener center_id
+  // 1. Obtener center_id y ai_justification de la oportunidad
   const result = await pool.query(
-    `SELECT center_id FROM commercial_opportunity WHERE id = $1`,
+    `SELECT center_id, ai_justification FROM commercial_opportunity WHERE id = $1`,
     [opportunityId]
   );
   if (result.rows.length === 0) {
     throw new Error('Opportunity not found');
   }
   const centerId = result.rows[0].center_id;
+  const aiJustification = result.rows[0].ai_justification || '';
 
   // 2. Obtener companyId de HubSpot
   const companyData = await getCompanyDataByNupCenterId(centerId);
@@ -286,11 +287,12 @@ async function assignUpsellOpportunity(opportunityId, { upsellObject, upsellOwne
   }
   const companyId = companyData.id;
 
-  // 3. PATCH a la compañía en HubSpot con las dos propiedades
+  // 3. PATCH a la compañía en HubSpot con las tres propiedades
   const patchPayload = {
     properties: {
       upsell_opportunity_object: upsellObject || '',
       upsell_opportunity_owner: upsellOwnerId || '',
+      upsell_ai_justification: aiJustification,
     }
   };
 
