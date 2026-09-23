@@ -99,7 +99,7 @@ def run_quincenal_detection():
                     COUNT(DISTINCT stat_date) AS active_days,
                     ROUND(AVG(tests_finished)::NUMERIC, 2) AS avg_daily
                 FROM daily_stats
-                WHERE stat_date >= '2026-08-01'::date - INTERVAL '%s days'
+                WHERE stat_date >= %s::date - (%s || ' days')::interval
                 GROUP BY center_id
                 HAVING SUM(tests_finished) > 0
             )
@@ -129,11 +129,11 @@ def run_quincenal_detection():
             FROM (
                 SELECT SUM(tests_finished) AS total_tests
                 FROM daily_stats
-                WHERE stat_date >= CURRENT_DATE - INTERVAL '%s days'
+                WHERE stat_date >= %s::date - (%s || ' days')::interval
                 GROUP BY center_id
                 HAVING SUM(tests_finished) > 0
             ) t
-        """, (WINDOW_DAYS,))
+        """, (BACKFILL_DATE, WINDOW_DAYS,))
         p85, avg_usage = cursor.fetchone()
         log(f"Percentil 85: {p85}, Media global: {avg_usage}")
 
@@ -179,7 +179,7 @@ def run_quincenal_detection():
                     (center_id, product, status, created_at, total_tests_60d, active_days_60d, avg_daily_60d, score, ai_justification, trigger_details)
                 VALUES (%s, 'assessments', 'pending', %s, %s, %s, %s, %s, %s, %s::jsonb)
                 RETURNING id
-            """, (str(center_id),CURRENT_DATE, total_tests, active_days, avg_daily, score, justification, trigger_details))
+            """, (str(center_id),BACKFILL_DATE, total_tests, active_days, avg_daily, score, justification, trigger_details))
 
             opp_id = cursor.fetchone()[0]
             log(f"✅ Nueva oportunidad creada ID {opp_id} para centro {center_id} (percentil: {percentile:.1f}%, score base: {score})")
