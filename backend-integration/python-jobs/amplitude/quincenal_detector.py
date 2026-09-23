@@ -22,7 +22,7 @@ OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-BACKFILL_DATE = '2026-08-01'  # Fecha de la primera detección
+# BACKFILL_DATE = '2026-08-01'  # Fecha de la primera detección
 
 UMBRAL = 45
 WINDOW_DAYS = 60
@@ -99,7 +99,7 @@ def run_quincenal_detection():
                     COUNT(DISTINCT stat_date) AS active_days,
                     ROUND(AVG(tests_finished)::NUMERIC, 2) AS avg_daily
                 FROM daily_stats
-                WHERE stat_date >= %s::date - (%s || ' days')::interval
+                WHERE stat_date >= CURRENT_DATE - INTERVAL '%s days'
                 GROUP BY center_id
                 HAVING SUM(tests_finished) > 0
             )
@@ -111,7 +111,7 @@ def run_quincenal_detection():
                 PERCENT_RANK() OVER (ORDER BY total_tests) * 100 AS percentile
             FROM usage
         """
-        cursor.execute(query, (BACKFILL_DATE,WINDOW_DAYS,))
+        cursor.execute(query, (WINDOW_DAYS,))
         centers_data = cursor.fetchall()
         log(f"Centros con actividad en últimos {WINDOW_DAYS} días: {len(centers_data)}")
 
@@ -129,11 +129,11 @@ def run_quincenal_detection():
             FROM (
                 SELECT SUM(tests_finished) AS total_tests
                 FROM daily_stats
-                WHERE stat_date >= %s::date - (%s || ' days')::interval
+                WHERE stat_date >= CURRENT_DATE - INTERVAL '%s days'
                 GROUP BY center_id
                 HAVING SUM(tests_finished) > 0
             ) t
-        """, (BACKFILL_DATE, WINDOW_DAYS,))
+        """, (WINDOW_DAYS,))
         p85, avg_usage = cursor.fetchone()
         log(f"Percentil 85: {p85}, Media global: {avg_usage}")
 
@@ -177,9 +177,9 @@ def run_quincenal_detection():
             cursor.execute("""
                 INSERT INTO commercial_opportunity
                     (center_id, product, status, created_at, total_tests_60d, active_days_60d, avg_daily_60d, score, ai_justification, trigger_details)
-                VALUES (%s, 'assessments', 'pending', %s, %s, %s, %s, %s, %s, %s::jsonb)
+                VALUES (%s, 'assessments', 'pending', NOW(), %s, %s, %s, %s, %s, %s::jsonb)
                 RETURNING id
-            """, (str(center_id),BACKFILL_DATE, total_tests, active_days, avg_daily, score, justification, trigger_details))
+            """, (str(center_id), total_tests, active_days, avg_daily, score, justification, trigger_details))
 
             opp_id = cursor.fetchone()[0]
             log(f"✅ Nueva oportunidad creada ID {opp_id} para centro {center_id} (percentil: {percentile:.1f}%, score base: {score})")
