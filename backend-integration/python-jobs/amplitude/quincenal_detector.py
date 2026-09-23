@@ -111,7 +111,7 @@ def run_quincenal_detection():
                 PERCENT_RANK() OVER (ORDER BY total_tests) * 100 AS percentile
             FROM usage
         """
-        cursor.execute(query, (WINDOW_DAYS,))
+        cursor.execute(query, (BACKFILL_DATE,WINDOW_DAYS,))
         centers_data = cursor.fetchall()
         log(f"Centros con actividad en últimos {WINDOW_DAYS} días: {len(centers_data)}")
 
