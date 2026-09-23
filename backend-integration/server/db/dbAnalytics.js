@@ -292,7 +292,7 @@ async function assignUpsellOpportunity(opportunityId, { upsellObject, upsellOwne
     properties: {
       upsell_opportunity_object: upsellObject || '',
       upsell_opportunity_owner: upsellOwnerId || '',
-      upsell_ai_justification: aiJustification,
+      upsell_ai_justification: aiJustification
     }
   };
 

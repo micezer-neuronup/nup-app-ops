@@ -50,9 +50,10 @@ const MARKET_FLAG_CODES: Record<string, string> = {
   'Francia': 'fr',
   'LATAM': 'mx',
   'Italia': 'it',
+  'USA': 'us',
 };
 
-const MARKET_LIST = ['España', 'Brasil - Portugal', 'Francia', 'LATAM', 'Italia'];
+const MARKET_LIST = ['España', 'Brasil - Portugal', 'Francia', 'LATAM', 'Italia', 'USA'];
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {

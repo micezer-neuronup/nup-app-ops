@@ -36,6 +36,8 @@ const MARKET_FLAG_CODES: Record<number, string> = {
   3: "fr",
   4: "mx",
   5: "it",
+  6: "us"
+  
 };
 
 // Paleta neutra y profesional
