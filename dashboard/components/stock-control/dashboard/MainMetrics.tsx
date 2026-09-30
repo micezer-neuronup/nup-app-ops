@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { RotateButton } from '../shared/RotateButton';
 import type { DashboardStats } from '@/lib/stock-control/types';
 
@@ -26,7 +27,7 @@ function fmtPct(n: number | undefined): string {
 }
 
 function buildPages(stats?: DashboardStats) {
-  // ... unchanged ...
+  // ...unchanged, keep your existing implementation...
   const s = stats;
   const totalVivos = s?.totalLeadsVivos ?? 0;
   const enPool = s?.leadsEnPool ?? 0;
@@ -91,9 +92,26 @@ function buildPages(stats?: DashboardStats) {
   ];
 }
 
+type Direction = 'next' | 'prev';
+
+const variants = {
+  enter: (dir: Direction) => ({
+    x: dir === 'next' ? 40 : -40,
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+  },
+  exit: (dir: Direction) => ({
+    x: dir === 'next' ? -40 : 40,
+    opacity: 0,
+  }),
+};
+
 export function MainMetrics({ stats, autoRotate, onToggleAutoRotate }: Props) {
   const [page, setPage] = useState(0);
-  const [direction, setDirection] = useState<'next' | 'prev'>('next');
+  const [direction, setDirection] = useState<Direction>('next');
   const pages = buildPages(stats);
   const current = pages[page];
   const prevPageRef = useRef(page);
@@ -107,7 +125,6 @@ export function MainMetrics({ stats, autoRotate, onToggleAutoRotate }: Props) {
     return () => clearInterval(id);
   }, [autoRotate, pages.length]);
 
-  // Keep the visual direction in sync when page changes via auto-rotate
   useEffect(() => {
     if (page !== prevPageRef.current) {
       const delta = (page - prevPageRef.current + pages.length) % pages.length;
@@ -127,7 +144,7 @@ export function MainMetrics({ stats, autoRotate, onToggleAutoRotate }: Props) {
   };
 
   return (
-    <div className="p-5 rounded-xl border border-border bg-card shadow-sm h-full flex flex-col relative overflow-hidden">
+    <div className="p-5 rounded-xl border border-border bg-card shadow-sm h-full flex flex-col relative">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold tracking-tight text-foreground">
           Métricas Principales
@@ -157,51 +174,59 @@ export function MainMetrics({ stats, autoRotate, onToggleAutoRotate }: Props) {
 
       {/* Animated page container */}
       <div className="flex-1 relative overflow-hidden">
-        <div
-          key={page}
-          className={`h-full ${direction === 'next' ? 'animate-page-next' : 'animate-page-prev'}`}
-        >
-          <div
-            className="h-full grid divide-x divide-border"
-            style={{ gridTemplateColumns: `repeat(${current.cols}, minmax(0, 1fr))` }}
+        <AnimatePresence mode="wait" custom={direction} initial={false}>
+          <motion.div
+            key={page}
+            custom={direction}
+            variants={variants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="h-full"
           >
-            {current.groups.map((group, i) => (
-              <div
-                key={group.title}
-                className={`flex flex-col min-w-0 ${
-                  i === 0 ? 'pr-4' : i === current.groups.length - 1 ? 'pl-4' : 'px-4'
-                }`}
-              >
-                <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/80 border-b border-border pb-1.5 mb-3">
-                  {group.title}
-                </p>
-                <div className="flex-1 flex flex-col justify-around gap-2">
-                  {group.items.map((m: any) => (
-                    <div key={m.label} className="min-w-0">
-                      <p className="text-[13px] text-muted-foreground font-semibold leading-tight mb-0.5">
-                        {m.label}
-                      </p>
-                      <div className="flex items-baseline gap-1.5">
-                        <p
-                          className={`text-2xl font-bold leading-none tabular-nums ${
-                            m.color ? COLOR_MAP[m.color] : 'text-foreground'
-                          }`}
-                        >
-                          {m.value}
+            <div
+              className="h-full grid divide-x divide-border"
+              style={{ gridTemplateColumns: `repeat(${current.cols}, minmax(0, 1fr))` }}
+            >
+              {current.groups.map((group, i) => (
+                <div
+                  key={group.title}
+                  className={`flex flex-col min-w-0 ${
+                    i === 0 ? 'pr-4' : i === current.groups.length - 1 ? 'pl-4' : 'px-4'
+                  }`}
+                >
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/80 border-b border-border pb-1.5 mb-3">
+                    {group.title}
+                  </p>
+                  <div className="flex-1 flex flex-col justify-around gap-2">
+                    {group.items.map((m: any) => (
+                      <div key={m.label} className="min-w-0">
+                        <p className="text-[13px] text-muted-foreground font-semibold leading-tight mb-0.5">
+                          {m.label}
                         </p>
-                        {m.sub && (
-                          <span className="text-xs font-semibold text-muted-foreground">
-                            {m.sub}
-                          </span>
-                        )}
+                        <div className="flex items-baseline gap-1.5">
+                          <p
+                            className={`text-2xl font-bold leading-none tabular-nums ${
+                              m.color ? COLOR_MAP[m.color] : 'text-foreground'
+                            }`}
+                          >
+                            {m.value}
+                          </p>
+                          {m.sub && (
+                            <span className="text-xs font-semibold text-muted-foreground">
+                              {m.sub}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       <div className="flex justify-center gap-1.5 mt-3">
