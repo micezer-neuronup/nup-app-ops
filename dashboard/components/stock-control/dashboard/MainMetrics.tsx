@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RotateButton } from '../shared/RotateButton';
 import type { DashboardStats } from '@/lib/stock-control/types';
 
@@ -26,6 +26,7 @@ function fmtPct(n: number | undefined): string {
 }
 
 function buildPages(stats?: DashboardStats) {
+  // ... unchanged ...
   const s = stats;
   const totalVivos = s?.totalLeadsVivos ?? 0;
   const enPool = s?.leadsEnPool ?? 0;
@@ -47,8 +48,8 @@ function buildPages(stats?: DashboardStats) {
         {
           title: 'Pipeline',
           items: [
-            { label: 'Mid-Market',   value: fmt(s?.pipelineMM),  sub: fmtPct(s?.pipelineMMPct) },
-            { label: 'Enterprise',   value: fmt(s?.pipelineENT), sub: fmtPct(s?.pipelineENTPct) },
+            { label: 'Mid-Market',   value: fmt(s?.pipelineMM),   sub: fmtPct(s?.pipelineMMPct) },
+            { label: 'Enterprise',   value: fmt(s?.pipelineENT),  sub: fmtPct(s?.pipelineENTPct) },
             { label: 'Lead',         value: fmt(s?.pipelineLead), sub: fmtPct(s?.pipelineLeadPct) },
             { label: 'Ratio MM/ENT', value: (s?.ratioMMENT ?? 0).toLocaleString('es-ES', { maximumFractionDigits: 1 }) },
           ],
@@ -92,22 +93,41 @@ function buildPages(stats?: DashboardStats) {
 
 export function MainMetrics({ stats, autoRotate, onToggleAutoRotate }: Props) {
   const [page, setPage] = useState(0);
+  const [direction, setDirection] = useState<'next' | 'prev'>('next');
   const pages = buildPages(stats);
   const current = pages[page];
+  const prevPageRef = useRef(page);
 
   useEffect(() => {
     if (!autoRotate) return;
     const id = setInterval(() => {
+      setDirection('next');
       setPage((p) => (p === pages.length - 1 ? 0 : p + 1));
     }, 10000);
     return () => clearInterval(id);
   }, [autoRotate, pages.length]);
 
-  const goPrev = () => setPage((p) => (p === 0 ? pages.length - 1 : p - 1));
-  const goNext = () => setPage((p) => (p === pages.length - 1 ? 0 : p + 1));
+  // Keep the visual direction in sync when page changes via auto-rotate
+  useEffect(() => {
+    if (page !== prevPageRef.current) {
+      const delta = (page - prevPageRef.current + pages.length) % pages.length;
+      setDirection(delta === 1 ? 'next' : 'prev');
+      prevPageRef.current = page;
+    }
+  }, [page, pages.length]);
+
+  const goPrev = () => {
+    setDirection('prev');
+    setPage((p) => (p === 0 ? pages.length - 1 : p - 1));
+  };
+
+  const goNext = () => {
+    setDirection('next');
+    setPage((p) => (p === pages.length - 1 ? 0 : p + 1));
+  };
 
   return (
-    <div className="p-5 rounded-xl border border-border bg-card shadow-sm h-full flex flex-col relative">
+    <div className="p-5 rounded-xl border border-border bg-card shadow-sm h-full flex flex-col relative overflow-hidden">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold tracking-tight text-foreground">
           Métricas Principales
@@ -135,52 +155,63 @@ export function MainMetrics({ stats, autoRotate, onToggleAutoRotate }: Props) {
         </svg>
       </button>
 
-      <div
-        className="flex-1 grid divide-x divide-border"
-        style={{ gridTemplateColumns: `repeat(${current.cols}, minmax(0, 1fr))` }}
-      >
-        {current.groups.map((group, i) => (
+      {/* Animated page container */}
+      <div className="flex-1 relative overflow-hidden">
+        <div
+          key={page}
+          className={`h-full ${direction === 'next' ? 'animate-page-next' : 'animate-page-prev'}`}
+        >
           <div
-            key={group.title}
-            className={`flex flex-col min-w-0 ${
-              i === 0 ? 'pr-4' : i === current.groups.length - 1 ? 'pl-4' : 'px-4'
-            }`}
+            className="h-full grid divide-x divide-border"
+            style={{ gridTemplateColumns: `repeat(${current.cols}, minmax(0, 1fr))` }}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/80 border-b border-border pb-1.5 mb-3">
-              {group.title}
-            </p>
-            <div className="flex-1 flex flex-col justify-around gap-2">
-              {group.items.map((m: any) => (
-                <div key={m.label} className="min-w-0">
-                  <p className="text-[13px] text-muted-foreground font-semibold leading-tight mb-0.5">
-                    {m.label}
-                  </p>
-                  <div className="flex items-baseline gap-1.5">
-                    <p
-                      className={`text-2xl font-bold leading-none tabular-nums ${
-                        m.color ? COLOR_MAP[m.color] : 'text-foreground'
-                      }`}
-                    >
-                      {m.value}
-                    </p>
-                    {m.sub && (
-                      <span className="text-xs font-semibold text-muted-foreground">
-                        {m.sub}
-                      </span>
-                    )}
-                  </div>
+            {current.groups.map((group, i) => (
+              <div
+                key={group.title}
+                className={`flex flex-col min-w-0 ${
+                  i === 0 ? 'pr-4' : i === current.groups.length - 1 ? 'pl-4' : 'px-4'
+                }`}
+              >
+                <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/80 border-b border-border pb-1.5 mb-3">
+                  {group.title}
+                </p>
+                <div className="flex-1 flex flex-col justify-around gap-2">
+                  {group.items.map((m: any) => (
+                    <div key={m.label} className="min-w-0">
+                      <p className="text-[13px] text-muted-foreground font-semibold leading-tight mb-0.5">
+                        {m.label}
+                      </p>
+                      <div className="flex items-baseline gap-1.5">
+                        <p
+                          className={`text-2xl font-bold leading-none tabular-nums ${
+                            m.color ? COLOR_MAP[m.color] : 'text-foreground'
+                          }`}
+                        >
+                          {m.value}
+                        </p>
+                        {m.sub && (
+                          <span className="text-xs font-semibold text-muted-foreground">
+                            {m.sub}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
 
       <div className="flex justify-center gap-1.5 mt-3">
         {pages.map((_, i) => (
           <button
             key={i}
-            onClick={() => setPage(i)}
+            onClick={() => {
+              setDirection(i > page ? 'next' : 'prev');
+              setPage(i);
+            }}
             className={`w-1.5 h-1.5 rounded-full transition-colors ${
               i === page ? 'bg-foreground' : 'bg-muted-foreground/30'
             }`}

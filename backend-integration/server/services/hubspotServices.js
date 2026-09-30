@@ -103,7 +103,6 @@ const sourceMap = {
   backend: "Backend",
   manual: "Backend",   // alias por si llega desde Ops/otro flujo
 };
-const mapped = sourceMap[String(sub.source || sub.creation_source).toLowerCase()];
 
 const statusMap = { "active": "active", "trialing": "trial", "trial": "trial", "canceled": "canceled", "cancelled": "canceled", "trial_canceled": "trial_canceled", "past_due": "past_due" };
 
@@ -145,6 +144,9 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     const { rows: subRows } = await pool.query(`SELECT * FROM subscriptions WHERE subscription_id = $1`, [subscriptionId]);
     if (subRows.length === 0) return false;
     const sub = subRows[0];
+
+    const mapped = sourceMap[String(sub.source || sub.creation_source || '').toLowerCase()];
+
 
     // 🔥 FILTRO: Solo sincronizar con HubSpot si el estado es válido
     const validStates = ['active', 'trial', 'trialing', 'past_due'];
