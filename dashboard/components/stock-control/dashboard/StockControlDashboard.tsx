@@ -8,7 +8,7 @@ import { AssignedByMarket } from './AssignedByMarket';
 import { StatesChart } from './StatesChart';
 import { SdrWorkload } from './SdrWorkload';
 import { ManageUsersCard } from './ManageUsersCard';
-import { useAutoRotate, nextView } from '@/lib/hooks/useAutoRotate';
+import { useAutoRotate } from '@/lib/hooks/useAutoRotate';
 import {
   fetchDashboardStats,
   fetchGlobalAutomation,

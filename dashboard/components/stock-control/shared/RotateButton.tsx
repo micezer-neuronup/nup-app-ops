@@ -1,10 +1,6 @@
 'use client';
 
-import type { ViewMode } from '@/lib/stock-control/types';
-
 interface Props {
-  view: ViewMode;
-  setView: (v: ViewMode) => void;
   autoRotate: boolean;
   onToggle: () => void;
 }
