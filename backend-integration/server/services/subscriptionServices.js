@@ -191,8 +191,11 @@ async function processSubscriptionUpsert(event) {
   }
 
   const revokedAccessDate = cancelationDate;
-  const isForever = (subscription.cancel_at_period_end === false && subscription.cancel_at === null);
-
+  const isForever =
+  subscription.status !== 'canceled' &&
+  !subscription.ended_at &&
+  subscription.cancel_at_period_end === false &&
+  subscription.cancel_at === null;
   // ─── 7. ESTADO ──────────────────────────────────────────────────────────
   let parentState = subscription.status;
   const trialEnd = subscription.trial_end;

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { GeneralDashboard } from "@/components/Dashboards/GeneralDashboard ";
+import { GeneralDashboard } from "@/components/general-dashboard/GeneralDashboard";
 
 // ────── Client Component ─────────────────────────────────────────────────────────────────────────────────
 // ─── Directive use client is necessary as we use Next.js AppRouter (app folder).

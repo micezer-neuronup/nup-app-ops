@@ -1,5 +1,5 @@
 import { Separator } from "@/components/ui/separator";
-import { ModeSwitcher } from "./mode-switcher";
+import { ModeSwitcher } from "@/components/layout/mode-switcher";
 
 export function SiteHeader() {
   return (

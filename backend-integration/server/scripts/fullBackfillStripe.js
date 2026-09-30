@@ -296,8 +296,11 @@ async function main() {
           : (stripeSub.status === 'canceled' && stripeSub.ended_at ? new Date(stripeSub.ended_at * 1000) : null);
         const trialEnd = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null;
 
-        const isForever = stripeSub.cancel_at_period_end === false && stripeSub.cancel_at === null;
-        const pendingPayment = stripeSub.status === 'past_due' || stripeSub.status === 'unpaid';
+const isForever =
+  subscription.status !== 'canceled' &&
+  !subscription.ended_at &&
+  subscription.cancel_at_period_end === false &&
+  subscription.cancel_at === null;        const pendingPayment = stripeSub.status === 'past_due' || stripeSub.status === 'unpaid';
 
         // Customer
         let centerName = null;

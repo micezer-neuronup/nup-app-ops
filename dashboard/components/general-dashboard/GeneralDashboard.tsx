@@ -22,7 +22,7 @@ import { SubscriptionCard } from "./SubscriptionCard";
 import { FeatureRequestsCard } from "./FeatureRequestsCard";
 import { UsageDataCard } from "./UsageDataCard";
 import { SubscriptionModal } from "./SubscriptionModal";
-import { UsageChart } from "./ UsageChart";
+import { UsageChart } from "./UsageChart";
 import { CenterInfoCard } from "./CenterInfoCard";
 
 

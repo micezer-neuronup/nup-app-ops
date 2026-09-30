@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,92 +9,15 @@ import {
   Calendar,
   Users,
   AlertCircle,
-  TrendingUp,
   CheckCircle,
   X,
   Sparkles,
   Brain,
   Clock,
-  ArrowUp,
 } from "lucide-react";
-import { Opportunity } from "./CSDashboard";
-
-// ---------- TYPEWRITER ----------
-function TypewriterText({
-  text,
-  speed = 15,
-  isCompleted = false,
-  isActive = true,
-}: {
-  text: string;
-  speed?: number;
-  isCompleted?: boolean;
-  isActive?: boolean;
-}) {
-  const [currentIndex, setCurrentIndex] = useState(isCompleted ? text.length : 0);
-  const hasTyped = useRef(isCompleted);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    if (!isActive) {
-      if (!isCompleted) {
-        setCurrentIndex(text.length);
-        hasTyped.current = true;
-      }
-      return;
-    }
-
-    if (isCompleted) {
-      setCurrentIndex(text.length);
-      hasTyped.current = true;
-      return;
-    }
-
-    setCurrentIndex(0);
-    hasTyped.current = false;
-    let current = 0;
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      if (current < text.length) {
-        current++;
-        setCurrentIndex(current);
-      } else {
-        hasTyped.current = true;
-        if (timerRef.current) clearInterval(timerRef.current);
-      }
-    }, speed);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isActive, isCompleted, text, speed]);
-
-  const isFinished = currentIndex === text.length;
-
-  return (
-    <span className="relative">
-      {text.slice(0, currentIndex)}
-      {!isCompleted && !isFinished && isActive && (
-        <span className="absolute -right-1 top-0 inline-block w-[2px] h-[1.1em] bg-foreground/70 animate-pulse" />
-      )}
-    </span>
-  );
-}
-
-// ---------- ICONO HUBSPOT ----------
-const HubSpotIcon = ({ className }: { className?: string }) => (
-  <svg
-    className={className}
-    viewBox="6.20856283 .64498824 244.26943717 251.24701176"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    <path
-      d="m191.385 85.694v-29.506a22.722 22.722 0 0 0 13.101-20.48v-.677c0-12.549-10.173-22.722-22.721-22.722h-.678c-12.549 0-22.722 10.173-22.722 22.722v.677a22.722 22.722 0 0 0 13.101 20.48v29.506a64.342 64.342 0 0 0 -30.594 13.47l-80.922-63.03c.577-2.083.878-4.225.912-6.375a25.6 25.6 0 1 0 -25.633 25.55 25.323 25.323 0 0 0 12.607-3.43l79.685 62.007c-14.65 22.131-14.258 50.974.987 72.7l-24.236 24.243c-1.96-.626-4-.959-6.057-.987-11.607.01-21.01 9.423-21.007 21.03.003 11.606 9.412 21.014 21.018 21.017 11.607.003 21.02-9.4 21.03-21.007a20.747 20.747 0 0 0 -.988-6.056l23.976-23.985c21.423 16.492 50.846 17.913 73.759 3.562 22.912-14.352 34.475-41.446 28.985-67.918-5.49-26.473-26.873-46.734-53.603-50.792m-9.938 97.044a33.17 33.17 0 1 1 0-66.316c17.85.625 32 15.272 32.01 33.134.008 17.86-14.127 32.522-31.977 33.165"
-      fill="#ff7a59"
-    />
-  </svg>
-);
+import { TypewriterText } from "./shared/TypewriterText";
+import { HubSpotIcon } from "./shared/HubSpotIcon";
+import type { Opportunity } from "./types";
 
 // ---------- HELPERS ----------
 const formatDateShort = (dateStr: string) => {
@@ -199,7 +122,6 @@ export function ModalOpp({
               {opp.product}
             </Badge>
             <span className="text-sm text-muted-foreground">ID: {opp.center_id}</span>
-            {/* ✅ Badge del objeto + owner juntos */}
             {opp.upsell_object && (
               <Badge className="text-[10px] font-medium border-blue-500/30 bg-blue-500/10 text-blue-500">
                 {opp.upsell_object}

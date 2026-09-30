@@ -98,7 +98,13 @@ async function resolveCompanyData(objectId, objectTypeId) {
 
 
 const intervalMap = { "day": "daily", "daily": "daily", "week": "weekly", "weekly": "weekly", "month": "monthly", "monthly": "monthly", "year": "yearly", "yearly": "yearly" };
-const sourceMap = { "stripe": "Stripe", "manual": "Backend" };
+const sourceMap = {
+  stripe: "Stripe",
+  backend: "Backend",
+  manual: "Backend",   // alias por si llega desde Ops/otro flujo
+};
+const mapped = sourceMap[String(sub.source || sub.creation_source).toLowerCase()];
+
 const statusMap = { "active": "active", "trialing": "trial", "trial": "trial", "canceled": "canceled", "cancelled": "canceled", "trial_canceled": "trial_canceled", "past_due": "past_due" };
 
 const formatHsDate = (dateVal) => {
@@ -172,7 +178,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
         status: statusMap[String(sub.current_state).toLowerCase()] || "active",
         isforever: sub.is_forever ? "true" : "false",
         payment_method_type: sub.payment_method_type || "",
-        source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
+        ...(mapped ? { source: mapped } : {}),
         start_date: formatHsDate(sub.start_date),
         precancelled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
         subscription_finish_date: formatHsDate(sub.cancelation_date)

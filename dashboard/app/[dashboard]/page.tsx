@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { SiteHeader } from "../../components/site-header";
+import { SiteHeader } from "@/components/layout/site-header";
 import DashboardFetcher from "./DashboardFetcher";
-import { GeneralDashboard } from "@/components/Dashboards/GeneralDashboard ";
+import { GeneralDashboard } from "@/components/general-dashboard/GeneralDashboard";
 
 export async function generateStaticParams() {
   console.log("[BUILD/SSG] Generando parámetros estáticos para las rutas de dashboard...");
