@@ -35,9 +35,9 @@ const { syncSingleSubscriptionToHubspot, resolveCompanyData, refreshAllActiveCac
 // ─── We define the path of the python scripts called by cron jobs
 // ─── Zoho cron job is currently deactivated
 // ───────────────────────────────────────────────────────────────────────
-const scriptPath = path.join(__dirname, '../python-jobs/amplitude/script.py');
-const quincenalScriptPath = path.join(__dirname, '../python-jobs/amplitude/quincenal_detector.py');
-const dailyScriptPath = path.join(__dirname, '../python-jobs/amplitude/daily_usage_detector.py');
+const scriptPath = path.join(__dirname, '../scripts/amplitude/daily_events.py');
+const quincenalScriptPath = path.join(__dirname, '../scripts/opportunities/quincenal_detector.py');
+const dailyScriptPath = path.join(__dirname, '../scripts/opportunities/daily_usage_detector.py');
 const manualSyncScriptPath = path.join(__dirname, 'scripts/fullBackfillManual.js');
 
 // const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');

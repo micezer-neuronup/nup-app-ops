@@ -35,7 +35,7 @@ const intervalMap = {
   "year": "yearly", "yearly": "yearly"
 };
 
-const sourceMap = { "stripe": "Stripe", "manual": "Backend" };
+const sourceMap = { stripe: "Stripe", backend: "Backend", manual: "Backend" };
 const statusMap = {
   "active": "active", "trialing": "trial", "trial": "trial",
   "canceled": "canceled", "cancelled": "canceled", "trial_canceled": "trial_canceled",
@@ -101,6 +101,9 @@ async function main() {
         continue; // Saltamos si no encontramos la empresa en HubSpot
       }
 
+      const mappedSource = sourceMap[String(sub.source || sub.creation_source || "").toLowerCase()];
+
+
       // Preparar payload del Padre
       const subInputs = [{
         idProperty: "subscription_id_unique",
@@ -111,7 +114,7 @@ async function main() {
           status: statusMap[String(sub.current_state).toLowerCase()] || "active",
           isforever: sub.is_forever ? "true" : "false",
           payment_method_type: sub.payment_method_type || "",
-          source: sourceMap[String(sub.source || sub.creation_source).toLowerCase()] || "Stripe",
+          ...(mappedSource ? { source: mappedSource } : {}),
           start_date: formatHsDate(sub.start_date),
           // 🔥 Nombre interno en HubSpot: "precancelled_date" (doble L)
           precancelled_date: formatHsDate(sub.precancelled_date),

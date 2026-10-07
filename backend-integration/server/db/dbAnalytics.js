@@ -206,9 +206,6 @@ async function getAllOpportunities(filters = {}) {
         const companyData = await getCompanyDataWithCache(opp.center_id);
         
         if (companyData && companyData.id) {
-          const features = companyData.properties?.subscription_features || '';
-          const hasTestAll = features.includes('test_all');
-          
           enriched.push({
             ...opp,
             hubspot_company_id: companyData.id,
@@ -219,7 +216,6 @@ async function getAllOpportunities(filters = {}) {
             phone: companyData.properties?.phone || '-',
             segment: companyData.properties?.segmento || '-',
             market: companyData.properties?.market_hubspot || '-',
-            has_test_all: hasTestAll,
             trigger_details: opp.trigger_details || null,
           });
         } else {
@@ -233,7 +229,6 @@ async function getAllOpportunities(filters = {}) {
             phone: '-',
             segment: '-',
             market: '-',
-            has_test_all: false,
             trigger_details: opp.trigger_details || null,
           });
         }
@@ -249,17 +244,12 @@ async function getAllOpportunities(filters = {}) {
           phone: '-',
           segment: '-',
           market: '-',
-          has_test_all: false,
           trigger_details: opp.trigger_details || null,
         });
       }
     }
 
-    // Filtrar oportunidades que tienen test_all
-    const filtered = enriched.filter(opp => !opp.has_test_all);
-    log("INFO", "DB", `Fetched ${opportunities.length} opportunities, filtered to ${filtered.length} (${opportunities.length - filtered.length} have test_all)`);
-
-    return filtered;
+    return enriched;
 
   } catch (error) {
     log("ERROR", "DB", `Error fetching opportunities: ${error.message}`);

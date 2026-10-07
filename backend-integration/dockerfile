@@ -19,7 +19,7 @@ RUN npm install
 # Copy all application source code
 # -----------------------------
 COPY server/ ./server/
-COPY python-jobs/ ./python-jobs/
+COPY scripts/ ./scripts/
 
 # -----------------------------
 # Install Python system tools
@@ -39,8 +39,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Python dependecies
 # Install Python dependencies inside the virtual environment
 # -----------------------------
-COPY python-jobs/requirements.txt ./python-jobs/
-RUN pip install --no-cache-dir -r ./python-jobs/requirements.txt
+COPY scripts/requirements.txt ./scripts/
+RUN pip install --no-cache-dir -r ./scripts/requirements.txt
 
 # -----------------------------
 # Default command to run the Node server

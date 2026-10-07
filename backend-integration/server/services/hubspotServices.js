@@ -397,7 +397,6 @@ async function getCompanyDataByNupCenterId(nupCenterId) {
 }
 
 
-// ✅ NUEVA: Obtener datos con caché (simple)
 async function getCompanyDataWithCache(nupCenterId) {
   const cacheKey = `company:${nupCenterId}`;
   
