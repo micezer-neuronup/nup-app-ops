@@ -128,7 +128,24 @@ export function ModalOpp({
                 {opp.upsell_owner_name && ` · ${opp.upsell_owner_name}`}
               </Badge>
             )}
+
+            <Badge
+  variant="outline"
+  className="text-xs font-normal border-primary/20 bg-primary/5 text-primary"
+>
+  {opp.product}
+</Badge>
+{opp.opportunity_kind === 'review' && (
+  <Badge className="text-xs font-medium border-yellow-500/30 bg-yellow-500/10 text-yellow-600">
+    ⚠️ Revisar
+  </Badge>
+)}
+<span className="text-sm text-muted-foreground">ID: {opp.center_id}</span>
           </div>
+
+
+
+
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Columna izquierda (2/3) */}

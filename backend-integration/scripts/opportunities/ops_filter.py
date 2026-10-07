@@ -61,36 +61,45 @@ def fetch_ops_features_map():
         return None
 
 
-# ────── Paying centers ─────────────────────────────────────────────────────────
-def get_paying_centers(cursor, feature='test_all'):
+
+
+def get_test_all_centers(cursor, feature='test_all'):
     """
-    Returns set of nup_center_id (as str) that currently pay for `feature`.
-    Active subs only, per our DB (current_state = 'active').
-    On Ops API failure → returns empty set (fail-open: nothing excluded).
+    Returns (active_set, cancelled_set) of nup_center_id (as str):
+      - active_set:    centers with feature in an ACTIVE sub → exclude entirely
+      - cancelled_set: centers with feature only in non-active subs → mark 'review'
+    On Ops API failure → (set(), set()) → fail-open.
     """
     ops_map = fetch_ops_features_map()
     if ops_map is None:
         log("Ops API unavailable → fail-open (no centers excluded).", "WARN")
-        return set()
+        return set(), set()
 
     cursor.execute("""
-        SELECT nup_center_id, backend_subscription_id
+        SELECT nup_center_id, backend_subscription_id, current_state
         FROM subscriptions
-        WHERE current_state = 'active'
-          AND backend_subscription_id IS NOT NULL
+        WHERE backend_subscription_id IS NOT NULL
     """)
-    active_subs = cursor.fetchall()
+    subs = cursor.fetchall()
 
-    paying = set()
-    for nup_center_id, backend_sub_id in active_subs:
-        # backend_subscription_id is varchar; Ops API id is int → normalize
+    active_set = set()
+    cancelled_set = set()
+
+    for nup_center_id, backend_sub_id, state in subs:
         try:
             key = int(backend_sub_id)
         except (TypeError, ValueError):
             continue
         feats = ops_map.get(key)
-        if feats and feature in feats:
-            paying.add(str(nup_center_id))
+        if not feats or feature not in feats:
+            continue
+        cid = str(nup_center_id)
+        if state == 'active':
+            active_set.add(cid)
+        else:
+            cancelled_set.add(cid)
 
-    log(f"Paying centers (with '{feature}'): {len(paying)}")
-    return paying
+    cancelled_set -= active_set
+
+    log(f"Centros con '{feature}': {len(active_set)} activos, {len(cancelled_set)} no-activos")
+    return active_set, cancelled_set

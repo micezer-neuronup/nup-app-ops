@@ -161,6 +161,7 @@ async function getAllOpportunities(filters = {}) {
         o.active_days_60d,
         o.avg_daily_60d,
         o.score,
+        o.opportunity_kind,
         o.upsell_object,
         o.upsell_owner_id,
         o.upsell_owner_name,
@@ -256,7 +257,6 @@ async function getAllOpportunities(filters = {}) {
     throw error;
   }
 }
-
 
 async function assignUpsellOpportunity(opportunityId, { upsellObject, upsellOwnerId, upsellOwnerName }) {
   // 1. Obtener center_id y ai_justification de la oportunidad

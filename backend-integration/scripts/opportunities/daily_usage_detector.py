@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
-from ops_filter import get_paying_centers
+from ops_filter import get_test_all_centers
 
 # ────── Env Initialization ────────────────────────────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
@@ -45,7 +45,7 @@ def run_daily_detection():
     cursor = conn.cursor()
 
     try:
-        paying_centers = get_paying_centers(cursor, feature='test_all')
+        active_test_all, _ = get_test_all_centers(cursor, feature='test_all')
 
         cursor.execute("""
             SELECT id, center_id, created_at::date, score_base FROM commercial_opportunity
@@ -61,13 +61,13 @@ def run_daily_detection():
         yesterday = (datetime.now().date() - timedelta(days=1))
 
         for opp_id, center_id, created_date, score_base in active_opportunities:
-            if str(center_id) in paying_centers:
+            if str(center_id) in active_test_all:
                 cursor.execute("""
                     UPDATE commercial_opportunity
                     SET status = 'converted'
                     WHERE id = %s AND status = 'pending'
                 """, (opp_id,))
-                log(f"Centro {center_id} ahora paga test_all → oportunidad {opp_id} marcada como 'converted'.")
+                log(f"Centro {center_id} ahora tiene test_all activo → oportunidad {opp_id} marcada como 'converted'.")
                 continue
 
             log(f"Procesando centro {center_id} (oportunidad {opp_id}) desde {created_date} hasta {yesterday}")

@@ -28,4 +28,5 @@ export interface Opportunity {
   upsell_object?: string | null;
   upsell_owner_id?: string | null;
   upsell_owner_name?: string | null;
+  opportunity_kind?: 'upgrade' | 'review';
 }

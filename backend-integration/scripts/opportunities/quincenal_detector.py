@@ -8,7 +8,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from ops_filter import get_paying_centers
+from ops_filter import get_test_all_centers
 
 # ────── Env Initialization ──────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -139,10 +139,10 @@ def run_quincenal_detection():
     cursor = conn.cursor()
 
     try:
-        # 0. Excluir centros que ya pagan por la feature (test_all)
-        paying_centers = get_paying_centers(cursor, feature='test_all')
+        # 0. Centros con test_all: activos (excluir) y no-activos (marcar 'review')
+        active_test_all, cancelled_test_all = get_test_all_centers(cursor, feature='test_all')
 
-        # 1. Métricas por centro (últimos WINDOW_DAYS) — sin PERCENT_RANK
+        # 1. Métricas por centro (últimos WINDOW_DAYS)
         query = """
             SELECT
                 center_id,
@@ -157,32 +157,32 @@ def run_quincenal_detection():
         cursor.execute(query, (WINDOW_DAYS,))
         raw_centers = cursor.fetchall()
 
-        # Filtrar pagadores ANTES de calcular p85/percentile
-        filtered = [row for row in raw_centers if str(row[0]) not in paying_centers]
-        log(f"Centros con actividad: {len(raw_centers)} | Tras excluir pagadores: {len(filtered)}")
+        # Filtrar SOLO los que tienen test_all ACTIVO
+        centers_data = [row for row in raw_centers if str(row[0]) not in active_test_all]
+        log(f"Centros con actividad: {len(raw_centers)} | Tras excluir test_all activos: {len(centers_data)}")
 
-        if not filtered:
-            log("No hay centros no-pagadores con actividad. Saliendo.")
+        if not centers_data:
+            log("No hay centros candidatos. Saliendo.")
             return
 
         # 2. Recalcular percentil en Python sobre el pool filtrado
-        totals_sorted = sorted([row[1] for row in filtered])
+        totals_sorted = sorted([row[1] for row in centers_data])
         n = len(totals_sorted)
 
-        centers_data = []
-        for center_id, total_tests, active_days, avg_daily in filtered:
+        centers_with_pct = []
+        for center_id, total_tests, active_days, avg_daily in centers_data:
             if n > 1:
                 rank = totals_sorted.index(total_tests)
                 percentile = (rank / (n - 1)) * 100
             else:
                 percentile = 100.0
-            centers_data.append((center_id, total_tests, active_days, avg_daily, percentile))
+            centers_with_pct.append((center_id, total_tests, active_days, avg_daily, percentile))
+        centers_data = centers_with_pct
 
-        # Edge case: un solo centro → percentil 100 (ya cubierto arriba, pero explícito)
         if n == 1:
             log(f"Centro único detectado. Percentil forzado a 100 para centro {centers_data[0][0]}")
 
-        # 3. p85 y media global — SOLO sobre no-pagadores
+        # 3. p85 y media global — SOLO sobre no-excluidos
         totals = [row[1] for row in centers_data]
         avg_usage = sum(totals) / len(totals) if totals else 0
 
@@ -214,6 +214,8 @@ def run_quincenal_detection():
                 log(f"Centro {center_id} ya tiene oportunidad activa. Saltando.")
                 continue
 
+            kind = 'review' if str(center_id) in cancelled_test_all else 'upgrade'
+
             justification = generate_ai_justification(
                 center_id, total_tests, active_days, avg_daily, p85, avg_usage
             )
@@ -235,14 +237,14 @@ def run_quincenal_detection():
             cursor.execute("""
                 INSERT INTO commercial_opportunity
                     (center_id, product, status, created_at, total_tests_60d, active_days_60d,
-                     avg_daily_60d, score_base, score, ai_justification, trigger_details)
-                VALUES (%s, 'assessments', 'pending', NOW(), %s, %s, %s, %s, %s, %s, %s::jsonb)
+                     avg_daily_60d, score_base, score, ai_justification, trigger_details, opportunity_kind)
+                VALUES (%s, 'assessments', 'pending', NOW(), %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
                 RETURNING id
             """, (str(center_id), total_tests, active_days, avg_daily,
-                  score_base, score, justification, trigger_details))
+                  score_base, score, justification, trigger_details, kind))
 
             opp_id = cursor.fetchone()[0]
-            log(f"✅ Oportunidad ID {opp_id} creada para centro {center_id} "
+            log(f"✅ Oportunidad ID {opp_id} ({kind}) creada para centro {center_id} "
                 f"(percentil: {percentile:.1f}%, score_base: {score_base})")
             new_opportunities += 1
 

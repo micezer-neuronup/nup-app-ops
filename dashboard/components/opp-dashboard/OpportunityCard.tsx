@@ -109,7 +109,27 @@ export function OpportunityCard({
                   {opp.upsell_owner_name && ` · ${opp.upsell_owner_name}`}
                 </Badge>
               )}
+
+
+              <Badge
+  variant="outline"
+  className="text-xs font-normal border-primary/20 bg-primary/5 text-primary"
+>
+  {opp.product}
+</Badge>
+{opp.opportunity_kind === 'review' && (
+  <Badge className="text-xs font-medium border-yellow-500/30 bg-yellow-500/10 text-yellow-600">
+    ⚠️ Revisar
+  </Badge>
+)}
+<span className="text-sm text-muted-foreground">ID: {opp.center_id}</span>
             </div>
+
+            
+
+
+
+
 
             <div className="flex flex-wrap items-center gap-1.5">
               <div className="flex items-center gap-1 bg-muted/30 rounded-md px-2 py-0.5 text-sm text-foreground/80">

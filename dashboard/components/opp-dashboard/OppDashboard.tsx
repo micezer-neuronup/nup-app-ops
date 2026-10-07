@@ -54,6 +54,7 @@ export function OppDashboard() {
         total_tests_60d: typeof opp.total_tests_60d === "number" ? opp.total_tests_60d : 0,
         active_days_60d: typeof opp.active_days_60d === "number" ? opp.active_days_60d : 0,
         detections: Array.isArray(opp.detections) ? opp.detections : [],
+        opportunity_kind: opp.opportunity_kind || 'upgrade',
       }));
       setAllOpportunities(normalized);
     } catch (error: any) {
