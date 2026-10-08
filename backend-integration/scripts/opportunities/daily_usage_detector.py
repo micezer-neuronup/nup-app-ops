@@ -4,9 +4,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
-from ops_filter import get_test_all_centers
+from ops_filter import get_centers_with_feature
 
-# ────── Env Initialization ────────────────────────────────────────────────────────────────────────
+# ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
@@ -45,7 +46,7 @@ def run_daily_detection():
     cursor = conn.cursor()
 
     try:
-        active_test_all, _ = get_test_all_centers(cursor, feature='test_all')
+        active_test_all, _ = get_centers_with_feature(cursor, feature='test_all')
 
         cursor.execute("""
             SELECT id, center_id, created_at::date, score_base FROM commercial_opportunity

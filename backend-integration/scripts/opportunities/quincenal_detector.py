@@ -8,9 +8,9 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from ops_filter import get_test_all_centers
+from ops_filter import get_centers_with_feature
 
-# ────── Env Initialization ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
@@ -122,13 +122,19 @@ REDACTA EL MENSAJE:"""
 
 
 # ────── Opportunity detection ───────────────────────────────────────────────────────────────────────────────────────────────────
-# ──
-# ──
-# ──
-# ──
-# ──
-# ──
-# ──
+# ── The function get_centers_with_feature is called to obtain the active_test_all and review_test_all
+# ── Query daily_stats to obtain the nup_center_id and test stats with a backtrack window to check the last WINDOW_DAYS days.
+# ── Contrast query result with active_test_all and store center id in centers_data filtering out the ones in active_test_all.
+# ── Once the pool is ready, we start the percentile calculus by sorting the total of test usage stat (tests_finished).
+# ── For each center, we obtain a rank(0-n) for the test usage value of the center.
+# ── Once the rank is obtained, we calculate the percentile of the of that center.
+# ── The rank / n - 1 gives us the position that the stat value ocuppies in the total. (Ex 210 / 243 - 1) = 0.86 -- (86%)
+# ── The operation n - 1 is done for the highest to get percentile 100%.
+# ── If there is only one center, we asign percentile 100% to it.
+# ── The center is added to the list centers_with_pct adding the percentile to the other test stats.
+# ── Asing centers_data = centers_with_pct to ocntinue to use centers_data( The same thing).
+# ── Once percentiles are defined, we start calculus of p85, obtaining the total of test and average use.
+# ── If there is more that one total in totals
 # ──
 # ──
 # ──
@@ -139,10 +145,8 @@ def run_quincenal_detection():
     cursor = conn.cursor()
 
     try:
-        # 0. Centros con test_all: activos (excluir) y no-activos (marcar 'review')
-        active_test_all, cancelled_test_all = get_test_all_centers(cursor, feature='test_all')
+        active_test_all, review_test_all = get_centers_with_feature(cursor, feature='test_all')
 
-        # 1. Métricas por centro (últimos WINDOW_DAYS)
         query = """
             SELECT
                 center_id,
@@ -157,7 +161,6 @@ def run_quincenal_detection():
         cursor.execute(query, (WINDOW_DAYS,))
         raw_centers = cursor.fetchall()
 
-        # Filtrar SOLO los que tienen test_all ACTIVO
         centers_data = [row for row in raw_centers if str(row[0]) not in active_test_all]
         log(f"Centros con actividad: {len(raw_centers)} | Tras excluir test_all activos: {len(centers_data)}")
 
@@ -165,7 +168,6 @@ def run_quincenal_detection():
             log("No hay centros candidatos. Saliendo.")
             return
 
-        # 2. Recalcular percentil en Python sobre el pool filtrado
         totals_sorted = sorted([row[1] for row in centers_data])
         n = len(totals_sorted)
 
@@ -214,7 +216,7 @@ def run_quincenal_detection():
                 log(f"Centro {center_id} ya tiene oportunidad activa. Saltando.")
                 continue
 
-            kind = 'review' if str(center_id) in cancelled_test_all else 'upgrade'
+            kind = 'review' if str(center_id) in review_test_all else 'upgrade'
 
             justification = generate_ai_justification(
                 center_id, total_tests, active_days, avg_daily, p85, avg_usage

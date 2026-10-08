@@ -6,6 +6,7 @@ import { ModalOpp } from "./ModalOpp";
 import { AssignUpsellModal } from "./AssignUpsellModal";
 import { OpportunityCard } from "./OpportunityCard";
 import type { Opportunity } from "./types";
+import Image from "next/image";
 
 // Reexporta los tipos para mantener compatibilidad con imports existentes
 export type { Detection, Opportunity } from "./types";
@@ -83,8 +84,34 @@ export function OppDashboard() {
     return [...filteredOpportunities].sort((a, b) => (b.score || 0) - (a.score || 0));
   }, [filteredOpportunities]);
 
-  const pending = useMemo(() => sorted.filter((o) => o.status === "pending"), [sorted]);
-  const completed = useMemo(() => sorted.filter((o) => o.status === "completed"), [sorted]);
+  // ---------- 3 COLUMNAS ----------
+  // Cast a string para evitar el error de TS sin tocar types.ts
+  
+
+  const pendingNoTestAll = useMemo(
+  () =>
+    sorted.filter(
+      (o) =>
+        o.status === "pending" &&
+        o.opportunity_kind !== "review"
+    ),
+  [sorted]
+);
+
+const pendingTestAll = useMemo(
+  () =>
+    sorted.filter(
+      (o) =>
+        o.status === "pending" &&
+        o.opportunity_kind === "review"
+    ),
+  [sorted]
+);
+
+  const reviewedOrAssigned = useMemo(
+    () => sorted.filter((o) => o.status === "completed" || !!o.upsell_object),
+    [sorted]
+  );
 
   const updateStatus = async (id: number, newStatus: "pending" | "completed") => {
     try {
@@ -116,8 +143,9 @@ export function OppDashboard() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  const totalPending = pending.length;
-  const totalCompleted = completed.length;
+  const totalPendingNoTestAll = pendingNoTestAll.length;
+  const totalPendingTestAll = pendingTestAll.length;
+  const totalReviewedOrAssigned = reviewedOrAssigned.length;
 
   const openAssignModal = (opp: Opportunity) => {
     setAssignModalOpp(opp);
@@ -158,57 +186,112 @@ export function OppDashboard() {
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
-      {/* HEADER */}
-      <div className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 md:px-6">
-          <div className="flex items-center justify-between h-14">
-            <div className="flex items-center gap-4">
-              <h1 className="text-lg font-bold">📋 Oportunidades de Upsell</h1>
-              <input
-                ref={inputRef}
-                type="text"
-                placeholder="Buscar centro (nombre o ID)..."
-                value={searchTerm}
-                onChange={handleSearchChange}
-                className="h-8 rounded-md border border-border/40 bg-background/50 px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 w-40 md:w-64"
-              />
+      {/* ================= HEADER ================= */}
+      <header className="border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70 sticky top-0 z-50">
+        {/* Línea superior con el color corporativo */}
+
+        <div className="max-w-[1700px] mx-auto px-4 md:px-6">
+          <div className="flex items-center justify-between h-16 gap-4">
+            {/* ZONA IZQUIERDA: logo + título */}
+            <div className="flex items-center gap-4 min-w-0">
+              {/* ==== LOGO ==== */}
+              <div className="flex items-center justify-center shrink-0">
+                <Image
+                  src="/Icono_NeuronUP-positivo.png"
+                  alt="NeuronUP"
+                  width={40}
+                  height={40}
+                  className="h-10 w-auto object-contain"
+                  priority
+                />
+              </div>
+
+              <div className="flex flex-col min-w-0">
+                <h1 className="text-base font-semibold leading-tight text-foreground truncate">
+                  Oportunidades de Upsell: Assesment
+                </h1>
+              </div>
+
+              {/* Buscador */}
+              <div className="hidden md:block ml-2">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  placeholder="Buscar centro o nup_id..."
+                  value={searchTerm}
+                  onChange={handleSearchChange}
+                  className="h-9 w-56 rounded-md border border-border/60 bg-background/60 px-3 text-sm text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-1 focus:ring-[#00a4c2]/60 focus:border-[#00a4c2]/60"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1 bg-muted/30 rounded-lg px-3 py-1">
-                <span className="text-xs text-muted-foreground">Pendientes</span>
-                <span className="text-sm font-semibold text-foreground">{totalPending}</span>
+
+            {/* ZONA DERECHA: contadores + settings */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="hidden lg:flex items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1">
+                  <span className="h-2 w-2 rounded-full bg-yellow-400" />
+                  <span className="text-xs font-medium text-foreground/80">Pendientes</span>
+                  <span className="text-sm font-bold text-yellow-500">{totalPendingNoTestAll}</span>
+                </span>
+
+                <span className="inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1">
+                  <span className="h-2 w-2 rounded-full bg-orange-400" />
+                  <span className="text-xs font-medium text-foreground/80">Revisar</span>
+                  <span className="text-sm font-bold text-orange-500">{totalPendingTestAll}</span>
+                </span>
+
+                <span className="inline-flex items-center gap-2 rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1">
+                  <span className="h-2 w-2 rounded-full bg-green-400" />
+                  <span className="text-xs font-medium text-foreground/80">Revisadas/Asignadas</span>
+                  <span className="text-sm font-bold text-green-500">{totalReviewedOrAssigned}</span>
+                </span>
               </div>
-              <div className="flex items-center gap-1 bg-muted/30 rounded-lg px-3 py-1">
-                <span className="text-xs text-muted-foreground">Completadas</span>
-                <span className="text-sm font-semibold text-foreground">{totalCompleted}</span>
-              </div>
+
               <SiteHeader />
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* CONTENIDO */}
-      <div className="flex-1 max-w-7xl mx-auto w-full px-4 md:px-6 py-4">
+          {/* Buscador en móvil */}
+          <div className="md:hidden pb-3">
+            <input
+              type="text"
+              placeholder="Buscar centro o nup_id..."
+              value={searchTerm}
+              onChange={handleSearchChange}
+              className="h-9 w-full rounded-md border border-border/60 bg-background/60 px-3 text-sm text-foreground placeholder:text-foreground/50 focus:outline-none focus:ring-1 focus:ring-[#00a4c2]/60 focus:border-[#00a4c2]/60"
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* ================= CONTENIDO ================= */}
+      <main className="flex-1 max-w-[1700px] mx-auto w-full px-4 md:px-6 py-5">
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-500 p-3 rounded-lg mb-4">
+          <div className="bg-red-500/10 border border-red-500/30 text-red-500 p-3 rounded-lg mb-4 text-sm">
             ❌ {error}
           </div>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Pendientes */}
-          <div className="max-h-[600px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted/30 scrollbar-track-transparent">
-            <h2 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2 sticky top-0 bg-background/80 backdrop-blur-sm py-1 z-10">
-              <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
-              Pendientes ({pending.length})
-            </h2>
-            <div className="space-y-2">
-              {pending.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* ============ COLUMNA 1: Pendientes ============ */}
+          <section className="flex flex-col rounded-xl border border-border/60 bg-muted/10 max-h-[calc(100vh-180px)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 sticky top-0 bg-background/90 backdrop-blur-sm rounded-t-xl z-10">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400" />
+                <h2 className="text-sm font-semibold text-foreground">Pendientes</h2>
+              </div>
+              <span className="inline-flex items-center justify-center min-w-[28px] h-6 rounded-full bg-yellow-500/15 text-yellow-500 text-xs font-bold px-2">
+                {pendingNoTestAll.length}
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 scrollbar-thin scrollbar-thumb-[#00a4c2]/40 hover:scrollbar-thumb-[#00a4c2]/60 scrollbar-track-transparent">
+              {pendingNoTestAll.length === 0 ? (
+                <p className="text-sm text-foreground/60 text-center py-8">
                   No hay oportunidades pendientes
                 </p>
               ) : (
-                pending.map((opp) => (
+                pendingNoTestAll.map((opp) => (
                   <OpportunityCard
                     key={opp.id}
                     opp={opp}
@@ -222,21 +305,61 @@ export function OppDashboard() {
                 ))
               )}
             </div>
-          </div>
+          </section>
 
-          {/* Completadas */}
-          <div className="max-h-[600px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted/30 scrollbar-track-transparent">
-            <h2 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2 sticky top-0 bg-background/80 backdrop-blur-sm py-1 z-10">
-              <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
-              Completadas ({completed.length})
-            </h2>
-            <div className="space-y-2">
-              {completed.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-6">
-                  No hay oportunidades completadas
+          {/* ============ COLUMNA 2: Revisar ============ */}
+          <section className="flex flex-col rounded-xl border border-border/60 bg-muted/10 max-h-[calc(100vh-180px)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 sticky top-0 bg-background/90 backdrop-blur-sm rounded-t-xl z-10">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-orange-400" />
+                <h2 className="text-sm font-semibold text-foreground">Revisar</h2>
+              </div>
+              <span className="inline-flex items-center justify-center min-w-[28px] h-6 rounded-full bg-orange-500/15 text-orange-500 text-xs font-bold px-2">
+                {pendingTestAll.length}
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 scrollbar-thin scrollbar-thumb-[#00a4c2]/40 hover:scrollbar-thumb-[#00a4c2]/60 scrollbar-track-transparent">
+              {pendingTestAll.length === 0 ? (
+                <p className="text-sm text-foreground/60 text-center py-8">
+                  No hay oportunidades por revisar
                 </p>
               ) : (
-                completed.map((opp) => (
+                pendingTestAll.map((opp) => (
+                  <OpportunityCard
+                    key={opp.id}
+                    opp={opp}
+                    onMarkReviewed={handleMarkAsReviewed}
+                    onMarkPending={handleMarkAsPending}
+                    onClick={() => setSelectedOpp(opp)}
+                    onCopy={handleCopy}
+                    copiedField={copiedField}
+                    onAssignUpsell={openAssignModal}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* ============ COLUMNA 3: Revisadas / Asignadas ============ */}
+          <section className="flex flex-col rounded-xl border border-border/60 bg-muted/10 max-h-[calc(100vh-180px)]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 sticky top-0 bg-background/90 backdrop-blur-sm rounded-t-xl z-10">
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-green-400" />
+                <h2 className="text-sm font-semibold text-foreground">Revisadas / Asignadas</h2>
+              </div>
+              <span className="inline-flex items-center justify-center min-w-[28px] h-6 rounded-full bg-green-500/15 text-green-500 text-xs font-bold px-2">
+                {reviewedOrAssigned.length}
+              </span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 scrollbar-thin scrollbar-thumb-[#00a4c2]/40 hover:scrollbar-thumb-[#00a4c2]/60 scrollbar-track-transparent">
+              {reviewedOrAssigned.length === 0 ? (
+                <p className="text-sm text-foreground/60 text-center py-8">
+                  No hay oportunidades revisadas o asignadas
+                </p>
+              ) : (
+                reviewedOrAssigned.map((opp) => (
                   <OpportunityCard
                     key={opp.id}
                     opp={opp}
@@ -251,9 +374,9 @@ export function OppDashboard() {
                 ))
               )}
             </div>
-          </div>
+          </section>
         </div>
-      </div>
+      </main>
 
       {selectedOpp && (
         <ModalOpp
