@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 const dotenv = require('dotenv');
 const path = require('path');
 const cron = require('node-cron');

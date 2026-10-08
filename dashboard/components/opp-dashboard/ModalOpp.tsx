@@ -162,11 +162,9 @@ export function ModalOpp({
       onClick={onClose}
     >
       <div
-        className="relative max-w-6xl w-full h-[92vh] bg-background border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className="relative max-w-6xl w-full max-h-[92vh] bg-background border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* FRANJA CORPORATIVA */}
-
         {/* CABECERA */}
         <div className="relative bg-background px-5 py-3 border-b border-border/60 shrink-0">
           <button
@@ -228,13 +226,13 @@ export function ModalOpp({
           </div>
         </div>
 
-        {/* CUERPO */}
-        <div className="flex-1 min-h-0 p-4 overflow-hidden">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 h-full min-h-0">
+        {/* CUERPO CON SCROLL SI HACE FALTA */}
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto scrollbar-thin scrollbar-thumb-[#00a4c2]/30 scrollbar-track-transparent">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* COLUMNA IZQUIERDA */}
-            <div className="md:col-span-2 flex flex-col gap-3 min-h-0">
+            <div className="md:col-span-2 flex flex-col gap-3">
               {/* INFO DEL CENTRO */}
-              <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm shrink-0">
+              <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm">
                 <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                   <button
                     type="button"
@@ -344,7 +342,7 @@ export function ModalOpp({
 
               {/* TRIGGER */}
               {triggerPairs.length > 0 && (
-                <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm shrink-0">
+                <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm">
                   <div className="flex items-center gap-2 text-xs font-medium text-foreground/70 mb-2">
                     <AlertCircle className="h-3.5 w-3.5 text-[#00a4c2]" />
                     <span>Trigger</span>
@@ -367,13 +365,13 @@ export function ModalOpp({
                 </div>
               )}
 
-              {/* JUSTIFICACIÓN IA */}
-              <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm flex-1 min-h-0 flex flex-col">
-                <div className="flex items-center gap-2 text-xs font-medium text-foreground/70 shrink-0">
+              {/* JUSTIFICACIÓN IA — altura natural con max-h y scroll interno */}
+              <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm">
+                <div className="flex items-center gap-2 text-xs font-medium text-foreground/70">
                   <Brain className="h-3.5 w-3.5 text-[#00a4c2]" />
                   <span>Justificación IA</span>
                 </div>
-                <div className="mt-1.5 text-sm leading-relaxed text-foreground overflow-y-auto pr-1 flex-1 min-h-0 scrollbar-thin scrollbar-thumb-[#00a4c2]/30 scrollbar-track-transparent">
+                <div className="mt-1.5 text-sm leading-relaxed text-foreground max-h-[220px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-[#00a4c2]/30 scrollbar-track-transparent">
                   <TypewriterText
                     text={opp.ai_justification || "No hay justificación disponible."}
                     isCompleted={false}
@@ -386,9 +384,9 @@ export function ModalOpp({
             </div>
 
             {/* COLUMNA DERECHA */}
-            <div className="flex flex-col gap-3 min-h-0">
+            <div className="flex flex-col gap-3">
               {/* MÉTRICAS */}
-              <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm space-y-2 shrink-0">
+              <div className="bg-card rounded-lg p-3 border border-border/60 shadow-sm space-y-2">
                 <h3 className="text-xs font-semibold text-foreground/70 uppercase tracking-wider">
                   Métricas clave
                 </h3>
@@ -428,25 +426,25 @@ export function ModalOpp({
                 </div>
               </div>
 
-              {/* NUEVOS USOS — grid 3 columnas con filas tipo "fecha — tests" */}
-              <div className="bg-card rounded-lg p-3 border border-green-500/40 shadow-sm flex-1 min-h-0 flex flex-col overflow-hidden">
-                <div className="flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400 shrink-0">
+              {/* NUEVOS USOS — altura natural con max-h y scroll interno */}
+              <div className="bg-card rounded-lg p-3 border border-green-500/40 shadow-sm">
+                <div className="flex items-center gap-2 text-sm font-medium text-green-600 dark:text-green-400">
                   <Clock className="h-4 w-4" />
                   <span>Nuevos usos ({totalDetections})</span>
                 </div>
                 {totalDetections > 0 && lastDetection && (
-                  <p className="text-[10px] text-foreground/60 mt-0.5 shrink-0">
+                  <p className="text-[10px] text-foreground/60 mt-0.5">
                     Último: {formatDateShort(lastDetection.detected_at)} (
                     {lastDetection.total_tests_day} tests)
                   </p>
                 )}
                 {totalDetections > 0 ? (
-                  <div className="mt-2 flex-1 min-h-0 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-[#00a4c2]/30 scrollbar-track-transparent">
+                  <div className="mt-2 max-h-[320px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-[#00a4c2]/30 scrollbar-track-transparent space-y-3">
                     {Object.entries(groupedDetections).map(([monthKey, dets]) => {
                       const [year, month] = monthKey.split("-");
                       const monthName = monthNames[month] || month;
                       return (
-                        <div key={monthKey} className="mb-3 last:mb-0">
+                        <div key={monthKey}>
                           <p className="text-[10px] font-semibold text-foreground/70 uppercase tracking-wide mb-1.5">
                             {monthName} {year}
                           </p>
@@ -479,7 +477,7 @@ export function ModalOpp({
           </div>
         </div>
 
-        {/* PIE CON BOTONES */}
+        {/* PIE CON BOTONES — siempre fijo */}
         <div className="border-t border-border/60 bg-background/95 px-4 py-3 flex items-center gap-2 shrink-0">
           <Button
             className="flex-1 bg-orange-500/15 hover:bg-orange-500/25 text-orange-600 dark:text-orange-400 border border-orange-500/30 text-sm h-9"
