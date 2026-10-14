@@ -47,8 +47,8 @@ export default function UsersPage() {
         ent_count: u.ent_count || 0,
         mm_percent: u.mm_percent || 0,
         e_percent: u.e_percent || 0,
-        target_mm_percent: u.target_mm_percent ?? 40,
-        target_e_percent: u.target_e_percent ?? 60,
+        target_mm_percent: u.target_mm_percent ?? null,
+        target_e_percent: u.target_e_percent ?? null,
         market_targets: u.market_targets || null,
         market_breakdown: u.market_breakdown || {},
       }));

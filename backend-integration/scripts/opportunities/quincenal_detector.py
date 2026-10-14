@@ -134,7 +134,7 @@ REDACTA EL MENSAJE:"""
 # ── The center is added to the list centers_with_pct adding the percentile to the other test stats.
 # ── Asing centers_data = centers_with_pct to ocntinue to use centers_data( The same thing).
 # ── Once percentiles are defined, we start calculus of p85, obtaining the total of test and average use.
-# ── If there is more that one total in totals
+# ── If there is more than one total in totals
 # ──
 # ──
 # ──
