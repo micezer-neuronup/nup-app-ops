@@ -34,11 +34,9 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # ────── Script configuration ────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── P85_PERCENTILE: percentile that marks the trigger line. Lower it to detect more centers.
-# ── P85_THRESHOLD_FACTOR: multiplies p85. <1.0 → more centers, >1.0 → fewer.
 # ── WINDOW_DAYS: forward window to check test activity.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 P85_PERCENTILE = 0.85
-P85_THRESHOLD_FACTOR = 1.0
 WINDOW_DAYS = 60
 
 
@@ -67,14 +65,7 @@ def get_db_connection():
 # ──
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-def generate_ai_justification(center_id, total_tests, active_days, avg_daily, p85=None, avg_usage=None):
-    comparativa = ""
-    if p85 and avg_usage:
-        comparativa = (
-            f"Supera la media global ({avg_usage:.0f} tests) y el umbral del percentil "
-            f"{P85_PERCENTILE*100:.0f} ({p85:.0f} tests)."
-        )
-
+def generate_ai_justification(center_id, total_tests, active_days, avg_daily):
     prompt = f"""Eres un asistente para el equipo de Customer Success.
 
 DATOS DEL CENTRO:
@@ -82,16 +73,14 @@ DATOS DEL CENTRO:
 - Tests completados en los últimos {WINDOW_DAYS} días: {total_tests}
 - Días con actividad: {active_days}
 - Media de tests por día activo: {avg_daily:.1f}
-- {comparativa}
 
 INSTRUCCIONES:
 Redacta un mensaje breve (máximo 2 frases) para el agente, con los siguientes puntos:
 1. Resumen ejecutivo del uso (tests, días activos, media).
-2. Mencionar que supera el umbral y la comparativa con la media/percentil.
-3. Recomendación final: contactar para ofrecer Assessment (sin describir el producto).
+2. Recomendación final: contactar para ofrecer Assessment (sin describir el producto).
 
 EJEMPLO DE ESTILO:
-"El centro ha completado 55 tests en 60 días (18 días activos, media 3.1). Supera la media global (42 tests) y se sitúa en el percentil 85 (120 tests). Recomendamos contactar para ofrecer Assessment."
+"El centro ha completado 55 tests en 60 días (18 días activos, media 3.1). Recomendamos contactar para ofrecer Assessment."
 
 REDACTA EL MENSAJE:"""
 
@@ -116,7 +105,6 @@ REDACTA EL MENSAJE:"""
         return (
             f"Centro {center_id}: {total_tests} tests en {WINDOW_DAYS} días "
             f"({active_days} días activos, media {avg_daily:.1f}). "
-            f"Supera percentil {P85_PERCENTILE*100:.0f} ({p85:.0f} tests). "
             f"Contactar para ofrecer Assessment."
         )
 
@@ -125,19 +113,33 @@ REDACTA EL MENSAJE:"""
 # ── The function get_centers_with_feature is called to obtain the active_test_all and review_test_all
 # ── Query daily_stats to obtain the nup_center_id and test stats with a backtrack window to check the last WINDOW_DAYS days.
 # ── Contrast query result with active_test_all and store center id in centers_data filtering out the ones in active_test_all.
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── Once the pool is ready, we start the percentile calculus by sorting the total of test usage stat (tests_finished).
 # ── For each center, we obtain a rank(0-n) for the test usage value of the center.
-# ── Once the rank is obtained, we calculate the percentile of the of that center.
+# ── Once the rank is obtained, we calculate the percentile of that center.
 # ── The rank / n - 1 gives us the position that the stat value ocuppies in the total. (Ex 210 / 243 - 1) = 0.86 -- (86%)
 # ── The operation n - 1 is done for the highest to get percentile 100%.
 # ── If there is only one center, we asign percentile 100% to it.
 # ── The center is added to the list centers_with_pct adding the percentile to the other test stats.
 # ── Asing centers_data = centers_with_pct to ocntinue to use centers_data( The same thing).
-# ── Once percentiles are defined, we start calculus of p85, obtaining the total of test and average use.
-# ── If there is more than one total in totals
-# ──
-# ──
-# ──
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Once percentiles are defined, we start calculus of p85, obtaining the total of test and average use for each center.
+# ── If there is more than one total in totals, we can obtain the percentile we want (P85_PERCENTILE)
+# ── To obtain the percentile we want, we first have to section all the totals in 100 sections/groups. (99 cuts)
+# ── More than one value can be in a group, to get the right one we first need to get the index we want from those 99 cuts.
+# ── We obtain the index changing the percentile to full value (0.85 - 85) and substract 1 (index go from 0 to 98 in the cuts)
+# ── Once we have the index we obtain the value we want ans store it inside p85 variable.
+# ── The cuts divide the groups, they are a single value likely interpoled (infered) between the two groups the cut seperates.
+# ── So that cut( in this case 84) is the value we store in p85.
+# ── If there is only one total, we do a fallback and asign the value to p85.
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── We then use the p85 value to obtain the candidates, those with totals >= p85
+# ── If there a no candidates we abort the detection.
+# ── We the proceed to add the new opportunities to the database.
+# ── 
+# ── 
+# ── 
+# ── 
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def run_quincenal_detection():
     log("=== INICIANDO DETECCIÓN QUINCENAL (60 días) ===")
@@ -184,7 +186,6 @@ def run_quincenal_detection():
         if n == 1:
             log(f"Centro único detectado. Percentil forzado a 100 para centro {centers_data[0][0]}")
 
-        # 3. p85 y media global — SOLO sobre no-excluidos
         totals = [row[1] for row in centers_data]
         avg_usage = sum(totals) / len(totals) if totals else 0
 
@@ -196,8 +197,7 @@ def run_quincenal_detection():
 
         log(f"Percentil {P85_PERCENTILE*100:.0f}: {p85:.2f}, Media global: {avg_usage:.2f}")
 
-        # 4. Candidatos por encima del threshold
-        threshold = (p85 or 0) * P85_THRESHOLD_FACTOR
+        threshold = (p85 or 0)
         candidates = [row for row in centers_data if row[1] >= threshold]
         log(f"Candidatos que superan threshold ({threshold:.2f}): {len(candidates)}")
 
@@ -206,21 +206,33 @@ def run_quincenal_detection():
             return
 
         new_opportunities = 0
+        updated_kinds = 0
+
         for center_id, total_tests, active_days, avg_daily, percentile in candidates:
+            kind = 'review' if str(center_id) in review_test_all else 'upgrade'
+
             cursor.execute("""
-                SELECT id FROM commercial_opportunity
+                SELECT id, opportunity_kind FROM commercial_opportunity
                 WHERE center_id = %s AND product = 'assessments' AND status = 'pending'
                 LIMIT 1
             """, (str(center_id),))
-            if cursor.fetchone():
-                log(f"Centro {center_id} ya tiene oportunidad activa. Saltando.")
+            existing = cursor.fetchone()
+
+            if existing:
+                existing_id, existing_kind = existing
+                if existing_kind != kind:
+                    cursor.execute("""
+                        UPDATE commercial_opportunity
+                        SET opportunity_kind = %s
+                        WHERE id = %s
+                    """, (kind, existing_id))
+                    log(f"Centro {center_id}: opportunity_kind actualizado '{existing_kind}' → '{kind}'")
+                    updated_kinds += 1
+                else:
+                    log(f"Centro {center_id} ya tiene oportunidad activa. Saltando.")
                 continue
 
-            kind = 'review' if str(center_id) in review_test_all else 'upgrade'
-
-            justification = generate_ai_justification(
-                center_id, total_tests, active_days, avg_daily, p85, avg_usage
-            )
+            justification = generate_ai_justification(center_id, total_tests, active_days, avg_daily)
 
             score_base = int(round((percentile / 100) * 70))
             score = score_base
@@ -251,7 +263,7 @@ def run_quincenal_detection():
             new_opportunities += 1
 
         conn.commit()
-        log(f"Total nuevas oportunidades creadas: {new_opportunities}")
+        log(f"Total nuevas oportunidades: {new_opportunities} | opportunity_kind actualizados: {updated_kinds}")
 
     except Exception as e:
         log(f"Error en detección quincenal: {e}", "ERROR")
