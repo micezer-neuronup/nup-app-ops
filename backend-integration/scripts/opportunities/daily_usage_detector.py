@@ -7,12 +7,11 @@ from dotenv import load_dotenv
 from ops_filter import get_centers_with_feature
 
 # ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
-# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 
-# ────── Database configuration ────────────────────────────────────────────────────────────────────
+# ────── Database configuration ────────────────────────────────────────────────────────────────────────────────────────────────────
 DB_HOST = os.getenv('DB_HOST')
 DB_NAME = os.getenv('DB_NAME')
 DB_USER = os.getenv('DB_USER')
@@ -20,7 +19,7 @@ DB_PASSWORD = os.getenv('DB_PASSWORD')
 DB_PORT = os.getenv('DB_PORT')
 
 
-# ────── Score weights ─────────────────────────────────────────────────────────────────────────────
+# ────── Score weights ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # score = score_base + (n_detections * SCORE_WEIGHT_DAYS) + (total_tests * SCORE_WEIGHT_TESTS)
 SCORE_WEIGHT_DAYS = 2
 SCORE_WEIGHT_TESTS = 0.1
@@ -30,7 +29,7 @@ def log(msg, level="INFO"):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{level}] {msg}", flush=True)
 
 
-# ────── Database connection ───────────────────────────────────────────────────────────────────────
+# ────── Database connection ───────────────────────────────────────────────────────────────────────────────────────────────────────
 def get_db_connection():
     return psycopg2.connect(
         host=DB_HOST, database=DB_NAME,
@@ -39,7 +38,7 @@ def get_db_connection():
     )
 
 
-# ────── Daily detection ───────────────────────────────────────────────────────────────────────────
+# ────── Daily detection ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 def run_daily_detection():
     log("=== INICIANDO DETECCIÓN DIARIA (backfill automático desde detección inicial) ===")
     conn = get_db_connection()
@@ -49,26 +48,31 @@ def run_daily_detection():
         active_test_all, _ = get_centers_with_feature(cursor, feature='test_all')
 
         cursor.execute("""
-            SELECT id, center_id, created_at::date, score_base FROM commercial_opportunity
+            SELECT id, center_id, created_at::date, score_base
+            FROM commercial_opportunity
+            WHERE status != 'converted'
         """)
         active_opportunities = cursor.fetchall()
-        log(f"Centros con oportunidad activa: {len(active_opportunities)}")
+        log(f"Oportunidades a procesar (excluyendo converted): {len(active_opportunities)}")
 
         if not active_opportunities:
-            log("No hay oportunidades activas. Saliendo.")
+            log("No hay oportunidades. Saliendo.")
             return
 
         total_inserted = 0
         yesterday = (datetime.now().date() - timedelta(days=1))
 
         for opp_id, center_id, created_date, score_base in active_opportunities:
+            score_base = score_base or 0
+
             if str(center_id) in active_test_all:
                 cursor.execute("""
                     UPDATE commercial_opportunity
                     SET status = 'converted'
                     WHERE id = %s AND status = 'pending'
                 """, (opp_id,))
-                log(f"Centro {center_id} ahora tiene test_all activo → oportunidad {opp_id} marcada como 'converted'.")
+                if cursor.rowcount > 0:
+                    log(f"Centro {center_id} ahora tiene test_all activo → oportunidad {opp_id} marcada como 'converted'.")
                 continue
 
             log(f"Procesando centro {center_id} (oportunidad {opp_id}) desde {created_date} hasta {yesterday}")
@@ -103,7 +107,6 @@ def run_daily_detection():
 
                 current_date += timedelta(days=1)
 
-            # Recalcular score desde opportunity_detections
             cursor.execute("""
                 SELECT COUNT(*), COALESCE(SUM(total_tests_day), 0)
                 FROM opportunity_detections

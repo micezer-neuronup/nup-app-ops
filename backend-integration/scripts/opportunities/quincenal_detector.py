@@ -201,7 +201,37 @@ def run_quincenal_detection():
         candidates = [row for row in centers_data if row[1] >= threshold]
         log(f"Candidatos que superan threshold ({threshold:.2f}): {len(candidates)}")
 
+        # ── Actualizar current_* de TODAS las opps pending con actividad actual
+        #    (incluye las que no superan el threshold, y resetea a 0 las que ya no tienen actividad)
+        updated_current = 0
+        for center_id, total_tests, active_days, avg_daily, percentile in centers_data:
+            cursor.execute("""
+                UPDATE commercial_opportunity
+                SET current_total_tests_60d = %s,
+                    current_active_days_60d = %s,
+                    current_avg_daily_60d = %s
+                WHERE center_id = %s AND status = 'pending' AND product = 'assessments'
+            """, (int(total_tests), int(active_days), avg_daily, str(center_id)))
+            if cursor.rowcount > 0:
+                updated_current += cursor.rowcount
+
+        # Resetear a 0 las pending cuyo centro ya no tiene actividad
+        center_ids_with_activity = [str(row[0]) for row in centers_data]
+        cursor.execute("""
+            UPDATE commercial_opportunity
+            SET current_total_tests_60d = 0,
+                current_active_days_60d = 0,
+                current_avg_daily_60d = 0
+            WHERE status = 'pending'
+              AND product = 'assessments'
+              AND center_id NOT IN %s
+        """, (tuple(center_ids_with_activity),))
+        updated_current += cursor.rowcount
+
+        log(f"current_* actualizados: {updated_current}")
+
         if not candidates:
+            conn.commit()
             log("No hay candidatos. Saliendo.")
             return
 
@@ -251,10 +281,12 @@ def run_quincenal_detection():
             cursor.execute("""
                 INSERT INTO commercial_opportunity
                     (center_id, product, status, created_at, total_tests_60d, active_days_60d,
-                     avg_daily_60d, score_base, score, ai_justification, trigger_details, opportunity_kind)
-                VALUES (%s, 'assessments', 'pending', NOW(), %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                     avg_daily_60d, current_total_tests_60d, current_active_days_60d, current_avg_daily_60d,
+                     score_base, score, ai_justification, trigger_details, opportunity_kind)
+                VALUES (%s, 'assessments', 'pending', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
                 RETURNING id
             """, (str(center_id), total_tests, active_days, avg_daily,
+                  total_tests, active_days, avg_daily,
                   score_base, score, justification, trigger_details, kind))
 
             opp_id = cursor.fetchone()[0]
@@ -263,7 +295,7 @@ def run_quincenal_detection():
             new_opportunities += 1
 
         conn.commit()
-        log(f"Total nuevas oportunidades: {new_opportunities} | opportunity_kind actualizados: {updated_kinds}")
+        log(f"Total nuevas oportunidades: {new_opportunities} | opportunity_kind actualizados: {updated_kinds} | current_* actualizados: {updated_current}")
 
     except Exception as e:
         log(f"Error en detección quincenal: {e}", "ERROR")
