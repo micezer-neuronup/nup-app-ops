@@ -1,6 +1,6 @@
 const { upsertSubscriptionData, updateInvoiceData, markHubspotSyncStatus, getBackendSubscriptionId   } = require('../db/dbSubscriptions');
 const { syncSingleSubscriptionToHubspot } = require('./hubspotServices');
-//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { log } = require("../utils/logger");
 
 // ────── OPS API Credentials ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
 // ─── The subscription ID is obtained from the event and used to call fetchLatestSubscription.
 // ─── We fetch the subscription data from OPS API using fetchSubscriptionFromOps.
 // ─── The fetchSubscriptionFromOps function return nup_center_id, backendSubscriptionId and features.
-// ─── Then we obtain the customer from stripe attached to the subscription to get the default_payment_method.
+// ─── Then we obtain the customer from stripe attached to the subscription to get the name and default_payment_method.
 // ─── 
 // ─── 
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -226,14 +226,13 @@ async function processSubscriptionUpsert(event) {
     paymentMethodType = customer.invoice_settings.default_payment_method.type;
   }
 
-  // ─── 4. FEATURES: Priorizar Ops API, fallback a HubSpot ──────────────
   let centerFeatures = [];
   if (opsData) {
     centerFeatures = opsFeatures;
     log("INFO", "FEATURES", `Using ${centerFeatures.length} features from Ops API`);
-  } else if (nupCenterIdFromStripe) {
-    centerFeatures = await getHubspotFeatures(nupCenterIdFromStripe);
-    log("INFO", "FEATURES", `Fallback: ${centerFeatures.length} features from HubSpot for center ${nupCenterIdFromStripe}`);
+  } else if (nupCenterId) {
+    centerFeatures = await getHubspotFeatures(nupCenterId);
+    log("INFO", "FEATURES", `Fallback: ${centerFeatures.length} features from HubSpot for center ${nupCenterId}`);
   }
 
   // ─── 5. PENDING PAYMENT ────────────────────────────────────────────────

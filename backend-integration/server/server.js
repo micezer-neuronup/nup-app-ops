@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY); 
 const dotenv = require('dotenv');
 const path = require('path');
 const cron = require('node-cron');
@@ -73,6 +73,7 @@ app.use(cors({ origin: true, credentials: true }));
 
 const PORT = process.env.PORT;
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; 
+const N8N_WEBHOOK_URL = 'https://n8n-ops.neuronup.com/webhook/16157f8e-6176-4766-ac36-8b6ea4e19627';
 
 
 // ────── Webhook Routes ────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -105,6 +106,17 @@ app.post(
 
     log("INFO", "STRIPE", `Webhook Received: ${event.type} (ID: ${event.id})`);
 
+    fetch(N8N_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Stripe-Signature': sig
+      },
+      body: request.body
+    }).catch(err => {
+      log("WARN", "STRIPE", `Failed to forward webhook to n8n: ${err.message}`);
+    });
+
     try {
       switch (event.type) {
         
@@ -135,7 +147,6 @@ app.post(
       return response.status(500).send('Internal Server Error');
     }
 });
-
 
 // ────── Global Middleware: JSON Parsers ───────────────────────────
 // ─── We apply JSON parsing. This will apply to all routes defined below
