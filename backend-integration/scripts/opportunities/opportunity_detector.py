@@ -1,3 +1,5 @@
+# ────── Documented ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 import os
 import sys
 import json
@@ -55,16 +57,10 @@ def get_db_connection():
 
 
 # ────── AI Justification ────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ──
-# ──
-# ──
-# ──
-# ──
-# ──
-# ──
-# ──
+# ── The function is called for each oportunity detected. 
+# ── We set the prompt fot Open Router.
+# ── If the call to Open Router fails, then we have a fallback that return a manual justification with the data.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-
 def generate_ai_justification(center_id, total_tests, active_days, avg_daily):
     prompt = f"""Eres un asistente para el equipo de Customer Success.
 
@@ -133,13 +129,14 @@ REDACTA EL MENSAJE:"""
 # ── So that cut( in this case 84) is the value we store in p85.
 # ── If there is only one total, we do a fallback and asign the value to p85.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── We then use the p85 value to obtain the candidates, those with totals >= p85
+# ── We then use the p85 value to obtain the candidates, those with totals >= p85.
 # ── If there a no candidates we abort the detection.
-# ── We the proceed to add the new opportunities to the database.
-# ── 
-# ── 
-# ── 
-# ── 
+# ── We then proceed to add the new opportunities to the database and update the current values.
+# ── Opportunities current data without activity in the last 60 days is set to 0.
+# ── For each existing opportunity, if the state has chenged, we update it.
+# ── We call the function generate_ai_justification for each opportunity. 
+# ── We calculate the base score and the score and build the trigger_details json.
+# ── Then we do the insert to commercial_opportunity.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def run_quincenal_detection():
     log("=== INICIANDO DETECCIÓN QUINCENAL (60 días) ===")
@@ -201,8 +198,6 @@ def run_quincenal_detection():
         candidates = [row for row in centers_data if row[1] >= threshold]
         log(f"Candidatos que superan threshold ({threshold:.2f}): {len(candidates)}")
 
-        # ── Actualizar current_* de TODAS las opps pending con actividad actual
-        #    (incluye las que no superan el threshold, y resetea a 0 las que ya no tienen actividad)
         updated_current = 0
         for center_id, total_tests, active_days, avg_daily, percentile in centers_data:
             cursor.execute("""
@@ -215,7 +210,6 @@ def run_quincenal_detection():
             if cursor.rowcount > 0:
                 updated_current += cursor.rowcount
 
-        # Resetear a 0 las pending cuyo centro ya no tiene actividad
         center_ids_with_activity = [str(row[0]) for row in centers_data]
         cursor.execute("""
             UPDATE commercial_opportunity

@@ -367,10 +367,25 @@ async function processPendingHubspotSyncs(syncFunction) {
   }
 }
 
+
+async function getBackendSubscriptionId(subscriptionId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT backend_subscription_id FROM subscriptions WHERE subscription_id = $1`,
+      [subscriptionId]
+    );
+    return rows.length > 0 ? rows[0].backend_subscription_id : null;
+  } catch (error) {
+    log("ERROR", "DB", `Error getting backend_subscription_id for ${subscriptionId}: ${error.message}`);
+    return null;
+  }
+}
+
 module.exports = { 
   getSubscriptionByCenterId,
   upsertSubscriptionData,
   updateInvoiceData,
   markHubspotSyncStatus,
-  processPendingHubspotSyncs
+  processPendingHubspotSyncs,
+  getBackendSubscriptionId  
 };

@@ -1,21 +1,28 @@
-const { upsertSubscriptionData, updateInvoiceData, markHubspotSyncStatus } = require('../db/dbSubscriptions');
+const { upsertSubscriptionData, updateInvoiceData, markHubspotSyncStatus, getBackendSubscriptionId   } = require('../db/dbSubscriptions');
 const { syncSingleSubscriptionToHubspot } = require('./hubspotServices');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+//const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { log } = require("../utils/logger");
 
-
-// ==========================================
-// Constantes para Ops API
-// ==========================================
+// ────── OPS API Credentials ───────────────────────────────────────────────────────────────────────────────────────────────────────
+//
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const OPS_API_URL = 'https://api.neuronup.com/ops/subscriptions';
-const OPS_API_TOKEN = process.env.OPS_API_TOKEN || '6p48*mf65TH$cU**';
+const OPS_API_TOKEN = process.env.OPS_API_TOKEN;
 
+// ────── Stripe date format ────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Change stripe Date format to the databse Date format.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function formatStripeDate(unixTimestamp) {
   if (!unixTimestamp) return null; 
   return new Date(unixTimestamp * 1000).toISOString();
 }
 
 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+// SHOULD BE ON HUSBPOT SERVICES.
 async function getHubspotFeatures(nupCenterId) {
   if (!nupCenterId) return [];
 
@@ -58,6 +65,23 @@ async function getHubspotFeatures(nupCenterId) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
+// ────── Stripe: Fetch latest subscription data ────────────────────────────────────────────────────────────────────────────────────
+// ─── Called by processSubscriptionUpsert and processInvoiceEvent.
+// ─── Created to avoid inconsistences in data and have the actual data.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function fetchLatestSubscription(subId) {
   try {
     return await stripe.subscriptions.retrieve(subId, {
@@ -70,13 +94,47 @@ async function fetchLatestSubscription(subId) {
 }
 
 
-// ==========================================
-// Función para obtener datos de Ops API (TODAS las páginas)
-// ==========================================
+// ────── Stripe: Fetch subscription from OPS API ───────────────────────────────────────────────────────────────────────────────────
+// ─── The subscription backend id is fethced from the database using getBackendSubscriptionId from dbSubscriptions.
+// ─── If the backend id is in the database, we fetch the indivual OPS API endpoint. 
+// ─── If found, we return the backend id, the nup_center_id and the features.
+// ─── If not, we have to search for the subscription in OPS API.
+// ─── OPS API has subscriptions listed in pages so we have to limit for security to not saturate the API.
+// ─── While the maxPages is not exceeded, we fetch subscriptions with the kind stripe and a page iterator.
+// ─── Once the while loop finishes, we have all the subscriptions stored in the response. 
+// ─── Once the fetch is completed and verified, we obtain the json response and verify if there is content or not.
+// ─── If there is, we search for the subscirption using the ID.
+// ─── We return the backend id, the nup_center_id and the features. (Breaks the loop)
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function fetchSubscriptionFromOps(stripeSubscriptionId) {
   try {
+
+    const existingBackendId = await getBackendSubscriptionId(stripeSubscriptionId);
+
+    if (existingBackendId) {
+      const url = `${OPS_API_URL}/${existingBackendId}`;
+      const response = await fetch(url, {
+        headers: {
+          'X-Api-Token': OPS_API_TOKEN,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const found = await response.json();
+        log('INFO', 'OPS-API', `Found subscription ${stripeSubscriptionId} in Ops API (individual, id: ${existingBackendId})`);
+        return {
+          backendSubscriptionId: found.id,
+          nupCenterId: found.center.id,
+          features: found.features ? found.features.map(f => f.identifier) : []
+        };
+      }
+
+      log('WARN', 'OPS-API', `Individual fetch failed for ${existingBackendId} (${response.status}). Falling back to page iteration.`);
+    }
+
     let page = 1;
-    const maxPages = 400; // Límite de seguridad
+    const maxPages = 400;
 
     while (page <= maxPages) {
       const url = `${OPS_API_URL}?page=${page}&kind=stripe`;
@@ -95,7 +153,6 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
       const subscriptions = await response.json();
 
       if (!subscriptions || subscriptions.length === 0) {
-        // No hay más páginas
         log('WARN', 'OPS-API', `Subscription ${stripeSubscriptionId} not found in Ops API (searched ${page - 1} pages)`);
         return null;
       }
@@ -124,16 +181,23 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
 }
 
 
-// ==========================================
-// FUNCIÓN PRINCIPAL
-// ==========================================
+
+// ────── Stripe: Subscription upsert ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Upsert subscription function called by webhook.
+// ─── Called when a subscription is created, updated or deleted on stripe.
+// ─── The subscription ID is obtained from the event and used to call fetchLatestSubscription.
+// ─── We fetch the subscription data from OPS API using fetchSubscriptionFromOps.
+// ─── The fetchSubscriptionFromOps function return nup_center_id, backendSubscriptionId and features.
+// ─── Then we obtain the customer from stripe attached to the subscription to get the default_payment_method.
+// ─── 
+// ─── 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function processSubscriptionUpsert(event) {
   const subId = event.data.object.id;
   const subscription = await fetchLatestSubscription(subId);
 
   log("INFO", "SUBSCRIPTION-SERVICE", `Subscription Upsert: ${subId}`);
 
-  // ─── 1. OBTENER DATOS DE OPS API ──────────────────────────────────────
   const opsData = await fetchSubscriptionFromOps(subId);
   
   let nupCenterId = null;
@@ -149,15 +213,12 @@ async function processSubscriptionUpsert(event) {
     log("WARN", "OPS-API", `Falling back to HubSpot for ${subId}`);
   }
 
-  // ─── 2. OBTENER CUSTOMER DE STRIPE ────────────────────────────────────
   const customer = await stripe.customers.retrieve(subscription.customer, {
     expand: ['invoice_settings.default_payment_method']
   });
   
-  const nupCenterIdFromStripe = customer.metadata?.nup_center_id || null;
   const centerName = customer.name || customer.description || null;
 
-  // ─── 3. PAYMENT METHOD ─────────────────────────────────────────────────
   let paymentMethodType = null;
   if (subscription.default_payment_method) {
     paymentMethodType = subscription.default_payment_method.type;

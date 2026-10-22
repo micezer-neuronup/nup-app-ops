@@ -1,3 +1,5 @@
+# ────── Documented ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 import os
 import psycopg2
 from datetime import datetime, timedelta
@@ -6,12 +8,14 @@ from dotenv import load_dotenv
 
 from ops_filter import get_centers_with_feature
 
-# ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
+# ────── Env configuration ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 
 # ────── Database configuration ────────────────────────────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 DB_HOST = os.getenv('DB_HOST')
 DB_NAME = os.getenv('DB_NAME')
 DB_USER = os.getenv('DB_USER')
@@ -20,7 +24,10 @@ DB_PORT = os.getenv('DB_PORT')
 
 
 # ────── Score weights ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# score = score_base + (n_detections * SCORE_WEIGHT_DAYS) + (total_tests * SCORE_WEIGHT_TESTS)
+# ── SCORE_WEIGHT_DAYS is the value to ponderate the number of days (in this case +2 for each day)
+# ── SCORE_WEIGHT_TESTS is the value to ponderate the total tests (in this cas +1 for every 10 tests)
+# ── FORMULA: score = score_base + (n_detections * SCORE_WEIGHT_DAYS) + (total_tests * SCORE_WEIGHT_TESTS)
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 SCORE_WEIGHT_DAYS = 2
 SCORE_WEIGHT_TESTS = 0.1
 
@@ -30,6 +37,7 @@ def log(msg, level="INFO"):
 
 
 # ────── Database connection ───────────────────────────────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def get_db_connection():
     return psycopg2.connect(
         host=DB_HOST, database=DB_NAME,
@@ -39,6 +47,26 @@ def get_db_connection():
 
 
 # ────── Daily detection ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── We call the function get_centers_with_feature and recieve the centers with active test_all.
+# ── We obtain all pending opportunities distinct to converted and store them in active_opportunities.
+# ── We get the date of yesterday(To check available data till that date from daily_stats).
+# ── For each opportunity if the center is in active_test_all, we set the status to converted.
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── We then proceed to fetch all daily activity from detection date till yesterday.
+# ── For this we fitrst get all the existing dates of the opportunity on opportunity_detections.
+# ── The we loop from current date till yesterday and check all thed dates
+# ── If the date is in existing_dates we skip and advamce one day.
+# ── If not in existing_dates, we get the tests_finished from daily_stats of that date.
+# ── If the result is > 0, we insert the date inside opportunity_detections and add it to existing_dates.
+# ── Then we increment the date to check the next one.
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── After inserting new dialy detections, we proceed to calculate the score.
+# ── We fetch the count of daily detections the opportuntiy has and the total of tests of all those detections.
+# ── We then calculate the new score using the formula we defined.
+# ── FORMULA: score = score_base + (n_detections * SCORE_WEIGHT_DAYS) + (total_tests * SCORE_WEIGHT_TESTS)
+# ── Then we update the score column of the opportunity in commercial_opportunity.
+# ── The column score_base must not be touched.
+# ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def run_daily_detection():
     log("=== INICIANDO DETECCIÓN DIARIA (backfill automático desde detección inicial) ===")
     conn = get_db_connection()
