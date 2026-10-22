@@ -106,6 +106,7 @@ app.post(
 
     log("INFO", "STRIPE", `Webhook Received: ${event.type} (ID: ${event.id})`);
 
+    log("INFO", "STRIPE", `Forwarding webhook to n8n (event: ${event.id})`);
     fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: {
@@ -113,9 +114,13 @@ app.post(
         'Stripe-Signature': sig
       },
       body: request.body
-    }).catch(err => {
-      log("WARN", "STRIPE", `Failed to forward webhook to n8n: ${err.message}`);
-    });
+    })
+      .then(res => {
+        log("INFO", "STRIPE", `n8n responded with status ${res.status} (event: ${event.id})`);
+      })
+      .catch(err => {
+        log("WARN", "STRIPE", `Failed to forward webhook to n8n: ${err.message} (event: ${event.id})`);
+      });
 
     try {
       switch (event.type) {
