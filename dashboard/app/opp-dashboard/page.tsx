@@ -1,5 +1,5 @@
-import { OppDashboard  } from "@/components/opp-dashboard/OppDashboard";
+import { OppHome } from "@/components/opp-dashboard/OppHome";
 
 export default function OppDashboardPage() {
-  return <OppDashboard  />;
+  return <OppHome />;
 }

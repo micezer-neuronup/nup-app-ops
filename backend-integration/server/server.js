@@ -29,6 +29,7 @@ const { getAnalyticsByCenterId,
         updateFeatureRequestStatus,
         updateOpportunityStatus,
         getAllOpportunities,
+        getOpportunityUsage,
         assignUpsellOpportunity } = require('./db/dbAnalytics');
 
 const { getSubscriptionByCenterId, 
@@ -165,7 +166,7 @@ app.use(express.json());
 // ────── Endpoint: get company data ──────────────────────────────────────────────────────────────────
 // ─── The endpoint recieves the husbpot objectId and objectTypeId from the dashboard
 // ─── Then the company data is fetched calling resolveCompanyData()
-// ─── Once obtained, the nup_center_id is used to query the nalytics calling getAnalyticsByCenterId
+// ─── Once obtained, the nup_center_id is used to query the analytics calling getAnalyticsByCenterId and getSubscriptionByCenterId.
 // ─── The analytics data is appended to the company data and sent back to the dashboard
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 app.options('/api/company-data', cors());
@@ -230,6 +231,27 @@ app.get('/api/opportunities', async (req, res) => {
   try {
     const opportunities = await getAllOpportunities({});
     res.json(opportunities);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
+// ────── Endpoint: get opportunity usage ──────────────────────────────────────────────────────────────────
+// ─── The endpoint calls the fucntion getOpportunityUsage from the dbAnalytics file.
+// ─── Returns the tests per day of the last 60 days for the activity chart of the modal.
+// ─── Called by opportunity dashboard.
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+app.get('/api/opportunities/:id/usage', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    return res.status(400).json({ error: 'Invalid opportunity id' });
+  }
+
+  try {
+    const usage = await getOpportunityUsage(id);
+    res.json(usage);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

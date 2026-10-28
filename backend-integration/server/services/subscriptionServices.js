@@ -1,10 +1,11 @@
+// ────── Documented ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const { upsertSubscriptionData, updateInvoiceData, markHubspotSyncStatus, getBackendSubscriptionId   } = require('../db/dbSubscriptions');
-const { syncSingleSubscriptionToHubspot } = require('./hubspotServices');
+const { syncSingleSubscriptionToHubspot, getHubspotFeatures } = require('./hubspotServices');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { log } = require("../utils/logger");
 
 // ────── OPS API Credentials ───────────────────────────────────────────────────────────────────────────────────────────────────────
-//
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const OPS_API_URL = 'https://api.neuronup.com/ops/subscriptions';
 const OPS_API_TOKEN = process.env.OPS_API_TOKEN;
@@ -16,66 +17,6 @@ function formatStripeDate(unixTimestamp) {
   if (!unixTimestamp) return null; 
   return new Date(unixTimestamp * 1000).toISOString();
 }
-
-
-// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-// SHOULD BE ON HUSBPOT SERVICES.
-async function getHubspotFeatures(nupCenterId) {
-  if (!nupCenterId) return [];
-
-  try {
-    const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.HUBSPOT_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        filterGroups: [{
-          filters: [{
-            propertyName: "nup_center_id",
-            operator: "EQ",
-            value: nupCenterId
-          }]
-        }],
-        properties: ["subscription_features"]
-      })
-    });
-
-    if (!response.ok) {
-      log("WARN", "HUBSPOT", `API error: ${response.status} for center ${nupCenterId}`);
-      return [];
-    }
-
-    const data = await response.json();
-    
-    if (data.results && data.results.length > 0) {
-      const rawFeatures = data.results[0].properties.subscription_features;
-      if (!rawFeatures) return [];
-      
-      return rawFeatures.split(/[,;]/).map(f => f.trim()).filter(Boolean); 
-    }
-    return [];
-  } catch (error) {
-    log("ERROR", "HUBSPOT", `Request failed for center ${nupCenterId}: ${error.message}`);
-    return [];
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
 
 
 // ────── Stripe: Fetch latest subscription data ────────────────────────────────────────────────────────────────────────────────────
@@ -104,7 +45,7 @@ async function fetchLatestSubscription(subId) {
 // ─── Once the while loop finishes, we have all the subscriptions stored in the response. 
 // ─── Once the fetch is completed and verified, we obtain the json response and verify if there is content or not.
 // ─── If there is, we search for the subscirption using the ID.
-// ─── We return the backend id, the nup_center_id and the features. (Breaks the loop)
+// ─── We return the subscription backend id, the nup_center_id, the access status and the features. (Breaks the loop)
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function fetchSubscriptionFromOps(stripeSubscriptionId) {
   try {
@@ -126,7 +67,8 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
         return {
           backendSubscriptionId: found.id,
           nupCenterId: found.center.id,
-          features: found.features ? found.features.map(f => f.identifier) : []
+          features: found.features ? found.features.map(f => f.identifier) : [],
+          status: found.status
         };
       }
 
@@ -164,7 +106,8 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
         return {
           backendSubscriptionId: found.id,
           nupCenterId: found.center.id,
-          features: found.features ? found.features.map(f => f.identifier) : []
+          features: found.features ? found.features.map(f => f.identifier) : [],
+          status: found.status  
         };
       }
 
@@ -181,17 +124,34 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
 }
 
 
-
 // ────── Stripe: Subscription upsert ───────────────────────────────────────────────────────────────────────────────────────────────────────
 // ─── Upsert subscription function called by webhook.
 // ─── Called when a subscription is created, updated or deleted on stripe.
 // ─── The subscription ID is obtained from the event and used to call fetchLatestSubscription.
 // ─── We fetch the subscription data from OPS API using fetchSubscriptionFromOps.
-// ─── The fetchSubscriptionFromOps function return nup_center_id, backendSubscriptionId and features.
+// ─── The fetchSubscriptionFromOps function return nup_center_id, backendSubscriptionId, access status and features.
 // ─── Then we obtain the customer from stripe attached to the subscription to get the name and default_payment_method.
-// ─── 
-// ─── 
+// ─── The features, if not returned by OPS API, are fetched from Hubspot using the nup_center_id from the database linked to the subscription. 
+// ─── To know if a subscription has pending invoices, we check the list of open invoices limited to one. 
+// ─── Then we set pendingPayment to True or False.
+// ─── We Obtain the startDate and precancelledDate. Note that precancelledDate is canceled_at(The date the cancel option was clicked).
+// ─── The precancelledDate field will be empty until the cancel button is clicked. The date it was clicked is the precancelledDate.
+// ─── We then after to infer the cancelationDate which is the date the subscription state will transition to cancelled.
+// ─── If there is a cancel_at value, we asign it to cancelationDate.
+// ─── If the subscription is cancelled we get the ended_at field.
+// ─── We obtain revokedAccessDate from cancelationDate.
+// ─── The isForever variable is infered by checking if the subscription is not canceled and there is not any cancelation date.
+// ─── We then get the state of the subscription(parentState).
+// ─── For each item we store a row in items with all the fields for each one corrlating it to the subscription.
+// ─── We retrieve the product, if not on stripe we assume its a manual porduct.
+// ─── Then we get the item status(childStatus) which is the same as the aprent unless there is current_period_end
+// ─── If the status is past_due, unpaid or incomplete and itemPeriodEndDate is after today, we set it as active.
+// ─── Then we build the payload and await the call of upsertSubscriptionData from dbSubscriptions.
+// ─── After responding, we proceed to sync the subscription to hubspot by awaiting markHubspotSyncStatus from hubspotServices.
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Faltarian hacer los siguientes cambios, añade el campo de has access y populalo con status de OPS API.
+// getHubspotFeatures ha sido movido a husbpot services ya. debe usar el nup_center_id de la base de datos
+// 
 async function processSubscriptionUpsert(event) {
   const subId = event.data.object.id;
   const subscription = await fetchLatestSubscription(subId);
@@ -203,12 +163,14 @@ async function processSubscriptionUpsert(event) {
   let nupCenterId = null;
   let backendSubscriptionId = null;
   let opsFeatures = [];
+  let access = null;
 
   if (opsData) {
     nupCenterId = opsData.nupCenterId;
     backendSubscriptionId = opsData.backendSubscriptionId;
     opsFeatures = opsData.features;
-    log("INFO", "OPS-API", `Using Ops API data: center=${nupCenterId}, backendId=${backendSubscriptionId}`);
+    access = opsData.status;
+    log("INFO", "OPS-API", `Using Ops API data: center=${nupCenterId}, backendId=${backendSubscriptionId}, access=${access}`);
   } else {
     log("WARN", "OPS-API", `Falling back to HubSpot for ${subId}`);
   }
@@ -235,11 +197,9 @@ async function processSubscriptionUpsert(event) {
     log("INFO", "FEATURES", `Fallback: ${centerFeatures.length} features from HubSpot for center ${nupCenterId}`);
   }
 
-  // ─── 5. PENDING PAYMENT ────────────────────────────────────────────────
   const openInvoices = await stripe.invoices.list({ subscription: subId, status: 'open', limit: 1 });
   const pendingPayment = openInvoices.data.length > 0;
 
-  // ─── 6. FECHAS ──────────────────────────────────────────────────────────
   const startDate = formatStripeDate(subscription.start_date);
   const precancelledDate = formatStripeDate(subscription.canceled_at);
   
@@ -247,7 +207,7 @@ async function processSubscriptionUpsert(event) {
   if (subscription.cancel_at) {
     cancelationDate = formatStripeDate(subscription.cancel_at);
   } else if (subscription.status === 'canceled') {
-    cancelationDate = formatStripeDate(subscription.ended_at || subscription.canceled_at);
+    cancelationDate = formatStripeDate(subscription.ended_at);
   }
 
   const revokedAccessDate = cancelationDate;
@@ -256,7 +216,7 @@ async function processSubscriptionUpsert(event) {
   !subscription.ended_at &&
   subscription.cancel_at_period_end === false &&
   subscription.cancel_at === null;
-  // ─── 7. ESTADO ──────────────────────────────────────────────────────────
+
   let parentState = subscription.status;
   const trialEnd = subscription.trial_end;
   if (parentState === 'canceled' && trialEnd && subscription.canceled_at && subscription.canceled_at <= trialEnd) {
@@ -265,7 +225,6 @@ async function processSubscriptionUpsert(event) {
     parentState = 'trial';
   }
 
-  // ─── 8. ITEMS ──────────────────────────────────────────────────────────
   const subscriptionItems = [];
   const items = subscription.items.data;
   const today = new Date();
@@ -318,7 +277,6 @@ async function processSubscriptionUpsert(event) {
     });
   }
 
-  // ─── 9. PAYLOAD FINAL ──────────────────────────────────────────────────
   const payload = {
     subscription_id: subId,
     hubspot_subscription_id: null,
@@ -339,6 +297,7 @@ async function processSubscriptionUpsert(event) {
     market: null,
     is_forever: isForever,
     pending_payment: pendingPayment,
+    access: access,
     items: subscriptionItems,
     stripe_event_id: event.id,
     event_type: event.type,
@@ -362,6 +321,18 @@ async function processSubscriptionUpsert(event) {
   });
 }
 
+
+
+// ────── Stripe: Subscription invoice upsert ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Upsert subscription invoice function called by webhook.
+// ─── Called when a invoice event is recieved.
+// ─── We obrtain the subscription attached to the invoice event and call fetchLatestSubscription.
+// ─── Then we call processSubscriptionUpsert building a manual event to feed it with.
+// ─── We obtain the status of the invoice, the amount and the invoice date.
+// ─── Then if the invoice is a invoice.paid type, we obtain the paid items.
+// ─── Then we build the payload and await the call of updateInvoiceData from dbSubscriptions.
+// ─── After responding, we proceed to sync the subscription to hubspot by awaiting markHubspotSyncStatus from hubspotServices.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function processInvoiceEvent(event) {
   const invoice = event.data.object;
   const subId = invoice.subscription || invoice.parent?.subscription_details?.subscription;

@@ -152,8 +152,10 @@ async function getAllOpportunities(filters = {}) {
         o.product, 
         o.trigger_source, 
         o.trigger_details, 
-        o.ai_justification, 
-        o.status, 
+        o.ai_justification,
+        o.ai_brief,
+        o.ai_brief_at,
+        o.status,
         o.created_at, 
         o.updated_at,
         o.reported_at,
@@ -177,7 +179,7 @@ async function getAllOpportunities(filters = {}) {
           ), '[]'::json
         ) AS detections
       FROM commercial_opportunity o
-      WHERE 1=1
+      WHERE o.status <> 'expired'
     `;
 
     const params = [];
@@ -258,17 +260,49 @@ async function getAllOpportunities(filters = {}) {
   }
 }
 
+// ── Tests finished per day of the opportunity's center in the last 60 days (same column and window as scoring.py).
+// ── generate_series fills the days without usage with 0. recent = the last 30 days used for the trend.
+async function getOpportunityUsage(opportunityId) {
+  try {
+    const result = await pool.query(
+      `SELECT
+         to_char(d.day, 'YYYY-MM-DD') AS date,
+         COALESCE(SUM(s.tests_finished), 0)::int AS tests,
+         d.day >= CURRENT_DATE - INTERVAL '30 days' AS recent
+       FROM commercial_opportunity o
+       CROSS JOIN generate_series(CURRENT_DATE - INTERVAL '60 days', CURRENT_DATE - INTERVAL '1 day', INTERVAL '1 day') AS d(day)
+       LEFT JOIN daily_stats s ON s.center_id::text = o.center_id::text AND s.stat_date = d.day::date
+       WHERE o.id = $1
+       GROUP BY d.day
+       ORDER BY d.day ASC`,
+      [opportunityId]
+    );
+    return result.rows;
+  } catch (error) {
+    log("ERROR", "DB", `Error fetching opportunity usage: ${error.message}`);
+    throw error;
+  }
+}
+
+// ── The AI brief ({summary, points}) as plain text for the HubSpot property: the summary and one "• " line per point.
+function formatBrief(brief) {
+  if (!brief || typeof brief.summary !== 'string') return null;
+  const points = Array.isArray(brief.points) ? brief.points.map((p) => `• ${p}`) : [];
+  return [brief.summary, ...points].join('\n');
+}
+
 async function assignUpsellOpportunity(opportunityId, { upsellObject, upsellOwnerId, upsellOwnerName }) {
-  // 1. Obtener center_id y ai_justification de la oportunidad
+  // 1. Obtener center_id, ai_brief y ai_justification de la oportunidad
   const result = await pool.query(
-    `SELECT center_id, ai_justification FROM commercial_opportunity WHERE id = $1`,
+    `SELECT center_id, ai_justification, ai_brief FROM commercial_opportunity WHERE id = $1`,
     [opportunityId]
   );
   if (result.rows.length === 0) {
     throw new Error('Opportunity not found');
   }
   const centerId = result.rows[0].center_id;
-  const aiJustification = result.rows[0].ai_justification || '';
+  // El brief de IA si existe; si no, la plantilla de ai_justification
+  const aiJustification = formatBrief(result.rows[0].ai_brief) || result.rows[0].ai_justification || '';
 
   // 2. Obtener companyId de HubSpot
   const companyData = await getCompanyDataByNupCenterId(centerId);
@@ -325,5 +359,6 @@ module.exports = {
   updateFeatureRequestStatus,
   updateOpportunityStatus,
   getAllOpportunities,
+  getOpportunityUsage,
   assignUpsellOpportunity
 };

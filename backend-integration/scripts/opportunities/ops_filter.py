@@ -20,6 +20,17 @@ OPS_API_URL = os.getenv('OPS_API_URL', 'https://api.neuronup.com/ops/subscriptio
 OPS_API_TOKEN = os.getenv('OPS_API_TOKEN')
 MAX_PAGES = 1000 
 
+# ────── Subscription states ─────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── FEATURE_CURRENT_STATES: states where the center can use the feature today (has it now).
+# ── CUSTOMER_STATES: states where the center is a paying customer today (eligible for upsell).
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+FEATURE_CURRENT_STATES = {'active', 'past_due', 'trial'}
+CUSTOMER_STATES = {'active', 'past_due'}
+
+
+class OpsApiError(Exception):
+    pass
+
 
 def log(msg, level="INFO"):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{level}] {msg}", flush=True)
@@ -32,12 +43,12 @@ def log(msg, level="INFO"):
 # ── Then inside features_map we map each sub id to ites features.
 # ── We then increment the page inside the loop to fetch the next page.
 # ── When we fetch an empty page, we break the loop.
+# ── Any failure (no token, failed page, exception, MAX_PAGES reached) raises OpsApiError so the caller stops.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def fetch_ops_features_map():
 
     if not OPS_API_TOKEN:
-        log("OPS_API_TOKEN not set. Cannot fetch features.", "WARN")
-        return None
+        raise OpsApiError("OPS_API_TOKEN not set. Cannot fetch features.")
 
     features_map = {}
     page = 1
@@ -50,8 +61,7 @@ def fetch_ops_features_map():
                 timeout=30
             )
             if not r.ok:
-                log(f"Ops API page {page} failed: {r.status_code}", "WARN")
-                return None
+                raise OpsApiError(f"Ops API page {page} failed: {r.status_code}")
 
             subs = r.json()
             if not subs:
@@ -65,14 +75,15 @@ def fetch_ops_features_map():
             page += 1
         
         if page > MAX_PAGES:
-            log(f"MAX_PAGES ({MAX_PAGES}) reached — pagination may be incomplete!", "WARN")
+            raise OpsApiError(f"MAX_PAGES ({MAX_PAGES}) reached — pagination may be incomplete!")
 
         log(f"Ops API: fetched {len(features_map)} subscriptions ({page - 1} pages)")
         return features_map
 
+    except OpsApiError:
+        raise
     except Exception as e:
-        log(f"Ops API fetch error: {e}", "WARN")
-        return None
+        raise OpsApiError(f"Ops API fetch error: {e}") from e
 
 
 
@@ -81,15 +92,14 @@ def fetch_ops_features_map():
 # ── We query the subscriptions table to get the backend_subscription_id, current_state and nup_center_id.
 # ── For each sub, we get the fetaures from ops_map using the backend_subscription_id as key.
 # ── We then get the nup_center_id and store it either on active_set or review_set based on the state.
+# ── active_set: the feature is on a subscription in FEATURE_CURRENT_STATES (active, past_due, trial).
 # ── From review_set we remove the backend_subscription_id that are in active_set(previous subs).
 # ── Then return both sets.
+# ── If the Ops API fails, OpsApiError propagates: we never continue with empty sets (fail-closed).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def get_centers_with_feature(cursor, feature='test_all'):
 
     ops_map = fetch_ops_features_map()
-    if ops_map is None:
-        log("Ops API unavailable → fail-open (no centers excluded).", "WARN")
-        return set(), set()
 
     cursor.execute("""
         SELECT nup_center_id, backend_subscription_id, current_state
@@ -111,7 +121,7 @@ def get_centers_with_feature(cursor, feature='test_all'):
         if not feats or feature not in feats:
             continue
         cid = str(nup_center_id)
-        if state == 'active':
+        if state in FEATURE_CURRENT_STATES:
             active_set.add(cid)
         else:
             review_set.add(cid)
@@ -120,3 +130,21 @@ def get_centers_with_feature(cursor, feature='test_all'):
 
     log(f"Centros con '{feature}': {len(active_set)} activos, {len(review_set)} no-activos")
     return active_set, review_set
+
+
+# ────── Current customers ───────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── We query the subscriptions table to get the nup_center_id of every subscription in CUSTOMER_STATES.
+# ── Only these centers are eligible for an upsell opportunity.
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+def get_current_customers(cursor):
+
+    cursor.execute("""
+        SELECT DISTINCT nup_center_id
+        FROM subscriptions
+        WHERE nup_center_id IS NOT NULL
+          AND current_state = ANY(%s)
+    """, (list(CUSTOMER_STATES),))
+
+    customers = {str(row[0]) for row in cursor.fetchall()}
+    log(f"Centros cliente actuales ({', '.join(sorted(CUSTOMER_STATES))}): {len(customers)}")
+    return customers

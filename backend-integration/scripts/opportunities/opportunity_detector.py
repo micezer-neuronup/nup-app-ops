@@ -3,14 +3,14 @@
 import os
 import sys
 import json
-import statistics
 import psycopg2
 from datetime import datetime
 from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from ops_filter import get_centers_with_feature
+from ops_filter import get_centers_with_feature, get_current_customers
+from scoring import fetch_usage, build_scored_pool, thresholds, WINDOW_DAYS, COOLDOWN_DAYS
 
 # ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -28,18 +28,20 @@ DB_PORT = os.getenv('DB_PORT')
 
 
 # ────── OpenRouter configuration ────────────────────────────────────────────────────────────────────────────────────────────────
+# ── The config lives in ai_brief.py (the AI contact brief), imported here for generate_ai_justification.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
-OPENROUTER_MODEL = "openai/gpt-4o-mini"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+from ai_brief import (OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_URL, AI_BRIEF_MAX_PER_RUN,
+                      brief_enabled, fetch_context, generate_brief, signature)
 
 
 # ────── Script configuration ────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── P85_PERCENTILE: percentile that marks the trigger line. Lower it to detect more centers.
-# ── WINDOW_DAYS: forward window to check test activity.
+# ── The thresholds (WINDOW_DAYS, MIN_TESTS, MIN_ACTIVE_DAYS, HIGH_PERCENTILE, COOLDOWN_DAYS) live in scoring.py,
+# ── shared with daily_usage_detector so both jobs score the same way.
+# ── DRY_RUN_TOP: how many candidates the --dry-run prints.
+# ── DRY_RUN_BRIEFS: how many AI briefs the --dry-run --brief generates and prints (not saved).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-P85_PERCENTILE = 0.85
-WINDOW_DAYS = 60
+DRY_RUN_TOP = 20
+DRY_RUN_BRIEFS = 5
 
 
 def log(msg, level="INFO"):
@@ -57,6 +59,7 @@ def get_db_connection():
 
 
 # ────── AI Justification ────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Not called since v2 (build_justification is used instead). The AI contact brief now lives in ai_brief.py.
 # ── The function is called for each oportunity detected. 
 # ── We set the prompt fot Open Router.
 # ── If the call to Open Router fails, then we have a fallback that return a manual justification with the data.
@@ -105,194 +108,206 @@ REDACTA EL MENSAJE:"""
         )
 
 
+# ────── Justification ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── Deterministic text for the agent: the track reason plus the usage summary (no API call).
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+def build_justification(r):
+    return (
+        f"{r['track_reason']}. {r['total_tests']} tests en {WINDOW_DAYS} días "
+        f"({r['active_days']} días activos, media {r['avg_daily']:.1f}). "
+        f"Contactar para ofrecer Assessment."
+    )
+
+
+def build_trigger_details(r):
+    return {
+        "total_tests": r["total_tests"],
+        "active_days": r["active_days"],
+        "avg_daily": r["avg_daily"],
+        "tests_recent": r["tests_recent"],
+        "tests_previous": r["tests_previous"],
+        "percentile": round(r["score_percentile"] * 100, 1),
+        "score_volume": round(r["score_parts"]["volume"] * 100, 1),
+        "score_consistency": round(r["score_parts"]["consistency"] * 100, 1),
+        "score_trend": round(r["score_parts"]["trend"] * 100, 1),
+        "priority": r["priority"],
+        "track_reason": r["track_reason"],
+        **thresholds(),
+    }
+
+
 # ────── Opportunity detection ───────────────────────────────────────────────────────────────────────────────────────────────────
-# ── The function get_centers_with_feature is called to obtain the active_test_all and review_test_all
-# ── Query daily_stats to obtain the nup_center_id and test stats with a backtrack window to check the last WINDOW_DAYS days.
-# ── Contrast query result with active_test_all and store center id in centers_data filtering out the ones in active_test_all.
+# ── get_centers_with_feature gives the centers with test_all now (has_now) and only on old subscriptions (had_before).
+# ── If the Ops API fails it raises, and the run stops without writing anything.
+# ── get_current_customers gives the centers with an active or past_due subscription.
+# ── fetch_usage gets the 60 days usage of every center from daily_stats in one query.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── Once the pool is ready, we start the percentile calculus by sorting the total of test usage stat (tests_finished).
-# ── For each center, we obtain a rank(0-n) for the test usage value of the center.
-# ── Once the rank is obtained, we calculate the percentile of that center.
-# ── The rank / n - 1 gives us the position that the stat value ocuppies in the total. (Ex 210 / 243 - 1) = 0.86 -- (86%)
-# ── The operation n - 1 is done for the highest to get percentile 100%.
-# ── If there is only one center, we asign percentile 100% to it.
-# ── The center is added to the list centers_with_pct adding the percentile to the other test stats.
-# ── Asing centers_data = centers_with_pct to ocntinue to use centers_data( The same thing).
+# ── build_scored_pool keeps current customers without test_all now and scores them (see scoring.py).
+# ── eligible = over the usage floor. priority 'alta' = top percentile of the eligible pool, 'media' = the rest.
+# ── kind 'review' = had test_all before (recovery track), 'upgrade' = never had it.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── Once percentiles are defined, we start calculus of p85, obtaining the total of test and average use for each center.
-# ── If there is more than one total in totals, we can obtain the percentile we want (P85_PERCENTILE)
-# ── To obtain the percentile we want, we first have to section all the totals in 100 sections/groups. (99 cuts)
-# ── More than one value can be in a group, to get the right one we first need to get the index we want from those 99 cuts.
-# ── We obtain the index changing the percentile to full value (0.85 - 85) and substract 1 (index go from 0 to 98 in the cuts)
-# ── Once we have the index we obtain the value we want ans store it inside p85 variable.
-# ── The cuts divide the groups, they are a single value likely interpoled (infered) between the two groups the cut seperates.
-# ── So that cut( in this case 84) is the value we store in p85.
-# ── If there is only one total, we do a fallback and asign the value to p85.
+# ── With --dry-run we only print the pool and the top candidates, nothing is written.
+# ── Pending opportunities: if the center is still eligible we refresh current_*, score, kind and trigger_details.
+# ── Completed ones (inside the cooldown) are refreshed the same way but never expired: they were reviewed on purpose.
+# ── If it is no longer eligible (below the floor or not a customer anymore) the status goes to 'expired'.
+# ── Centers with test_all now are left to daily_usage_detector, which marks them as 'converted'.
+# ── New opportunities: eligible centers without a pending one and without one completed in the last COOLDOWN_DAYS.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── We then use the p85 value to obtain the candidates, those with totals >= p85.
-# ── If there a no candidates we abort the detection.
-# ── We then proceed to add the new opportunities to the database and update the current values.
-# ── Opportunities current data without activity in the last 60 days is set to 0.
-# ── For each existing opportunity, if the state has chenged, we update it.
-# ── We call the function generate_ai_justification for each opportunity. 
-# ── We calculate the base score and the score and build the trigger_details json.
-# ── Then we do the insert to commercial_opportunity.
+# ── AI brief (ai_brief.py): new opportunities, and refreshed ones whose signature (kind|priority|trend) changed or
+# ── without a brief yet, get one AFTER the commit, so a slow or failing OpenRouter never touches the main writes.
+# ── Each brief is committed on its own. At most AI_BRIEF_MAX_PER_RUN per run, highest score first.
+# ── With --dry-run --brief we print the briefs of the top DRY_RUN_BRIEFS candidates without writing them.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def run_quincenal_detection():
-    log("=== INICIANDO DETECCIÓN QUINCENAL (60 días) ===")
+def write_briefs(conn, cursor, pending_briefs):
+    if not pending_briefs:
+        log("Briefs IA: nada que generar")
+        return
+    if not brief_enabled():
+        log(f"Briefs IA: sin OPENROUTER_API_KEY, se omiten {len(pending_briefs)}", "WARN")
+        return
+
+    pending_briefs.sort(key=lambda item: item[2]["score"], reverse=True)
+    to_generate = pending_briefs[:AI_BRIEF_MAX_PER_RUN]
+    skipped = len(pending_briefs) - len(to_generate)
+    context = fetch_context(cursor, [cid for _, cid, _ in to_generate])
+
+    generated = failed = 0
+    for opp_id, cid, r in to_generate:
+        brief = generate_brief(cid, r, context.get(cid))
+        if not brief:
+            failed += 1
+            continue
+        cursor.execute("""
+            UPDATE commercial_opportunity
+            SET ai_brief = %s::jsonb, ai_brief_at = NOW(), ai_brief_signature = %s
+            WHERE id = %s
+        """, (json.dumps(brief, ensure_ascii=False), signature(r), opp_id))
+        conn.commit()
+        generated += 1
+
+    log(f"Briefs IA: generados {generated} | fallidos {failed} | omitidos por límite {skipped}")
+
+
+def run_assessment_detection(dry_run=False, dry_run_brief=False):
+    log(f"=== INICIANDO DETECCIÓN SEMANAL ({WINDOW_DAYS} días){' [DRY RUN]' if dry_run else ''} ===")
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
-        active_test_all, review_test_all = get_centers_with_feature(cursor, feature='test_all')
+        has_now, had_before = get_centers_with_feature(cursor, feature='test_all')
+        customers = get_current_customers(cursor)
+        usage = fetch_usage(cursor)
 
-        query = """
-            SELECT
-                center_id,
-                SUM(tests_finished) AS total_tests,
-                COUNT(DISTINCT stat_date) AS active_days,
-                ROUND(AVG(tests_finished)::NUMERIC, 2) AS avg_daily
-            FROM daily_stats
-            WHERE stat_date >= CURRENT_DATE - INTERVAL '%s days'
-            GROUP BY center_id
-            HAVING SUM(tests_finished) > 0
-        """
-        cursor.execute(query, (WINDOW_DAYS,))
-        raw_centers = cursor.fetchall()
+        scored = build_scored_pool(usage, customers, has_now, had_before)
+        eligible = sorted(
+            (cid for cid, r in scored.items() if r["eligible"]),
+            key=lambda cid: scored[cid]["score"], reverse=True
+        )
+        by_track = {}
+        for cid in eligible:
+            key = f"{scored[cid]['kind']}/{scored[cid]['priority']}"
+            by_track[key] = by_track.get(key, 0) + 1
 
-        centers_data = [row for row in raw_centers if str(row[0]) not in active_test_all]
-        log(f"Centros con actividad: {len(raw_centers)} | Tras excluir test_all activos: {len(centers_data)}")
+        log(f"Centros con tests: {len(usage)} | Clientes sin test_all: {len(scored)} | Elegibles: {len(eligible)}")
+        log(f"Por track: {by_track} | Umbrales: {thresholds()}")
 
-        if not centers_data:
-            log("No hay centros candidatos. Saliendo.")
+        if dry_run:
+            log(f"Top {DRY_RUN_TOP} candidatos:")
+            for cid in eligible[:DRY_RUN_TOP]:
+                r = scored[cid]
+                log(f"  centro {cid}: score {r['score']} ({r['kind']}/{r['priority']}) "
+                    f"tests {r['total_tests']}, días {r['active_days']}, "
+                    f"recientes {r['tests_recent']} vs previos {r['tests_previous']} | {r['track_reason']}")
+            if dry_run_brief:
+                if not brief_enabled():
+                    log("Briefs IA: sin OPENROUTER_API_KEY", "WARN")
+                    return
+                top = eligible[:DRY_RUN_BRIEFS]
+                context = fetch_context(cursor, top)
+                log(f"Briefs IA de los top {len(top)} (no se guardan):")
+                for cid in top:
+                    brief = generate_brief(cid, scored[cid], context.get(cid))
+                    log(f"  centro {cid} [{signature(scored[cid])}]: {json.dumps(brief, ensure_ascii=False)}")
             return
 
-        totals_sorted = sorted([row[1] for row in centers_data])
-        n = len(totals_sorted)
-
-        centers_with_pct = []
-        for center_id, total_tests, active_days, avg_daily in centers_data:
-            if n > 1:
-                rank = totals_sorted.index(total_tests)
-                percentile = (rank / (n - 1)) * 100
-            else:
-                percentile = 100.0
-            centers_with_pct.append((center_id, total_tests, active_days, avg_daily, percentile))
-        centers_data = centers_with_pct
-
-        if n == 1:
-            log(f"Centro único detectado. Percentil forzado a 100 para centro {centers_data[0][0]}")
-
-        totals = [row[1] for row in centers_data]
-        avg_usage = sum(totals) / len(totals) if totals else 0
-
-        if len(totals) >= 2:
-            idx = max(0, min(98, int(P85_PERCENTILE * 100) - 1))
-            p85 = statistics.quantiles(totals, n=100, method='inclusive')[idx]
-        else:
-            p85 = totals[0] if totals else 0
-
-        log(f"Percentil {P85_PERCENTILE*100:.0f}: {p85:.2f}, Media global: {avg_usage:.2f}")
-
-        threshold = (p85 or 0)
-        candidates = [row for row in centers_data if row[1] >= threshold]
-        log(f"Candidatos que superan threshold ({threshold:.2f}): {len(candidates)}")
-
-        updated_current = 0
-        for center_id, total_tests, active_days, avg_daily, percentile in centers_data:
-            cursor.execute("""
-                UPDATE commercial_opportunity
-                SET current_total_tests_60d = %s,
-                    current_active_days_60d = %s,
-                    current_avg_daily_60d = %s
-                WHERE center_id = %s AND status = 'pending' AND product = 'assessments'
-            """, (int(total_tests), int(active_days), avg_daily, str(center_id)))
-            if cursor.rowcount > 0:
-                updated_current += cursor.rowcount
-
-        center_ids_with_activity = [str(row[0]) for row in centers_data]
         cursor.execute("""
-            UPDATE commercial_opportunity
-            SET current_total_tests_60d = 0,
-                current_active_days_60d = 0,
-                current_avg_daily_60d = 0
-            WHERE status = 'pending'
-              AND product = 'assessments'
-              AND center_id NOT IN %s
-        """, (tuple(center_ids_with_activity),))
-        updated_current += cursor.rowcount
+            SELECT id, center_id, status, ai_brief IS NOT NULL, ai_brief_signature
+            FROM commercial_opportunity
+            WHERE product = 'assessments'
+              AND (status = 'pending'
+                   OR (status = 'completed' AND COALESCE(updated_at, created_at) >= NOW() - %s * INTERVAL '1 day'))
+        """, (COOLDOWN_DAYS,))
+        open_rows = cursor.fetchall()
+        blocked_centers = {str(row[1]) for row in open_rows}
 
-        log(f"current_* actualizados: {updated_current}")
-
-        if not candidates:
-            conn.commit()
-            log("No hay candidatos. Saliendo.")
-            return
-
-        new_opportunities = 0
-        updated_kinds = 0
-
-        for center_id, total_tests, active_days, avg_daily, percentile in candidates:
-            kind = 'review' if str(center_id) in review_test_all else 'upgrade'
-
-            cursor.execute("""
-                SELECT id, opportunity_kind FROM commercial_opportunity
-                WHERE center_id = %s AND product = 'assessments' AND status = 'pending'
-                LIMIT 1
-            """, (str(center_id),))
-            existing = cursor.fetchone()
-
-            if existing:
-                existing_id, existing_kind = existing
-                if existing_kind != kind:
-                    cursor.execute("""
-                        UPDATE commercial_opportunity
-                        SET opportunity_kind = %s
-                        WHERE id = %s
-                    """, (kind, existing_id))
-                    log(f"Centro {center_id}: opportunity_kind actualizado '{existing_kind}' → '{kind}'")
-                    updated_kinds += 1
-                else:
-                    log(f"Centro {center_id} ya tiene oportunidad activa. Saltando.")
+        pending_briefs = []
+        refreshed = expired = 0
+        for opp_id, center_id, status, has_brief, brief_signature in open_rows:
+            cid = str(center_id)
+            if cid in has_now:
                 continue
 
-            justification = generate_ai_justification(center_id, total_tests, active_days, avg_daily)
+            r = scored.get(cid)
+            if r and r["eligible"]:
+                cursor.execute("""
+                    UPDATE commercial_opportunity
+                    SET current_total_tests_60d = %s,
+                        current_active_days_60d = %s,
+                        current_avg_daily_60d = %s,
+                        score = %s,
+                        opportunity_kind = %s,
+                        trigger_details = COALESCE(trigger_details, '{}'::jsonb) || %s::jsonb,
+                        last_detected_at = NOW()
+                    WHERE id = %s
+                """, (r["total_tests"], r["active_days"], r["avg_daily"], r["score"], r["kind"],
+                      json.dumps(build_trigger_details(r)), opp_id))
+                refreshed += 1
+                if not has_brief or brief_signature != signature(r):
+                    pending_briefs.append((opp_id, cid, r))
+            elif status == 'pending':
+                cursor.execute("""
+                    UPDATE commercial_opportunity
+                    SET status = 'expired',
+                        current_total_tests_60d = %s,
+                        current_active_days_60d = %s,
+                        current_avg_daily_60d = %s,
+                        updated_at = NOW()
+                    WHERE id = %s
+                """, (r["total_tests"] if r else 0, r["active_days"] if r else 0, r["avg_daily"] if r else 0, opp_id))
+                log(f"Centro {cid}: oportunidad {opp_id} → 'expired' "
+                    f"({'por debajo del mínimo' if r else 'sin uso o ya no es cliente'})")
+                expired += 1
 
-            score_base = int(round((percentile / 100) * 70))
-            score = score_base
-
-            trigger_details = json.dumps({
-                "total_tests": int(total_tests),
-                "active_days": int(active_days),
-                "avg_daily": float(avg_daily) if avg_daily is not None else 0.0,
-                "window_days": WINDOW_DAYS,
-                "percentile": float(percentile),
-                "p85_threshold": float(threshold) if threshold else None,
-                "p85_value": float(p85) if p85 else None,
-                "avg_usage": float(avg_usage) if avg_usage else None
-            })
+        new_opportunities = 0
+        for cid in eligible:
+            if cid in blocked_centers:
+                continue
+            r = scored[cid]
 
             cursor.execute("""
                 INSERT INTO commercial_opportunity
-                    (center_id, product, status, created_at, total_tests_60d, active_days_60d,
+                    (center_id, product, status, created_at, last_detected_at, total_tests_60d, active_days_60d,
                      avg_daily_60d, current_total_tests_60d, current_active_days_60d, current_avg_daily_60d,
                      score_base, score, ai_justification, trigger_details, opportunity_kind)
-                VALUES (%s, 'assessments', 'pending', NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                VALUES (%s, 'assessments', 'pending', NOW(), NOW(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
                 RETURNING id
-            """, (str(center_id), total_tests, active_days, avg_daily,
-                  total_tests, active_days, avg_daily,
-                  score_base, score, justification, trigger_details, kind))
+            """, (cid, r["total_tests"], r["active_days"], r["avg_daily"],
+                  r["total_tests"], r["active_days"], r["avg_daily"],
+                  r["score"], r["score"], build_justification(r),
+                  json.dumps(build_trigger_details(r)), r["kind"]))
 
             opp_id = cursor.fetchone()[0]
-            log(f"✅ Oportunidad ID {opp_id} ({kind}) creada para centro {center_id} "
-                f"(percentil: {percentile:.1f}%, score_base: {score_base})")
+            log(f"✅ Oportunidad ID {opp_id} ({r['kind']}/{r['priority']}) creada para centro {cid} (score: {r['score']})")
             new_opportunities += 1
+            pending_briefs.append((opp_id, cid, r))
 
         conn.commit()
-        log(f"Total nuevas oportunidades: {new_opportunities} | opportunity_kind actualizados: {updated_kinds} | current_* actualizados: {updated_current}")
+        log(f"Total nuevas oportunidades: {new_opportunities} | refrescadas: {refreshed} | expiradas: {expired}")
+
+        write_briefs(conn, cursor, pending_briefs)
 
     except Exception as e:
-        log(f"Error en detección quincenal: {e}", "ERROR")
+        log(f"Error en detección semanal: {e}", "ERROR")
         conn.rollback()
         raise
     finally:
@@ -300,4 +315,4 @@ def run_quincenal_detection():
 
 
 if __name__ == "__main__":
-    run_quincenal_detection()
+    run_assessment_detection(dry_run="--dry-run" in sys.argv, dry_run_brief="--brief" in sys.argv)

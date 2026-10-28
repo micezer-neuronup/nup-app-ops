@@ -262,6 +262,48 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
 }
 
 
+async function getHubspotFeatures(nupCenterId) {
+  if (!nupCenterId) return [];
+
+  try {
+    const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.HUBSPOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        filterGroups: [{
+          filters: [{
+            propertyName: "nup_center_id",
+            operator: "EQ",
+            value: nupCenterId
+          }]
+        }],
+        properties: ["subscription_features"]
+      })
+    });
+
+    if (!response.ok) {
+      log("WARN", "HUBSPOT", `API error: ${response.status} for center ${nupCenterId}`);
+      return [];
+    }
+
+    const data = await response.json();
+    
+    if (data.results && data.results.length > 0) {
+      const rawFeatures = data.results[0].properties.subscription_features;
+      if (!rawFeatures) return [];
+      
+      return rawFeatures.split(/[,;]/).map(f => f.trim()).filter(Boolean); 
+    }
+    return [];
+  } catch (error) {
+    log("ERROR", "HUBSPOT", `Request failed for center ${nupCenterId}: ${error.message}`);
+    return [];
+  }
+}
+
 const HUBSPOT_CALL_DELAY = 200; // 200ms entre llamadas para evitar rate limit
 
 async function getCompanyDataByNupCenterId(nupCenterId) {
@@ -491,5 +533,6 @@ module.exports = {
   getCompanyDataWithCache,
   refreshCompanyCache,
   refreshAllActiveCaches,
-  getAllOwners
+  getAllOwners,
+  getHubspotFeatures
 };

@@ -3,6 +3,15 @@ const { log } = require("../utils/logger");
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+
+// ────── Query: Get sub by nup_center_id ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Called by the '/api/company-data' endpoint  
+// ─── Query to obtain all the subscriptions data of a center by nup_center_id.
+// ─── Items?
+// ─── Then we filter to get the active subscription if there is and build the history with the other subs.
+// ─── We check the items of the active sub to obtain the features.
+// ─── The we return the active sub, the features and the history of subs.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function getSubscriptionByCenterId(centerId) {
   try {
     const query = `
@@ -105,6 +114,14 @@ async function getSubscriptionByCenterId(centerId) {
   }
 }
 
+
+
+// ────── Query:  ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── 
+// ─── 
+// ─── 
+// ─── 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function upsertSubscriptionData(data) {
   const client = await pool.connect();
   
@@ -125,9 +142,9 @@ async function upsertSubscriptionData(data) {
          manages_own_payment, center_name, start_date, precancelled_date, 
          cancelation_date, revoked_access_date, current_state, currency, 
          creation_source, source, payment_method_type, market, last_invoice_status, 
-         last_invoice_amount, last_invoice_date, is_forever, pending_payment, updated_at
+         last_invoice_amount, last_invoice_date, is_forever, pending_payment, access, updated_at
        ) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, CURRENT_TIMESTAMP)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CURRENT_TIMESTAMP)
        ON CONFLICT (subscription_id) 
        DO UPDATE SET 
          hubspot_subscription_id = EXCLUDED.hubspot_subscription_id,
@@ -147,6 +164,7 @@ async function upsertSubscriptionData(data) {
          market = EXCLUDED.market,
          is_forever = EXCLUDED.is_forever,
          pending_payment = EXCLUDED.pending_payment,
+         access = COALESCE(EXCLUDED.access, subscriptions.access),
          hubspot_sync_status = 'PENDING',
          updated_at = CURRENT_TIMESTAMP`,
       [
@@ -154,7 +172,7 @@ async function upsertSubscriptionData(data) {
         data.manages_own_payment, data.center_name, data.start_date, safePrecancelledDate, 
         data.cancelation_date, data.revoked_access_date, data.current_state, data.currency, 
         data.creation_source, data.source || 'stripe', data.payment_method_type, data.market, data.last_invoice_status, 
-        data.last_invoice_amount, data.last_invoice_date, is_forever, pending_payment
+        data.last_invoice_amount, data.last_invoice_date, is_forever, pending_payment, data.access || null
       ]
     );
 
@@ -248,6 +266,13 @@ async function upsertSubscriptionData(data) {
   }
 }
 
+
+// ────── Query:  ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── 
+// ─── 
+// ─── 
+// ─── 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function updateInvoiceData(data) {
   const client = await pool.connect();
   
@@ -304,6 +329,13 @@ async function updateInvoiceData(data) {
 }
 
 
+
+// ────── Query:  ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── 
+// ─── 
+// ─── 
+// ─── 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function markHubspotSyncStatus(subscriptionId, status) {
   try {
     await pool.query(
@@ -317,6 +349,13 @@ async function markHubspotSyncStatus(subscriptionId, status) {
   }
 }
 
+
+// ────── Query:  ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── 
+// ─── 
+// ─── 
+// ─── 
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function processPendingHubspotSyncs(syncFunction) {
   // 🔥 Añadido 'SKIPPED_STATE' al filtro para no reintentar las que están en estado no válido
   const query = `
@@ -368,6 +407,13 @@ async function processPendingHubspotSyncs(syncFunction) {
 }
 
 
+// ────── Get backend sub id ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Function to obtain the backend subscription by using the subscription id
+// ─── 
+// ─── 
+// ─── 
+// ─── 
+// ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function getBackendSubscriptionId(subscriptionId) {
   try {
     const { rows } = await pool.query(
@@ -381,11 +427,32 @@ async function getBackendSubscriptionId(subscriptionId) {
   }
 }
 
+
+
+// ────── Get nup_center_id from sub id ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Function to obtain the nup_center_id by using the subscription id obtained from OPS API.
+// ─── Its called by processSubscriptionUpsert in subscriptionServices.
+// ─── its meant to obtain nup_center_id to use it on getHubspotFeatures in subscriptionServices as a fallback if OPS API fails. 
+// ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+async function getNupCenterIdBySubscriptionId(subscriptionId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT nup_center_id FROM subscriptions WHERE subscription_id = $1`,
+      [subscriptionId]
+    );
+    return rows.length > 0 ? rows[0].nup_center_id : null;
+  } catch (error) {
+    log("ERROR", "DB", `Error getting nup_center_id for ${subscriptionId}: ${error.message}`);
+    return null;
+  }
+}
+
 module.exports = { 
   getSubscriptionByCenterId,
   upsertSubscriptionData,
   updateInvoiceData,
   markHubspotSyncStatus,
   processPendingHubspotSyncs,
-  getBackendSubscriptionId  
+  getBackendSubscriptionId,
+  getNupCenterIdBySubscriptionId  
 };

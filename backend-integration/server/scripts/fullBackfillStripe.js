@@ -1,4 +1,3 @@
-// scripts/fullBackfillStripe.js
 const path = require('path');
 const dotenv = require('dotenv');
 
@@ -8,26 +7,23 @@ dotenv.config({ path: envPath });
 
 const { pool } = require('../db/db');
 const { log } = require('../utils/logger');
+
+
+// ────── OPS API, Stripe and HubSpot Credentials ───────────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-
 const OPS_API_URL = 'https://api.neuronup.com/ops/subscriptions';
-const OPS_API_TOKEN = process.env.OPS_API_TOKEN || '6p48*mf65TH$cU**';
-const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
+const OPS_API_TOKEN = process.env.OPS_API_TOKEN;
 
+// ────── Delay to not saturate OPS API ─────────────────────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ============================================================================
-// CACHE DE OPS API (para no pedir el listado en cada suscripción)
-// ============================================================================
-let opsSubscriptionsCache = null;
-let opsCacheTimestamp = null;
-const OPS_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
-
+// ────── Stripe: Fetch OPS API for Stripe subscriptions ────────────────────────────────────────────────────────────────────────────
+// ─── We fetch the stripe subscriptions from OPS API.
+// ─── We break the loop when the response is empty
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function getAllOpsSubscriptions() {
-  const now = Date.now();
-  if (opsSubscriptionsCache && opsCacheTimestamp && (now - opsCacheTimestamp) < OPS_CACHE_TTL) {
-    return opsSubscriptionsCache;
-  }
 
   log('INFO', 'OPS-API', 'Fetching all subscriptions from Ops API...');
   const allSubs = [];
@@ -57,73 +53,42 @@ async function getAllOpsSubscriptions() {
   }
 
   log('INFO', 'OPS-API', `Total fetched: ${allSubs.length} subscriptions`);
-  opsSubscriptionsCache = allSubs;
-  opsCacheTimestamp = now;
   return allSubs;
 }
 
+
+
+
+// ────── Stripe: Find subscription from OPS API by stripe sub id ───────────────────────────────────────────────────────────────────
+// ─── Called inside upsertSubscription to get the OPS API data.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function findOpsSubscription(opsSubs, stripeSubscriptionId) {
   return opsSubs.find(s => s.stripeSubscriptionId === stripeSubscriptionId);
 }
 
-// ============================================================================
-// FALLBACK A HUBSPOT
-// ============================================================================
-const hubspotCache = new Map();
-
-async function getHubspotFeatures(nupCenterId) {
-  if (!nupCenterId) return [];
-  if (hubspotCache.has(nupCenterId)) return hubspotCache.get(nupCenterId);
-
-  try {
-    const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        filterGroups: [{ filters: [{ propertyName: "nup_center_id", operator: "EQ", value: nupCenterId }] }],
-        properties: ["subscription_features"]
-      })
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      if (data.results && data.results.length > 0) {
-        const raw = data.results[0].properties.subscription_features;
-        const features = raw ? raw.split(/[,;]/).map(f => f.trim()).filter(Boolean) : [];
-        hubspotCache.set(nupCenterId, features);
-        return features;
-      }
-    }
-  } catch (error) {
-    log('ERROR', 'HUBSPOT', `Error for center ${nupCenterId}: ${error.message}`);
-  }
-
-  hubspotCache.set(nupCenterId, []);
-  return [];
-}
-
-// ============================================================================
-// UPSERT EN BD
-// ============================================================================
+// ────── Stripe: Query to Upsert stripe Subscriptions ───────────────────────────────────────────────────────────────────
+// ─── We define the query to Upsert the subscription.
+// ─── 
+// ───
+// ───
+// ───
+// ───
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function upsertSubscription(sub, items) {
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    // 1. Upsert padre
     await client.query(
       `INSERT INTO subscriptions (
          subscription_id, hubspot_subscription_id, nup_center_id, backend_subscription_id,
          segment, manages_own_payment, center_name, start_date, precancelled_date,
          cancelation_date, revoked_access_date, current_state, currency,
          creation_source, source, payment_method_type, market,
-         is_forever, pending_payment, hubspot_sync_status
+         is_forever, pending_payment, access, hubspot_sync_status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
        ON CONFLICT (subscription_id) DO UPDATE SET
          nup_center_id = EXCLUDED.nup_center_id,
          backend_subscription_id = EXCLUDED.backend_subscription_id,
@@ -137,6 +102,7 @@ async function upsertSubscription(sub, items) {
          payment_method_type = EXCLUDED.payment_method_type,
          is_forever = EXCLUDED.is_forever,
          pending_payment = EXCLUDED.pending_payment,
+         access = COALESCE(EXCLUDED.access, subscriptions.access),
          hubspot_sync_status = 'PENDING',
          updated_at = CURRENT_TIMESTAMP`,
       [
@@ -159,11 +125,11 @@ async function upsertSubscription(sub, items) {
         null,
         sub.is_forever,
         sub.pending_payment,
+        sub.access,
         'PENDING'
       ]
     );
 
-    // 2. Upsert items
     if (items && items.length > 0) {
       const currentItemIds = items.map(i => i.item_id);
 
@@ -235,9 +201,13 @@ async function upsertSubscription(sub, items) {
   }
 }
 
-// ============================================================================
-// LÓGICA PRINCIPAL
-// ============================================================================
+// ────── Stripe: Main function to fetch and upsert ──────────────────────────────────────────────────────────────────────
+// ─── 
+// ───
+// ───
+// ───
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
 async function main() {
   let successCount = 0;
   let errorCount = 0;
@@ -274,17 +244,13 @@ async function main() {
         let backendSubscriptionId = null;
         let nupCenterId = null;
         let opsFeatures = [];
+        let access = null;
 
         if (opsSub) {
           backendSubscriptionId = opsSub.id;
           nupCenterId = opsSub.center.id;
           opsFeatures = opsSub.features ? opsSub.features.map(f => f.identifier) : [];
-        }
-
-        // Fallback a HubSpot si no hay features de Ops
-        let centerFeatures = opsFeatures;
-        if (centerFeatures.length === 0 && nupCenterId) {
-          centerFeatures = await getHubspotFeatures(nupCenterId);
+          access = opsSub.status;
         }
 
         // Parseo de fechas (desde Stripe)
@@ -296,11 +262,13 @@ async function main() {
           : (stripeSub.status === 'canceled' && stripeSub.ended_at ? new Date(stripeSub.ended_at * 1000) : null);
         const trialEnd = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null;
 
-const isForever =
-  subscription.status !== 'canceled' &&
-  !subscription.ended_at &&
-  subscription.cancel_at_period_end === false &&
-  subscription.cancel_at === null;        const pendingPayment = stripeSub.status === 'past_due' || stripeSub.status === 'unpaid';
+        const isForever =
+          stripeSub.status !== 'canceled' &&
+          !stripeSub.ended_at &&
+          stripeSub.cancel_at_period_end === false &&
+          stripeSub.cancel_at === null;
+
+        const pendingPayment = ['past_due', 'unpaid', 'incomplete'].includes(stripeSub.status);
 
         // Customer
         let centerName = null;
@@ -337,6 +305,7 @@ const isForever =
           payment_method_type: pmType,
           is_forever: isForever,
           pending_payment: pendingPayment,
+          access: access,
         };
 
         // Items
@@ -360,7 +329,7 @@ const isForever =
             billing_interval: item.price.recurring?.interval || null,
             payment_frequency: item.price.recurring?.interval_count || 1,
             unit_price: item.price.unit_amount ? (item.price.unit_amount / 100) : null,
-            features: JSON.stringify(centerFeatures),
+            features: JSON.stringify(opsFeatures),
             quantity: item.quantity,
             start_date: startDate,
             current_period_start: currentPeriodStart,

@@ -7,12 +7,15 @@ export interface Opportunity {
   id: number;
   center_id: string;
   product: string;
-  status: 'pending' | 'completed';
+  status: 'pending' | 'completed' | 'converted' | 'expired';
   created_at: string;
   total_tests_60d: number;
   active_days_60d: number;
   avg_daily_60d: number;
   ai_justification: string;
+  // Brief de IA del job semanal (ai_brief.py); null si aún no hay
+  ai_brief?: { summary: string; points: string[] } | null;
+  ai_brief_at?: string | null;
   score: number;
   detections: Detection[];
   trigger_details?: any;
