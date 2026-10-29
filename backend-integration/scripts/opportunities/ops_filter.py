@@ -29,7 +29,8 @@ MAX_PAGES = 1000
 # ──   canceledAt set but the period still running            → cancelling (cancelled, still has access).
 # ──   not cancelled and period in the future or no date      → verified (trial if status is trial).
 # ──   not cancelled and period already ended                 → unverified (has access, state unknown).
-# ── canceledAt can also be outdated: that is why the scoring asks for recent activity on every level but verified.
+# ── canceledAt can also be outdated: a center that uses tests goes in whatever its level, the level only says
+# ── what has to be checked (see scoring.py).
 # ── LEVEL_RANK orders the levels to pick the best one per center.
 # ── FEATURE_NOW_LEVELS: levels where the center can use the feature today and we trust it (has it now).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

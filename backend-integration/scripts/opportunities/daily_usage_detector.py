@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from ops_filter import load_center_access, centers_with_feature_now
-from scoring import fetch_usage, fetch_recent_activity, build_scored_pool
+from scoring import fetch_usage, build_scored_pool
 
 # ────── Env configuration ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ def run_daily_detection():
                     seen.add(stat_date)
                     total_inserted += 1
 
-        scored = build_scored_pool(fetch_usage(cursor), access, fetch_recent_activity(cursor))
+        scored = build_scored_pool(fetch_usage(cursor), access)
 
         refreshed = 0
         for opp_id, cid, _, group in to_track:

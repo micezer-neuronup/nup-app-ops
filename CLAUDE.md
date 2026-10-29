@@ -82,7 +82,7 @@ DB_HOST=localhost ../venv/bin/python daily_usage_detector.py             # diari
   - `load_center_access` asigna un nivel de acceso a cada centro: `verified`, `cancelling`, `unverified`, `trial` o `none`.
     - **Stripe**: se usa el `current_state` de la tabla `subscriptions`, que es fiable.
     - **Manuales**: se usa el payload de la Ops API. El `status` de la Ops API solo indica el tipo de acceso (`active` o `trial`), nunca si está cancelada. El `current_state` de las suscripciones manuales se deduce de fechas que suelen estar desactualizadas, así que lo que cuenta son `canceledAt` y `currentPeriodEnd`.
-  - **La actividad reciente es la prueba de acceso**: un centro sin acceso `verified` solo es oportunidad si ha tenido actividad en los últimos 14 días (`RECENT_ACCESS_DAYS`).
+  - **El uso es la prueba de acceso**: cualquier centro que supere el mínimo de tests en 60 días entra, tenga o no suscripción. El nivel de acceso solo decide qué hay que revisar. No se exige actividad reciente: los tests no se usan a diario.
   - **Grupos de `build_scored_pool`**:
     - `assessment`: centros sin test_all. Si son clientes verificados van a Pendientes; si tienen algún `check_reasons`, a Revisar.
     - `expansion`: clientes verificados que ya tienen test_all y están en el top 15 %. Van a la pestaña "Uso alto" y nunca pasan a `converted`.

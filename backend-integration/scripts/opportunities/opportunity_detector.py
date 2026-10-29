@@ -10,7 +10,7 @@ import requests
 from dotenv import load_dotenv
 
 from ops_filter import load_center_access, FEATURE_NOW_LEVELS
-from scoring import fetch_usage, fetch_recent_activity, build_scored_pool, thresholds, WINDOW_DAYS, COOLDOWN_DAYS
+from scoring import fetch_usage, build_scored_pool, thresholds, WINDOW_DAYS, COOLDOWN_DAYS
 
 # ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -144,7 +144,6 @@ def build_trigger_details(r):
 # ── load_center_access gives the access level of every center and of its test_all (see ops_filter.py).
 # ── If the Ops API fails it raises, and the run stops without writing anything.
 # ── fetch_usage gets the 60 days usage of every center from daily_stats in one query.
-# ── fetch_recent_activity gives the centers with activity in the last RECENT_ACCESS_DAYS.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── build_scored_pool puts every center with tests in a group and scores it (see scoring.py):
 # ──   'assessment': without test_all now. Verified customers go to Pendientes, the ones with check_reasons to Revisar.
@@ -203,9 +202,8 @@ def run_assessment_detection(dry_run=False, dry_run_brief=False):
     try:
         access = load_center_access(cursor, feature='test_all')
         usage = fetch_usage(cursor)
-        recent_active = fetch_recent_activity(cursor)
 
-        scored = build_scored_pool(usage, access, recent_active)
+        scored = build_scored_pool(usage, access)
         eligible = sorted(
             (cid for cid, r in scored.items() if r["eligible"]),
             key=lambda cid: scored[cid]["score"], reverse=True
@@ -288,7 +286,7 @@ def run_assessment_detection(dry_run=False, dry_run_brief=False):
                 """, (r["total_tests"] if r else 0, r["active_days"] if r else 0, r["avg_daily"] if r else 0, opp_id))
                 why = ("ya no está en el top de centros con test_all" if group == 'expansion'
                        else "por debajo del mínimo" if r and r["group"] == group
-                       else "sin uso reciente o sin acceso")
+                       else "sin uso de tests en la ventana o solo acceso de prueba")
                 log(f"Centro {cid}: oportunidad {opp_id} ({kind}) → 'expired' ({why})")
                 expired += 1
 

@@ -10,8 +10,6 @@ from bisect import bisect_left, bisect_right
 # ── MIN_TESTS / MIN_ACTIVE_DAYS: usage floor. A center below it is not an opportunity (and pending ones expire).
 # ── HIGH_PERCENTILE: centers whose score is at or above this percentile of the eligible pool get priority 'alta'.
 # ── COOLDOWN_DAYS: a center whose opportunity was completed is not detected again during these days.
-# ── RECENT_ACCESS_DAYS: a center without verified access needs activity in these last days to be an opportunity
-# ──   (activity is the only evidence it still has access).
 # ── WEIGHT_*: weights of each score part. They must add up to 1.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 WINDOW_DAYS = 60
@@ -20,7 +18,6 @@ MIN_TESTS = 10
 MIN_ACTIVE_DAYS = 3
 HIGH_PERCENTILE = 0.85
 COOLDOWN_DAYS = 90
-RECENT_ACCESS_DAYS = 14
 
 WEIGHT_VOLUME = 0.5
 WEIGHT_CONSISTENCY = 0.3
@@ -99,19 +96,6 @@ def compute_usage_score(u, sorted_pool_totals):
     return int(round(score)), parts
 
 
-# ────── Recent activity ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── Centers with any activity (logins, activities or tests) in the last RECENT_ACCESS_DAYS.
-# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def fetch_recent_activity(cursor):
-    cursor.execute("""
-        SELECT DISTINCT center_id::text
-        FROM daily_stats
-        WHERE stat_date >= CURRENT_DATE - %s * INTERVAL '1 day'
-          AND (COALESCE(total_logins, 0) > 0 OR COALESCE(activities_started, 0) > 0 OR COALESCE(tests_finished, 0) > 0)
-    """, (RECENT_ACCESS_DAYS,))
-    return {row[0] for row in cursor.fetchall()}
-
-
 # ────── Check reasons ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── Why an opportunity has to be checked before selling (it goes to the Revisar tab). The first one is the main one.
 # ── ACCESS_REASONS: the access level of the center when it is not verified (see ops_filter.py).
@@ -138,23 +122,21 @@ NO_ACCESS = {"level": 'none', "feature_level": 'none', "had_feature": False}
 # ──   trial access only → skipped (trials are not opportunities).
 # ──   verified access and test_all now → 'expansion' (Uso alto con Assessment).
 # ──   anything else → 'assessment': verified customers without test_all (Pendientes) or, with check_reasons, Revisar.
-# ── A center without verified access needs recent activity (RECENT_ACCESS_DAYS), otherwise it is skipped.
+# ── The subscription does not decide if a center is in: using tests over the floor in the window is the evidence.
+# ── A center without verified access (or with no subscription at all) still goes in, to Revisar with its reason.
 # ── Each group is scored against its own pool (also centers below the floor, so open ones can be refreshed/expired).
 # ── assessment: eligible = over the floor. priority 'alta' = top percentile of the group, 'media' = the rest.
 # ── expansion: eligible = over the floor AND in the top percentile of the group (priority always 'alta').
 # ── kind: 'expansion', or 'review' if the center had test_all on any subscription (recovery track), 'upgrade' otherwise.
 # ── Returns a dict center_id -> usage + score, parts, group, eligible, priority, kind, access, check_reasons, track_reason.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def classify(cid, access, recent_active):
+def classify(cid, access):
     a = access.get(cid, NO_ACCESS)
     level, feature_level = a["level"], a["feature_level"]
     if level == 'trial':
         return None
     if level == 'verified' and feature_level in ('verified', 'trial'):
         return {"group": 'expansion', "kind": 'expansion', "access": level, "check_reasons": []}
-    if level != 'verified' and cid not in recent_active:
-        return None
-
     reasons = []
     if level != 'verified':
         reasons.append(ACCESS_REASONS[level])
@@ -177,10 +159,10 @@ def score_group(members, scored):
         scored[cid]["score_percentile"] = round(percentile_of(scored[cid]["score"], sorted_scores), 3)
 
 
-def build_scored_pool(usage, access, recent_active):
+def build_scored_pool(usage, access):
     scored, groups = {}, {'assessment': {}, 'expansion': {}}
     for cid, u in usage.items():
-        c = classify(cid, access, recent_active)
+        c = classify(cid, access)
         if c:
             scored[cid] = {**u, **c}
             groups[c["group"]][cid] = u
@@ -215,5 +197,4 @@ def thresholds():
         "min_active_days": MIN_ACTIVE_DAYS,
         "high_percentile": HIGH_PERCENTILE,
         "cooldown_days": COOLDOWN_DAYS,
-        "recent_access_days": RECENT_ACCESS_DAYS,
     }
