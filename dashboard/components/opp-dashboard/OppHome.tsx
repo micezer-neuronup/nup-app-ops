@@ -12,7 +12,7 @@ import {
 import { OPP_MODULES, type OppModule } from "./modules";
 import { OppHeader } from "./shared/OppHeader";
 import { Tag, TONE_STYLES, type TagTone } from "./shared/Tag";
-import { checkReasons } from "./shared/PriorityBadge";
+import { reviewReasons } from "./shared/PriorityBadge";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL || "";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -281,8 +281,8 @@ export function OppHome() {
         setStats({
           daily,
           total: data.length,
-          pending: data.filter((o) => o.status === "pending" && kind(o) !== "expansion" && checkReasons(o).length === 0).length,
-          review: data.filter((o) => o.status === "pending" && kind(o) !== "expansion" && checkReasons(o).length > 0).length,
+          pending: data.filter((o) => o.status === "pending" && kind(o) !== "expansion" && reviewReasons(o).length === 0).length,
+          review: data.filter((o) => o.status === "pending" && kind(o) !== "expansion" && reviewReasons(o).length > 0).length,
           expansion: data.filter((o) => o.status === "pending" && kind(o) === "expansion").length,
           reviewedOrAssigned: data.filter((o) => o.status === "completed" || !!o.upsell_object).length,
           converted: data.filter((o) => o.status === "converted").length,

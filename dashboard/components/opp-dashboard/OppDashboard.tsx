@@ -8,7 +8,7 @@ import { OpportunityList, trendOf, trendSortValue, isRecent, NEW_DAYS, type Sort
 import type { Opportunity } from "./types";
 import { OppHeader } from "./shared/OppHeader";
 import { OPP_MODULES } from "./modules";
-import { getTrack, checkReasons, REASON_META } from "./shared/PriorityBadge";
+import { getTrack, reviewReasons, REASON_META } from "./shared/PriorityBadge";
 
 // Reexporta los tipos para mantener compatibilidad con imports existentes
 export type { Detection, Opportunity } from "./types";
@@ -18,11 +18,36 @@ const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL || "";
 type TabKey = "pending" | "review" | "expansion" | "reviewed";
 type PriorityFilter = "all" | "alta" | "media";
 
-const TABS: { key: TabKey; label: string; icon: any; empty: string }[] = [
-  { key: "pending", label: "Pendientes", icon: Clock, empty: "No hay oportunidades pendientes" },
-  { key: "review", label: "Revisar", icon: AlertTriangle, empty: "No hay oportunidades por revisar" },
-  { key: "expansion", label: "Uso alto", icon: Gauge, empty: "No hay centros con Assessment y uso alto" },
-  { key: "reviewed", label: "Revisadas / Asignadas", icon: CheckCircle2, empty: "No hay oportunidades revisadas o asignadas" },
+// hint: explicación corta que aparece al pasar el ratón (o enfocar) por la pestaña
+const TABS: { key: TabKey; label: string; icon: any; empty: string; hint: string }[] = [
+  {
+    key: "pending",
+    label: "Pendientes",
+    icon: Clock,
+    empty: "No hay oportunidades pendientes",
+    hint: "Clientes con la suscripción verificada que usan tests sin tener test_all. Candidatos directos a Assessment. Si tuvieron test_all antes, lo indica su icono.",
+  },
+  {
+    key: "review",
+    label: "Revisar",
+    icon: AlertTriangle,
+    empty: "No hay oportunidades por revisar",
+    hint: "Centros que usan tests pero con dudas sobre su suscripción: sin suscripción activa, cancelada con acceso o sin verificar. Comprobar su situación antes de ofrecer nada.",
+  },
+  {
+    key: "expansion",
+    label: "Uso alto",
+    icon: Gauge,
+    empty: "No hay centros con Assessment y uso alto",
+    hint: "Clientes que ya tienen test_all y están en el top 15% de uso. No hay que venderles Assessment: contactar para conocer sus necesidades.",
+  },
+  {
+    key: "reviewed",
+    label: "Revisadas / Asignadas",
+    icon: CheckCircle2,
+    empty: "No hay oportunidades revisadas o asignadas",
+    hint: "Oportunidades ya revisadas o asignadas a un comercial. Se pueden devolver a pendiente con Deshacer.",
+  },
 ];
 
 // ---------- COMPONENTE PRINCIPAL ----------
@@ -106,26 +131,26 @@ export function OppDashboard() {
   // Cast a string para evitar el error de TS sin tocar types.ts
   
 
-  // Pendientes: clientes verificados sin test_all, candidatos directos a upsell
+  // Pendientes: clientes verificados sin test_all, candidatos directos a upsell (aunque hayan tenido test_all antes)
   const pendingNoTestAll = useMemo(
   () =>
     sorted.filter(
       (o) =>
         o.status === "pending" &&
         o.opportunity_kind !== "expansion" &&
-        checkReasons(o).length === 0
+        reviewReasons(o).length === 0
     ),
   [sorted]
 );
 
-// Revisar: hay que comprobar algo antes de vender (acceso sin verificar, sin suscripción, tuvo test_all…)
+// Revisar: hay que comprobar su suscripción antes de vender (acceso sin verificar, sin suscripción, cancelada…)
 const pendingTestAll = useMemo(
   () =>
     sorted.filter(
       (o) =>
         o.status === "pending" &&
         o.opportunity_kind !== "expansion" &&
-        checkReasons(o).length > 0
+        reviewReasons(o).length > 0
     ),
   [sorted]
 );
@@ -273,15 +298,16 @@ const pendingExpansion = useMemo(
 
         {/* ================= TOOLBAR: pestañas + filtros ================= */}
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/60">
-          <div className="flex items-end gap-1 overflow-x-auto">
+          <div className="flex flex-wrap items-end gap-1">
             {TABS.map((t) => {
               const Icon = t.icon;
               const active = t.key === activeTab;
               return (
+                <div key={t.key} className="group/tab relative">
                 <button
-                  key={t.key}
                   type="button"
                   onClick={() => setActiveTab(t.key)}
+                  aria-describedby={`tab-hint-${t.key}`}
                   className={`inline-flex items-center gap-2 h-11 px-4 -mb-px border-b-2 text-base whitespace-nowrap transition-colors ${
                     active
                       ? "border-[#00a4c2] font-semibold text-foreground"
@@ -294,6 +320,15 @@ const pendingExpansion = useMemo(
                     {tabCount[t.key]}
                   </span>
                 </button>
+                <div
+                  id={`tab-hint-${t.key}`}
+                  role="tooltip"
+                  className="invisible opacity-0 group-hover/tab:visible group-hover/tab:opacity-100 group-focus-within/tab:visible group-focus-within/tab:opacity-100 transition-opacity delay-150 absolute left-0 top-full mt-2 z-40 w-80 rounded-lg border border-border bg-popover p-3 text-sm leading-relaxed text-popover-foreground shadow-lg"
+                >
+                  <p className="font-semibold mb-1">{t.label}</p>
+                  <p className="text-foreground/80">{t.hint}</p>
+                </div>
+                </div>
               );
             })}
           </div>
@@ -365,7 +400,8 @@ const pendingExpansion = useMemo(
                     <li><b>Prioridad</b>: <b>Alta</b> si el centro está en el top 15% de uso entre los centros sin test_all; <b>Media</b> si tiene un uso constante por encima del mínimo.</li>
                     <li><b>Pendientes</b>: clientes verificados sin test_all, candidatos directos a Assessment.</li>
                     <li>
-                      <b>Revisar</b>: hay que comprobar algo antes de vender. El icono junto a la prioridad dice qué:
+                      <b>Revisar</b>: hay que comprobar su suscripción antes de vender. El icono junto a la prioridad
+                      dice qué (el de <b>Tuvo test_all</b> es solo contexto y también aparece en Pendientes):
                       <ul className="mt-1 space-y-1 pl-3">
                         {Object.values(REASON_META).map((m) => {
                           const Icon = m.icon;

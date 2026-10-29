@@ -10,36 +10,45 @@ export type CheckReason =
   | "test_all_unverified"
   | "had_test_all_before";
 
-export const REASON_META: Record<CheckReason, { label: string; description: string; icon: LucideIcon; className: string }> = {
+// blocking: hay que comprobarlo antes de vender (va a Revisar). Si no, es solo contexto (se queda en Pendientes con su icono).
+export const REASON_META: Record<
+  CheckReason,
+  { label: string; description: string; icon: LucideIcon; className: string; blocking: boolean }
+> = {
   no_active_subscription: {
     label: "Sin suscripción activa",
     description: "Usa la plataforma sin ninguna suscripción activa: confirmar si debería pagar o retirarle el acceso.",
     icon: ShieldOff,
     className: "text-red-500",
+    blocking: true,
   },
   cancelled_with_access: {
     label: "Cancelada con acceso",
     description: "Canceló su suscripción, pero aún tiene acceso y la sigue usando.",
     icon: CalendarX2,
     className: "text-orange-500",
+    blocking: true,
   },
   access_unverified: {
     label: "Acceso sin verificar",
     description: "Tiene acceso, pero no sabemos si su suscripción sigue activa: verificarlo antes de ofrecer.",
     icon: ShieldQuestion,
     className: "text-yellow-500",
+    blocking: true,
   },
   test_all_unverified: {
     label: "test_all sin verificar",
     description: "Tiene test_all en una suscripción que no está verificada.",
     icon: FlaskConical,
     className: "text-yellow-500",
+    blocking: true,
   },
   had_test_all_before: {
     label: "Tuvo test_all",
-    description: "Tuvo test_all en una suscripción anterior y sigue usando tests.",
+    description: "Tuvo test_all en una suscripción anterior y sigue usando tests: buen punto de partida para la conversación.",
     icon: AlertTriangle,
     className: "text-orange-500",
+    blocking: false,
   },
 };
 
@@ -88,3 +97,8 @@ export function PriorityBadge({ trigger, compact = false }: { trigger: any; comp
     <Tag tone="cyan" icon={ChevronUp} label={`${prefix}Media`} title={reason || undefined} />
   );
 }
+
+
+// Solo los motivos que obligan a revisar antes de vender (deciden la pestaña Revisar)
+export const reviewReasons = (opp: Pick<Opportunity, "trigger_details" | "opportunity_kind">) =>
+  checkReasons(opp).filter((r) => REASON_META[r].blocking);
