@@ -7,7 +7,7 @@ import { SiteHeader } from "../../layout/site-header";
 interface OppHeaderProps {
   title: string;
   backHref?: string;
-  // Imagen (en /public) a la derecha del título, p. ej. el logo del módulo
+  // Imagen (en /public) entre el logo de NeuronUP y el título, p. ej. el logo del módulo
   titleImage?: string;
   // Zona izquierda tras el título (p. ej. buscador)
   left?: ReactNode;
@@ -41,7 +41,6 @@ export function OppHeader({ title, backHref, titleImage, left, right, mobile }: 
               className="h-10 md:h-14 w-auto object-contain shrink-0"
               preload
             />
-            <h1 className="min-w-0 text-xl md:text-2xl font-semibold leading-tight text-foreground truncate">{title}</h1>
             {titleImage && (
               <Image
                 src={titleImage}
@@ -51,6 +50,7 @@ export function OppHeader({ title, backHref, titleImage, left, right, mobile }: 
                 className="h-8 md:h-10 w-auto object-contain shrink-0"
               />
             )}
+            <h1 className="min-w-0 text-xl md:text-2xl font-semibold leading-tight text-foreground truncate">{title}</h1>
             {left}
           </div>
 
