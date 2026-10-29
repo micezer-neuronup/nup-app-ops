@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import {
-  ArrowRight, CircleDot, Hourglass, Layers, Clock, AlertTriangle, CheckCircle2, Trophy, CalendarDays, CalendarRange,
+  ArrowRight, CircleDot, Hourglass, Layers, Clock, AlertTriangle, CheckCircle2, Trophy, CalendarDays, CalendarRange, CalendarClock,
   type LucideIcon,
   Gauge,
 } from "lucide-react";
@@ -32,6 +32,7 @@ interface AssessmentStats {
   converted: number;
   new7d: number;
   new30d: number;
+  new60d: number;
 }
 
 type StatKey = Exclude<keyof AssessmentStats, "daily">;
@@ -49,6 +50,7 @@ const CURRENT_STATS: StatDef[] = [
 const PERIOD_STATS: StatDef[] = [
   { key: "new7d", label: "7 días", title: "Creadas en los últimos 7 días", tone: "cyan", icon: CalendarDays },
   { key: "new30d", label: "30 días", title: "Creadas en los últimos 30 días", tone: "cyan", icon: CalendarRange },
+  { key: "new60d", label: "60 días", title: "Creadas en los últimos 60 días", tone: "cyan", icon: CalendarClock },
 ];
 
 const sectionTitle = "text-[11px] font-semibold uppercase tracking-wider text-foreground/55 shrink-0";
@@ -86,13 +88,13 @@ function PeriodTile({ def, value }: { def: StatDef; value: number | null }) {
   return (
     <div
       title={def.title}
-      className={`group/tag flex flex-col justify-between rounded-md border border-border bg-muted/20 px-3.5 py-2 h-[56px] [@media(min-height:1000px)]:h-[76px] [@media(min-height:1000px)]:py-2.5 transition-colors ${t.hoverBorder}`}
+      className={`group/tag flex flex-col justify-between min-w-0 rounded-md border border-border bg-muted/20 px-2.5 py-1.5 h-[52px] [@media(min-height:1000px)]:h-[68px] [@media(min-height:1000px)]:py-2 transition-colors ${t.hoverBorder}`}
     >
-      <span className="flex items-center gap-2 text-[13px] font-medium text-foreground/70">
-        <Icon className={`h-4 w-4 shrink-0 text-foreground/50 transition-colors ${t.hoverIcon}`} />
+      <span className="flex items-center gap-1.5 text-xs font-medium text-foreground/70 truncate">
+        <Icon className={`h-3.5 w-3.5 shrink-0 text-foreground/50 transition-colors ${t.hoverIcon}`} />
         {def.label}
       </span>
-      <span className={`text-xl [@media(min-height:1000px)]:text-2xl font-bold leading-none tabular-nums text-foreground`}>{value ?? "—"}</span>
+      <span className={`text-lg [@media(min-height:1000px)]:text-2xl font-bold leading-none tabular-nums text-foreground`}>{value ?? "—"}</span>
     </div>
   );
 }
@@ -227,7 +229,7 @@ function AssessmentCard({ mod, stats }: { mod: OppModule; stats: AssessmentStats
         <div className="flex flex-col gap-3 min-w-0 min-h-0">
           <div className="flex flex-col gap-2 shrink-0">
             <h3 className={sectionTitle}>Nuevas oportunidades</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-2">
               {PERIOD_STATS.map((d) => (
                 <PeriodTile key={d.key} def={d} value={stats ? stats[d.key] : null} />
               ))}
@@ -288,6 +290,7 @@ export function OppHome() {
           converted: data.filter((o) => o.status === "converted").length,
           new7d: data.filter((o) => createdWithin(o, 7)).length,
           new30d: data.filter((o) => createdWithin(o, 30)).length,
+          new60d: data.filter((o) => createdWithin(o, 60)).length,
         });
       } catch (error) {
         console.error("Error fetching opportunity stats:", error);

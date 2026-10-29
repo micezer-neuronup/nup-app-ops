@@ -8,6 +8,7 @@ import { OpportunityList, trendOf, trendSortValue, isRecent, NEW_DAYS, type Sort
 import type { Opportunity } from "./types";
 import { OppHeader } from "./shared/OppHeader";
 import { OPP_MODULES } from "./modules";
+import { LegendButton } from "./shared/LegendButton";
 import { getTrack, reviewReasons, REASON_META } from "./shared/PriorityBadge";
 
 // Reexporta los tipos para mantener compatibilidad con imports existentes
@@ -287,6 +288,7 @@ const pendingExpansion = useMemo(
         title="Assessment"
         backHref="/opp-dashboard"
         titleImage={OPP_MODULES.find((m) => m.key === "assessment")?.image}
+        right={<LegendButton />}
       />
 
       <main className="flex-1 min-h-0 max-w-[1900px] mx-auto w-full px-4 md:px-6 py-4 flex flex-col gap-4">

@@ -20,7 +20,7 @@ export const OPP_MODULES: OppModule[] = [
   {
     key: "assessment",
     title: "Assessment",
-    description: "Centros con uso intensivo de tests de evaluación candidatos a upgrade.",
+    description: "Centros que usan tests: candidatos a Assessment, suscripciones a revisar y uso alto.",
     href: "/opp-dashboard/assessment",
     icon: ClipboardCheck,
     image: "/assesment.webp",
