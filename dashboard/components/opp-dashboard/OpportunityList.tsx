@@ -4,7 +4,7 @@ import {
   ArrowDown, ArrowUp, CheckCircle, Copy, AlertTriangle, TrendingUp, TrendingDown, MoveRight, Sparkles,
   UserPlus, UserCheck, Undo2,
 } from "lucide-react";
-import { PriorityBadge } from "./shared/PriorityBadge";
+import { PriorityBadge, checkReasons, REASON_META } from "./shared/PriorityBadge";
 import { HubSpotIcon } from "./shared/HubSpotIcon";
 import { Tag } from "./shared/Tag";
 import type { Opportunity } from "./types";
@@ -230,18 +230,23 @@ export function OpportunityList({
                     </button>
                   </span>
 
-                  {/* Prioridad (+ icono de revisar, sin texto) */}
+                  {/* Prioridad (+ un icono por motivo de revisión, sin texto) */}
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <PriorityBadge trigger={opp.trigger_details} />
-                    {opp.opportunity_kind === "review" && (
-                      <span
-                        className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-border bg-muted/40 text-orange-500"
-                        title="Revisar: tuvo test_all y sigue usando tests"
-                        aria-label="Revisar"
-                      >
-                        <AlertTriangle className="h-4 w-4" />
-                      </span>
-                    )}
+                    <PriorityBadge trigger={opp.trigger_details} compact />
+                    {checkReasons(opp).map((reason) => {
+                      const meta = REASON_META[reason];
+                      const Icon = meta.icon;
+                      return (
+                        <span
+                          key={reason}
+                          className={`inline-flex items-center justify-center h-8 w-8 shrink-0 rounded-md border border-border bg-muted/40 ${meta.className}`}
+                          title={`${meta.label}: ${meta.description}`}
+                          aria-label={meta.label}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </span>
+                      );
+                    })}
                   </div>
 
                   {/* Score */}

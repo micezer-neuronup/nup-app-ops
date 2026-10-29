@@ -31,5 +31,6 @@ export interface Opportunity {
   upsell_object?: string | null;
   upsell_owner_id?: string | null;
   upsell_owner_name?: string | null;
-  opportunity_kind?: "upgrade" | "review";
+  // expansion = ya tiene test_all y uso alto (pestaña "Uso alto")
+  opportunity_kind?: "upgrade" | "review" | "expansion";
 }

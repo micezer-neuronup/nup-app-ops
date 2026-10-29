@@ -7,10 +7,12 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tool
 import {
   ArrowRight, CircleDot, Hourglass, Layers, Clock, AlertTriangle, CheckCircle2, Trophy, CalendarDays, CalendarRange,
   type LucideIcon,
+  Gauge,
 } from "lucide-react";
 import { OPP_MODULES, type OppModule } from "./modules";
 import { OppHeader } from "./shared/OppHeader";
 import { Tag, TONE_STYLES, type TagTone } from "./shared/Tag";
+import { checkReasons } from "./shared/PriorityBadge";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL || "";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -25,6 +27,7 @@ interface AssessmentStats {
   total: number;
   pending: number;
   review: number;
+  expansion: number;
   reviewedOrAssigned: number;
   converted: number;
   new7d: number;
@@ -39,6 +42,7 @@ const CURRENT_STATS: StatDef[] = [
   { key: "total", label: "Total", tone: "neutral", icon: Layers },
   { key: "pending", label: "Pendientes", tone: "yellow", icon: Clock },
   { key: "review", label: "Revisar", tone: "orange", icon: AlertTriangle },
+  { key: "expansion", label: "Uso alto", tone: "cyan", icon: Gauge, title: "Ya tienen test_all y están en el top de uso" },
   { key: "reviewedOrAssigned", label: "Revisadas / Asignadas", tone: "green", icon: CheckCircle2 },
   { key: "converted", label: "Convertidas", tone: "cyan", icon: Trophy },
 ];
@@ -277,8 +281,9 @@ export function OppHome() {
         setStats({
           daily,
           total: data.length,
-          pending: data.filter((o) => o.status === "pending" && kind(o) !== "review").length,
-          review: data.filter((o) => o.status === "pending" && kind(o) === "review").length,
+          pending: data.filter((o) => o.status === "pending" && kind(o) !== "expansion" && checkReasons(o).length === 0).length,
+          review: data.filter((o) => o.status === "pending" && kind(o) !== "expansion" && checkReasons(o).length > 0).length,
+          expansion: data.filter((o) => o.status === "pending" && kind(o) === "expansion").length,
           reviewedOrAssigned: data.filter((o) => o.status === "completed" || !!o.upsell_object).length,
           converted: data.filter((o) => o.status === "converted").length,
           new7d: data.filter((o) => createdWithin(o, 7)).length,

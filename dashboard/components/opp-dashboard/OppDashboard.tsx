@@ -1,26 +1,27 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Clock, AlertTriangle, CheckCircle2, Search, HelpCircle, X, Sparkles } from "lucide-react";
+import { Clock, AlertTriangle, CheckCircle2, Search, HelpCircle, X, Sparkles, Gauge } from "lucide-react";
 import { ModalOpp } from "./ModalOpp";
 import { AssignUpsellModal } from "./AssignUpsellModal";
 import { OpportunityList, trendOf, trendSortValue, isRecent, NEW_DAYS, type SortKey, type SortDir } from "./OpportunityList";
 import type { Opportunity } from "./types";
 import { OppHeader } from "./shared/OppHeader";
 import { OPP_MODULES } from "./modules";
-import { getTrack } from "./shared/PriorityBadge";
+import { getTrack, checkReasons, REASON_META } from "./shared/PriorityBadge";
 
 // Reexporta los tipos para mantener compatibilidad con imports existentes
 export type { Detection, Opportunity } from "./types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL || "";
 
-type TabKey = "pending" | "review" | "reviewed";
+type TabKey = "pending" | "review" | "expansion" | "reviewed";
 type PriorityFilter = "all" | "alta" | "media";
 
 const TABS: { key: TabKey; label: string; icon: any; empty: string }[] = [
   { key: "pending", label: "Pendientes", icon: Clock, empty: "No hay oportunidades pendientes" },
   { key: "review", label: "Revisar", icon: AlertTriangle, empty: "No hay oportunidades por revisar" },
+  { key: "expansion", label: "Uso alto", icon: Gauge, empty: "No hay centros con Assessment y uso alto" },
   { key: "reviewed", label: "Revisadas / Asignadas", icon: CheckCircle2, empty: "No hay oportunidades revisadas o asignadas" },
 ];
 
@@ -105,23 +106,33 @@ export function OppDashboard() {
   // Cast a string para evitar el error de TS sin tocar types.ts
   
 
+  // Pendientes: clientes verificados sin test_all, candidatos directos a upsell
   const pendingNoTestAll = useMemo(
   () =>
     sorted.filter(
       (o) =>
         o.status === "pending" &&
-        o.opportunity_kind !== "review"
+        o.opportunity_kind !== "expansion" &&
+        checkReasons(o).length === 0
     ),
   [sorted]
 );
 
+// Revisar: hay que comprobar algo antes de vender (acceso sin verificar, sin suscripción, tuvo test_all…)
 const pendingTestAll = useMemo(
   () =>
     sorted.filter(
       (o) =>
         o.status === "pending" &&
-        o.opportunity_kind === "review"
+        o.opportunity_kind !== "expansion" &&
+        checkReasons(o).length > 0
     ),
+  [sorted]
+);
+
+// Uso alto: ya tienen test_all y están en el top de uso
+const pendingExpansion = useMemo(
+  () => sorted.filter((o) => o.status === "pending" && o.opportunity_kind === "expansion"),
   [sorted]
 );
 
@@ -130,10 +141,17 @@ const pendingTestAll = useMemo(
     [sorted]
   );
 
+  const tabList: Record<TabKey, Opportunity[]> = {
+    pending: pendingNoTestAll,
+    review: pendingTestAll,
+    expansion: pendingExpansion,
+    reviewed: reviewedOrAssigned,
+  };
+
   // ---------- LISTA VISIBLE: pestaña -> prioridad -> orden ----------
   const visible = useMemo(() => {
     const base =
-      activeTab === "pending" ? pendingNoTestAll : activeTab === "review" ? pendingTestAll : reviewedOrAssigned;
+      tabList[activeTab];
     const filtered =
       (priorityFilter === "all" ? base : base.filter((o) => getTrack(o.trigger_details).priority === priorityFilter))
         .filter((o) => !newOnly || isRecent(o));
@@ -147,14 +165,14 @@ const pendingTestAll = useMemo(
         : trendSortValue(trendOf(o));
     const dir = sort.dir === "desc" ? -1 : 1;
     return [...filtered].sort((a, b) => (value(a) - value(b)) * dir);
-  }, [activeTab, priorityFilter, newOnly, sort, pendingNoTestAll, pendingTestAll, reviewedOrAssigned]);
+  }, [activeTab, priorityFilter, newOnly, sort, pendingNoTestAll, pendingTestAll, pendingExpansion, reviewedOrAssigned]);
 
   // Oportunidades nuevas (últimos NEW_DAYS días) en la pestaña activa, para el botón "Nuevas"
   const newInTab = useMemo(() => {
     const base =
-      activeTab === "pending" ? pendingNoTestAll : activeTab === "review" ? pendingTestAll : reviewedOrAssigned;
+      tabList[activeTab];
     return base.filter(isRecent).length;
-  }, [activeTab, pendingNoTestAll, pendingTestAll, reviewedOrAssigned]);
+  }, [activeTab, pendingNoTestAll, pendingTestAll, pendingExpansion, reviewedOrAssigned]);
 
   const handleSort = (key: SortKey) =>
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
@@ -233,6 +251,7 @@ const pendingTestAll = useMemo(
   const tabCount: Record<TabKey, number> = {
     pending: totalPendingNoTestAll,
     review: totalPendingTestAll,
+    expansion: pendingExpansion.length,
     reviewed: totalReviewedOrAssigned,
   };
   const currentTab = TABS.find((t) => t.key === activeTab)!;
@@ -334,7 +353,7 @@ const pendingTestAll = useMemo(
                 <HelpCircle className="h-5 w-5" />
               </button>
               {helpOpen && (
-                <div className="absolute right-0 top-12 z-40 w-[360px] rounded-lg border border-border bg-popover p-4 text-sm text-popover-foreground shadow-lg">
+                <div className="absolute right-0 top-12 z-40 w-[400px] max-h-[75vh] overflow-y-auto rounded-lg border border-border bg-popover p-4 text-sm text-popover-foreground shadow-lg">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold">¿Qué significa cada columna?</h3>
                     <button type="button" onClick={() => setHelpOpen(false)} aria-label="Cerrar">
@@ -344,7 +363,22 @@ const pendingTestAll = useMemo(
                   <ul className="space-y-2 leading-relaxed text-foreground/80">
                     <li><b>Score</b>: puntuación de 0 a 100 con el uso de los últimos 60 días: volumen de tests (50%), constancia (30%) y tendencia (20%).</li>
                     <li><b>Prioridad</b>: <b>Alta</b> si el centro está en el top 15% de uso entre los centros sin test_all; <b>Media</b> si tiene un uso constante por encima del mínimo.</li>
-                    <li><b>Revisar</b>: el centro tuvo test_all y sigue usando tests.</li>
+                    <li><b>Pendientes</b>: clientes verificados sin test_all, candidatos directos a Assessment.</li>
+                    <li>
+                      <b>Revisar</b>: hay que comprobar algo antes de vender. El icono junto a la prioridad dice qué:
+                      <ul className="mt-1 space-y-1 pl-3">
+                        {Object.values(REASON_META).map((m) => {
+                          const Icon = m.icon;
+                          return (
+                            <li key={m.label} className="flex gap-1.5">
+                              <Icon className={`h-4 w-4 shrink-0 mt-0.5 ${m.className}`} />
+                              <span><b>{m.label}</b>: {m.description}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </li>
+                    <li><b>Uso alto</b>: clientes que ya tienen test_all y están en el top 15% de uso; contactar para conocer sus necesidades.</li>
                     <li><b>Tests 60d</b>: tests finalizados en los últimos 60 días.</li>
                     <li><b>Tendencia</b>: tests de los últimos 30 días frente a los 30 anteriores. <b>Nuevo uso</b> si antes no tenía uso.</li>
                     <li><b>Detectada</b>: fecha en que entró la oportunidad. Las de los últimos {NEW_DAYS} días llevan la marca <b>Nueva</b> y se pueden filtrar con el botón <b>Nuevas</b>.</li>

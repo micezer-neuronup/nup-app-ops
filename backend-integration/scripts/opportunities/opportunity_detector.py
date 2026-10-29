@@ -9,8 +9,8 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from ops_filter import get_centers_with_feature, get_current_customers
-from scoring import fetch_usage, build_scored_pool, thresholds, WINDOW_DAYS, COOLDOWN_DAYS
+from ops_filter import load_center_access, FEATURE_NOW_LEVELS
+from scoring import fetch_usage, fetch_recent_activity, build_scored_pool, thresholds, WINDOW_DAYS, COOLDOWN_DAYS
 
 # ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -112,10 +112,12 @@ REDACTA EL MENSAJE:"""
 # ── Deterministic text for the agent: the track reason plus the usage summary (no API call).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def build_justification(r):
+    action = ("Contactar para conocer sus necesidades." if r["kind"] == 'expansion'
+              else "Revisar su situación antes de ofrecer Assessment." if r["check_reasons"]
+              else "Contactar para ofrecer Assessment.")
     return (
         f"{r['track_reason']}. {r['total_tests']} tests en {WINDOW_DAYS} días "
-        f"({r['active_days']} días activos, media {r['avg_daily']:.1f}). "
-        f"Contactar para ofrecer Assessment."
+        f"({r['active_days']} días activos, media {r['avg_daily']:.1f}). {action}"
     )
 
 
@@ -132,26 +134,31 @@ def build_trigger_details(r):
         "score_trend": round(r["score_parts"]["trend"] * 100, 1),
         "priority": r["priority"],
         "track_reason": r["track_reason"],
+        "access": r["access"],
+        "check_reasons": r["check_reasons"],
         **thresholds(),
     }
 
 
 # ────── Opportunity detection ───────────────────────────────────────────────────────────────────────────────────────────────────
-# ── get_centers_with_feature gives the centers with test_all now (has_now) and only on old subscriptions (had_before).
+# ── load_center_access gives the access level of every center and of its test_all (see ops_filter.py).
 # ── If the Ops API fails it raises, and the run stops without writing anything.
-# ── get_current_customers gives the centers with an active or past_due subscription.
 # ── fetch_usage gets the 60 days usage of every center from daily_stats in one query.
+# ── fetch_recent_activity gives the centers with activity in the last RECENT_ACCESS_DAYS.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── build_scored_pool keeps current customers without test_all now and scores them (see scoring.py).
-# ── eligible = over the usage floor. priority 'alta' = top percentile of the eligible pool, 'media' = the rest.
-# ── kind 'review' = had test_all before (recovery track), 'upgrade' = never had it.
+# ── build_scored_pool puts every center with tests in a group and scores it (see scoring.py):
+# ──   'assessment': without test_all now. Verified customers go to Pendientes, the ones with check_reasons to Revisar.
+# ──   'expansion': verified customers with test_all now, only the top percentile (Uso alto con Assessment).
+# ── kind 'review' = had test_all (recovery track), 'upgrade' = never had it, 'expansion' = has it now.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── With --dry-run we only print the pool and the top candidates, nothing is written.
-# ── Pending opportunities: if the center is still eligible we refresh current_*, score, kind and trigger_details.
-# ── Completed ones (inside the cooldown) are refreshed the same way but never expired: they were reviewed on purpose.
-# ── If it is no longer eligible (below the floor or not a customer anymore) the status goes to 'expired'.
-# ── Centers with test_all now are left to daily_usage_detector, which marks them as 'converted'.
-# ── New opportunities: eligible centers without a pending one and without one completed in the last COOLDOWN_DAYS.
+# ── Each open opportunity belongs to a group: 'expansion' if its kind is expansion, 'assessment' otherwise.
+# ── Pending opportunities: if the center is still eligible in the same group we refresh current_*, score, kind
+# ── and trigger_details. Completed ones (inside the cooldown) are refreshed the same way but never expired.
+# ── If it is no longer eligible in its group the status goes to 'expired'.
+# ── Assessment ones whose center has test_all now are left to daily_usage_detector, which marks them as 'converted'.
+# ── New opportunities: eligible centers without a pending one in the same group and without one completed
+# ── in the last COOLDOWN_DAYS.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── AI brief (ai_brief.py): new opportunities, and refreshed ones whose signature (kind|priority|trend) changed or
 # ── without a brief yet, get one AFTER the commit, so a slow or failing OpenRouter never touches the main writes.
@@ -194,22 +201,24 @@ def run_assessment_detection(dry_run=False, dry_run_brief=False):
     cursor = conn.cursor()
 
     try:
-        has_now, had_before = get_centers_with_feature(cursor, feature='test_all')
-        customers = get_current_customers(cursor)
+        access = load_center_access(cursor, feature='test_all')
         usage = fetch_usage(cursor)
+        recent_active = fetch_recent_activity(cursor)
 
-        scored = build_scored_pool(usage, customers, has_now, had_before)
+        scored = build_scored_pool(usage, access, recent_active)
         eligible = sorted(
             (cid for cid, r in scored.items() if r["eligible"]),
             key=lambda cid: scored[cid]["score"], reverse=True
         )
-        by_track = {}
+        by_track, by_reason = {}, {}
         for cid in eligible:
             key = f"{scored[cid]['kind']}/{scored[cid]['priority']}"
             by_track[key] = by_track.get(key, 0) + 1
+            for reason in scored[cid]["check_reasons"] or ['ninguno']:
+                by_reason[reason] = by_reason.get(reason, 0) + 1
 
-        log(f"Centros con tests: {len(usage)} | Clientes sin test_all: {len(scored)} | Elegibles: {len(eligible)}")
-        log(f"Por track: {by_track} | Umbrales: {thresholds()}")
+        log(f"Centros con tests: {len(usage)} | En algún grupo: {len(scored)} | Elegibles: {len(eligible)}")
+        log(f"Por track: {by_track} | Motivos de revisión: {by_reason} | Umbrales: {thresholds()}")
 
         if dry_run:
             log(f"Top {DRY_RUN_TOP} candidatos:")
@@ -217,7 +226,8 @@ def run_assessment_detection(dry_run=False, dry_run_brief=False):
                 r = scored[cid]
                 log(f"  centro {cid}: score {r['score']} ({r['kind']}/{r['priority']}) "
                     f"tests {r['total_tests']}, días {r['active_days']}, "
-                    f"recientes {r['tests_recent']} vs previos {r['tests_previous']} | {r['track_reason']}")
+                    f"recientes {r['tests_recent']} vs previos {r['tests_previous']} | acceso {r['access']} "
+                    f"| {r['track_reason']}")
             if dry_run_brief:
                 if not brief_enabled():
                     log("Briefs IA: sin OPENROUTER_API_KEY", "WARN")
@@ -231,24 +241,26 @@ def run_assessment_detection(dry_run=False, dry_run_brief=False):
             return
 
         cursor.execute("""
-            SELECT id, center_id, status, ai_brief IS NOT NULL, ai_brief_signature
+            SELECT id, center_id, status, ai_brief IS NOT NULL, ai_brief_signature, opportunity_kind
             FROM commercial_opportunity
             WHERE product = 'assessments'
               AND (status = 'pending'
                    OR (status = 'completed' AND COALESCE(updated_at, created_at) >= NOW() - %s * INTERVAL '1 day'))
         """, (COOLDOWN_DAYS,))
         open_rows = cursor.fetchall()
-        blocked_centers = {str(row[1]) for row in open_rows}
+        group_of = lambda kind: 'expansion' if kind == 'expansion' else 'assessment'
+        blocked = {(str(row[1]), group_of(row[5])) for row in open_rows}
 
         pending_briefs = []
         refreshed = expired = 0
-        for opp_id, center_id, status, has_brief, brief_signature in open_rows:
+        for opp_id, center_id, status, has_brief, brief_signature, kind in open_rows:
             cid = str(center_id)
-            if cid in has_now:
+            group = group_of(kind)
+            if group == 'assessment' and access.get(cid, {}).get("feature_level") in FEATURE_NOW_LEVELS:
                 continue
 
             r = scored.get(cid)
-            if r and r["eligible"]:
+            if r and r["eligible"] and r["group"] == group:
                 cursor.execute("""
                     UPDATE commercial_opportunity
                     SET current_total_tests_60d = %s,
@@ -274,13 +286,15 @@ def run_assessment_detection(dry_run=False, dry_run_brief=False):
                         updated_at = NOW()
                     WHERE id = %s
                 """, (r["total_tests"] if r else 0, r["active_days"] if r else 0, r["avg_daily"] if r else 0, opp_id))
-                log(f"Centro {cid}: oportunidad {opp_id} → 'expired' "
-                    f"({'por debajo del mínimo' if r else 'sin uso o ya no es cliente'})")
+                why = ("ya no está en el top de centros con test_all" if group == 'expansion'
+                       else "por debajo del mínimo" if r and r["group"] == group
+                       else "sin uso reciente o sin acceso")
+                log(f"Centro {cid}: oportunidad {opp_id} ({kind}) → 'expired' ({why})")
                 expired += 1
 
         new_opportunities = 0
         for cid in eligible:
-            if cid in blocked_centers:
+            if (cid, scored[cid]["group"]) in blocked:
                 continue
             r = scored[cid]
 

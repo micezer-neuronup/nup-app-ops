@@ -19,9 +19,10 @@ import {
   ChevronRight,
   Undo2,
   Sparkles,
+  Gauge,
 } from "lucide-react";
 import { HubSpotIcon } from "./shared/HubSpotIcon";
-import { PriorityBadge, getTrack } from "./shared/PriorityBadge";
+import { PriorityBadge, getTrack, checkReasons, REASON_META } from "./shared/PriorityBadge";
 import { Tag } from "./shared/Tag";
 import { UsageChart } from "./shared/UsageChart";
 import { trendOf, TrendCell } from "./OpportunityList";
@@ -361,12 +362,21 @@ export function ModalOpp({
               )}
             </button>
             <PriorityBadge trigger={opp.trigger_details} />
-            {opp.opportunity_kind === "review" && (
+            {checkReasons(opp).map((reason) => (
               <Tag
+                key={reason}
                 tone="orange"
-                icon={AlertTriangle}
-                label="Revisar"
-                title="Tuvo test_all en una suscripción anterior"
+                icon={REASON_META[reason].icon}
+                label={REASON_META[reason].label}
+                title={REASON_META[reason].description}
+              />
+            ))}
+            {opp.opportunity_kind === "expansion" && (
+              <Tag
+                tone="cyan"
+                icon={Gauge}
+                label="Uso alto con Assessment"
+                title="Ya tiene test_all y está en el top de uso: contactar para conocer sus necesidades"
               />
             )}
             {(opp.opportunity_kind as string) === "test_all" && (

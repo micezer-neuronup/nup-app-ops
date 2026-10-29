@@ -6,8 +6,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
-from ops_filter import get_centers_with_feature, get_current_customers
-from scoring import fetch_usage, build_scored_pool
+from ops_filter import load_center_access, centers_with_feature_now
+from scoring import fetch_usage, fetch_recent_activity, build_scored_pool
 
 # ────── Env configuration ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -47,12 +47,13 @@ def get_db_connection():
 
 
 # ────── Daily detection ───────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── We call the function get_centers_with_feature and recieve the centers with active test_all.
+# ── We call the function load_center_access and get the centers with test_all now (centers_with_feature_now).
 # ── If the Ops API fails it raises and the job stops (we never continue without knowing who has test_all).
 # ── We obtain all pending and completed opportunities (not converted nor expired) and store them in active_opportunities.
 # ── We get the date of yesterday(To check available data till that date from daily_stats).
 # ── For each opportunity if the center is in active_test_all, we set the status to converted.
 # ── This applies to pending and completed ones: a reviewed center that later buys test_all also converts.
+# ── 'expansion' opportunities (Uso alto con Assessment) already have test_all, so they never convert here.
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── We then proceed to fetch all daily activity from detection date till yesterday.
 # ── For this we fitrst get all the existing dates of all the opportunities on opportunity_detections (one query).
@@ -63,7 +64,8 @@ def get_db_connection():
 # ── After inserting new dialy detections, we proceed to refresh the score of the pending and completed opportunities.
 # ── Completed ones are refreshed too, so if they are reverted to pending (Deshacer) their numbers are current.
 # ── We build the scored pool (scoring.py) with the current 60 days usage and set score and current_* from it.
-# ── If the center is not in the pool (no usage or not a customer) we leave it as it is: the weekly job expires it.
+# ── If the center is not in the pool of the opportunity's group (no usage, no access, or the group changed)
+# ── we leave it as it is: the weekly job expires it.
 # ── The column score_base must not be touched.
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def run_daily_detection():
@@ -72,10 +74,11 @@ def run_daily_detection():
     cursor = conn.cursor()
 
     try:
-        active_test_all, had_test_all = get_centers_with_feature(cursor, feature='test_all')
+        access = load_center_access(cursor, feature='test_all')
+        active_test_all = centers_with_feature_now(access)
 
         cursor.execute("""
-            SELECT id, center_id, created_at::date, status
+            SELECT id, center_id, created_at::date, status, opportunity_kind
             FROM commercial_opportunity
             WHERE status IN ('pending', 'completed')
         """)
@@ -89,8 +92,8 @@ def run_daily_detection():
         yesterday = (datetime.now().date() - timedelta(days=1))
 
         to_track = []
-        for opp_id, center_id, created_date, status in active_opportunities:
-            if str(center_id) in active_test_all:
+        for opp_id, center_id, created_date, status, kind in active_opportunities:
+            if kind != 'expansion' and str(center_id) in active_test_all:
                 cursor.execute("""
                     UPDATE commercial_opportunity
                     SET status = 'converted'
@@ -99,7 +102,7 @@ def run_daily_detection():
                 if cursor.rowcount > 0:
                     log(f"Centro {center_id} ahora tiene test_all activo → oportunidad {opp_id} marcada como 'converted'.")
                 continue
-            to_track.append((opp_id, str(center_id), created_date, status))
+            to_track.append((opp_id, str(center_id), created_date, 'expansion' if kind == 'expansion' else 'assessment'))
 
         total_inserted = 0
         if to_track:
@@ -134,13 +137,12 @@ def run_daily_detection():
                     seen.add(stat_date)
                     total_inserted += 1
 
-        customers = get_current_customers(cursor)
-        scored = build_scored_pool(fetch_usage(cursor), customers, active_test_all, had_test_all)
+        scored = build_scored_pool(fetch_usage(cursor), access, fetch_recent_activity(cursor))
 
         refreshed = 0
-        for opp_id, cid, _, status in to_track:
+        for opp_id, cid, _, group in to_track:
             r = scored.get(cid)
-            if not r:
+            if not r or r["group"] != group:
                 continue
             cursor.execute("""
                 UPDATE commercial_opportunity

@@ -79,7 +79,15 @@ DB_HOST=localhost ../venv/bin/python daily_usage_detector.py             # diari
 - **`ops_filter.py`: la Ops API es la única fuente de qué centros tienen cada feature.**
   - Se consulta sin filtro `kind`, porque se quieren todas las suscripciones.
   - Si falla (falta el token, falla una página o se alcanza `MAX_PAGES`), lanza `OpsApiError` y el job se para sin escribir nada. Nunca se usan datos locales como alternativa.
-  - `get_centers_with_feature` devuelve `(has_now, had_before)`, y `get_current_customers` devuelve los centros con suscripción `active` o `past_due`.
+  - `load_center_access` asigna un nivel de acceso a cada centro: `verified`, `cancelling`, `unverified`, `trial` o `none`.
+    - **Stripe**: se usa el `current_state` de la tabla `subscriptions`, que es fiable.
+    - **Manuales**: se usa el payload de la Ops API. El `status` de la Ops API solo indica el tipo de acceso (`active` o `trial`), nunca si está cancelada. El `current_state` de las suscripciones manuales se deduce de fechas que suelen estar desactualizadas, así que lo que cuenta son `canceledAt` y `currentPeriodEnd`.
+  - **La actividad reciente es la prueba de acceso**: un centro sin acceso `verified` solo es oportunidad si ha tenido actividad en los últimos 14 días (`RECENT_ACCESS_DAYS`).
+  - **Grupos de `build_scored_pool`**:
+    - `assessment`: centros sin test_all. Si son clientes verificados van a Pendientes; si tienen algún `check_reasons`, a Revisar.
+    - `expansion`: clientes verificados que ya tienen test_all y están en el top 15 %. Van a la pestaña "Uso alto" y nunca pasan a `converted`.
+    - Los centros con solo acceso de prueba (`trial`) quedan fuera.
+  - `scripts/opportunities/ops_status_report.py`: informe de solo lectura con los valores que devuelve la Ops API.
 - **`scoring.py`**:
   - Constantes: ventana de 60 días, tendencia de 30 frente a 30, mínimo de 10 tests y 3 días activos, prioridad `alta` a partir del percentil 0,85, enfriamiento de 90 días.
   - Score = 50 % volumen (percentil de tests) + 30 % constancia (días activos / 60) + 20 % tendencia.
