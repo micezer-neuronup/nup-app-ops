@@ -4,26 +4,32 @@
 # ── The metric is sessions_finished. sessions_assigned is not used to classify: many centers start sessions without
 # ── assigning them (in production started/assigned goes up to 4x), so assigned is not a step every center goes through.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-from shared.scoring import (compute_usage_score, percentile_of, passes_floor, ACCESS_REASONS, NO_ACCESS, WINDOW_DAYS,
-                            TREND_DAYS, MIN_TESTS, MIN_ACTIVE_DAYS, COOLDOWN_DAYS, HIGH_PERCENTILE)
+from shared.scoring import (compute_usage_score, percentile_of, ACCESS_REASONS, NO_ACCESS, WINDOW_DAYS,
+                            TREND_DAYS, COOLDOWN_DAYS, HIGH_PERCENTILE)
 
 PREFIX = 'sessions'
 
 
 # ────── Script configuration ────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── TOP_PERCENTILE: high_use = verified customers at or above this percentile of the score (top 5%).
+# ── TOP_PERCENTILE: high_use = verified customers at or above this percentile of the score (0.97 = top 3%).
 # ── CHURN_MIN_PREVIOUS / CHURN_DROP: churn = at least CHURN_MIN_PREVIOUS finished sessions in the previous TREND_DAYS
-# ──   and the last TREND_DAYS at or below CHURN_DROP of that (a drop of 50% or more).
+# ──   and the last TREND_DAYS at or below CHURN_DROP of that (0.4 = a drop of 60% or more).
 # ── ADOPTION_MIN_STARTED / ADOPTION_MAX_RATIO: adoption = at least ADOPTION_MIN_STARTED started sessions in the window
 # ──   and finished/started at or below ADOPTION_MAX_RATIO (in production the worst 10% is around 0.22).
-# ── The floor (MIN_TESTS finished sessions on MIN_ACTIVE_DAYS days) is shared with the other modules.
+# ── MIN_SESSIONS / MIN_SESSION_DAYS: floor of this module (finished sessions in the window, on at least that many days).
+# ──   It is not the shared one (10 on 3 days): sessions are daily use, and with it the first prod dry run (03/11/2026)
+# ──   gave 302 opportunities (116 to review). It also sets the reference pool of the score (verified customers over it).
 # ── Centers that start a lot (ADOPTION_MIN_STARTED) also pass the floor, as they barely finish but they do use sessions.
+# ── First values (prod dry run 03/11/2026): top 5%, churn 20 / 50%, adoption 20 / 0.25 → 41 high_use, 43 churn, 102 adoption.
+# ── To compare other values against the real data: sessions_detector.py --dry-run --calibrate.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-TOP_PERCENTILE = 0.95
-CHURN_MIN_PREVIOUS = 20
-CHURN_DROP = 0.5
-ADOPTION_MIN_STARTED = 20
-ADOPTION_MAX_RATIO = 0.25
+MIN_SESSIONS = 30
+MIN_SESSION_DAYS = 8
+TOP_PERCENTILE = 0.97
+CHURN_MIN_PREVIOUS = 40
+CHURN_DROP = 0.4
+ADOPTION_MIN_STARTED = 40
+ADOPTION_MAX_RATIO = 0.15
 
 
 # ────── Extra usage ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -79,8 +85,12 @@ REASON_TEXT = {
 }
 
 
+def passes_floor(r):
+    return r["total_sessions"] >= MIN_SESSIONS and r["active_days"] >= MIN_SESSION_DAYS
+
+
 def uses_sessions(r):
-    return passes_floor(r, PREFIX) or r["sessions_started"] >= ADOPTION_MIN_STARTED
+    return passes_floor(r) or r["sessions_started"] >= ADOPTION_MIN_STARTED
 
 
 def is_churn(r):
@@ -106,7 +116,7 @@ def build_scored_pool(usage, extras, access):
             verified[cid] = r
 
     # Every center is scored against the verified customers over the floor (the reference pool)
-    pool_ids = [cid for cid, u in verified.items() if passes_floor(u, PREFIX)]
+    pool_ids = [cid for cid, u in verified.items() if passes_floor(u)]
     pool_totals = sorted(verified[cid]["total_sessions"] for cid in pool_ids)
     for cid, r in scored.items():
         score, parts = compute_usage_score(r, pool_totals, PREFIX)
@@ -146,8 +156,8 @@ def thresholds():
     return {
         "window_days": WINDOW_DAYS,
         "trend_days": TREND_DAYS,
-        "min_sessions": MIN_TESTS,
-        "min_active_days": MIN_ACTIVE_DAYS,
+        "min_sessions": MIN_SESSIONS,
+        "min_active_days": MIN_SESSION_DAYS,
         "top_percentile": TOP_PERCENTILE,
         "churn_min_previous": CHURN_MIN_PREVIOUS,
         "churn_drop": CHURN_DROP,

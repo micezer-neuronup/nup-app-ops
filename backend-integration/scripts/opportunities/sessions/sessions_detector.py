@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared.ops_filter import load_center_access
 from shared.scoring import fetch_usage, WINDOW_DAYS, COOLDOWN_DAYS
 from shared.ai_brief import brief_enabled, fetch_context, write_briefs
+import sessions.pool as pool
 from sessions.pool import build_scored_pool, fetch_session_extras, thresholds
 from sessions.brief import generate_brief, signature
 
@@ -46,6 +47,46 @@ DRY_RUN_BRIEFS = 5
 
 def log(msg, level="INFO"):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [{level}] {msg}", flush=True)
+
+
+# ────── Calibration ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# ── --dry-run --calibrate: counts per kind with other values of each threshold, on the same data (one Ops API call).
+# ── One group of thresholds changes at a time, the rest keep the values of sessions/pool.py (marked with *).
+# ── The kinds go in priority order, so a change in one group can move centers between the other kinds too.
+# ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+CALIBRATION = [
+    ("Mínimo (finalizadas, días)", ("MIN_SESSIONS", "MIN_SESSION_DAYS"), [(10, 3), (20, 5), (30, 8), (50, 10), (80, 15)]),
+    ("Uso alto (percentil)", ("TOP_PERCENTILE",), [(0.95,), (0.97,), (0.98,), (0.99,)]),
+    ("Riesgo (mín. mes anterior, hasta % del anterior)", ("CHURN_MIN_PREVIOUS", "CHURN_DROP"),
+     [(20, 0.5), (40, 0.5), (40, 0.4), (60, 0.4), (60, 0.3), (100, 0.3)]),
+    ("Adopción (mín. iniciadas, finalización máx.)", ("ADOPTION_MIN_STARTED", "ADOPTION_MAX_RATIO"),
+     [(20, 0.25), (40, 0.2), (40, 0.15), (60, 0.15), (60, 0.1), (100, 0.1)]),
+]
+KIND_ORDER = ("access_review", "churn", "adoption", "high_use")
+
+
+def count_by_kind(scored):
+    counts = {k: 0 for k in KIND_ORDER}
+    for r in scored.values():
+        if r["eligible"]:
+            counts[r["kind"]] += 1
+    return counts
+
+
+def run_calibration(usage, extras, access):
+    log("Calibración (Revisar / Riesgo / Adopción / Uso alto = total):")
+    for title, names, options in CALIBRATION:
+        current = tuple(getattr(pool, n) for n in names)
+        log(f"  {title}:")
+        for values in options:
+            for n, v in zip(names, values):
+                setattr(pool, n, v)
+            c = count_by_kind(build_scored_pool(usage, extras, access))
+            mark = "*" if values == current else " "
+            log(f"   {mark} {', '.join(str(v) for v in values):>10} → {c['access_review']:4} / {c['churn']:4} / "
+                f"{c['adoption']:4} / {c['high_use']:4} = {sum(c.values())}")
+        for n, v in zip(names, current):
+            setattr(pool, n, v)
 
 
 # ────── Database connection ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -109,14 +150,14 @@ def build_trigger_details(r):
 # ── fetch_usage gets the finished sessions of the window; fetch_session_extras the started, assigned, home and patients.
 # ── build_scored_pool gives every center one kind: access_review, churn, adoption or high_use (see sessions/pool.py).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── With --dry-run we only print the counts and the top candidates, nothing is written.
+# ── With --dry-run we only print the counts and the top candidates, nothing is written (--calibrate: see Calibration).
 # ── One open opportunity per center: its kind can change from one week to the next (e.g. high_use → churn), so a pending
 # ── one that is still eligible is refreshed with the new kind. Completed ones (inside the cooldown) are refreshed but never
 # ── expired. A pending one that is not eligible anymore goes to 'expired'.
 # ── New opportunities: eligible centers without a pending one and without one completed in the last COOLDOWN_DAYS.
 # ── AI briefs (sessions/brief.py) are written after the commit, like in Assessment (shared/ai_brief.py write_briefs).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def run_sessions_detection(dry_run=False, dry_run_brief=False):
+def run_sessions_detection(dry_run=False, dry_run_brief=False, calibrate=False):
     log(f"=== INICIANDO DETECCIÓN SEMANAL DE SESIONES ({WINDOW_DAYS} días){' [DRY RUN]' if dry_run else ''} ===")
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -137,6 +178,9 @@ def run_sessions_detection(dry_run=False, dry_run_brief=False):
 
         log(f"Centros con sesiones finalizadas: {len(usage)} | Sin prueba: {len(scored)} | Elegibles: {len(eligible)}")
         log(f"Por tipo: {by_kind} | Umbrales: {thresholds()}")
+
+        if dry_run and calibrate:
+            run_calibration(usage, extras, access)
 
         if dry_run:
             log(f"Top {DRY_RUN_TOP} candidatos:")
@@ -242,4 +286,5 @@ def run_sessions_detection(dry_run=False, dry_run_brief=False):
 
 
 if __name__ == "__main__":
-    run_sessions_detection(dry_run="--dry-run" in sys.argv, dry_run_brief="--brief" in sys.argv)
+    run_sessions_detection(dry_run="--dry-run" in sys.argv, dry_run_brief="--brief" in sys.argv,
+                           calibrate="--calibrate" in sys.argv)

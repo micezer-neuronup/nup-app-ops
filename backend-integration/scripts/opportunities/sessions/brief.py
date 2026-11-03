@@ -1,7 +1,9 @@
 # ────── Sessions AI brief ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── The Sessions prompt for the brief (the OpenRouter call and the checks live in shared/ai_brief.py).
 # ── Nothing specific is offered: we only detect the case, the sales/CS person decides what to offer.
-# ── The session counts go separately (assigned, started, finished): centers don't all work the same way.
+# ── The session counts go separately (started, finished): centers don't all work the same way.
+# ── Assigned sessions are left out of the prompt: many centers start sessions without assigning them, and with the number
+# ──   in front of it the model kept suggesting "assign more sessions" even when told not to (prod dry run, 03/11/2026).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 from shared.ai_brief import call_brief, context_lines, trend_dir, TREND_TEXT, ACCESS_CHECK_TEXT
 from shared.scoring import WINDOW_DAYS, TREND_DAYS
@@ -40,8 +42,8 @@ Reglas:
   Si NO hay nada "A revisar", no menciones la suscripción ni pidas verificarla.
 - Céntrate en las sesiones. El "Resto de uso" es solo contexto: no lo conviertas en un enfoque salvo que esté
   claramente relacionado con la situación del centro.
-- Las sesiones asignadas, iniciadas y finalizadas son datos distintos: no las sumes. Muchos centros inician
-  sesiones sin asignarlas, así que no presentes eso como un problema.
+- Las sesiones iniciadas y finalizadas son datos distintos: no las sumes.
+- No hables de asignar sesiones ni sugieras asignar más: cada centro organiza las sesiones a su manera.
 - Un dato a 0 puede ser relevante, pero no lo presentes como un problema del centro.
 - No uses términos internos: score, percentil, prioridad, "top X%", track.
 - Tono sugerente y profesional, en español, sin saludos. Cada frase con menos de 25 palabras.
@@ -56,7 +58,6 @@ def build_prompt(r, ctx):
         f"- Sesiones finalizadas en {WINDOW_DAYS} días: {r['total_sessions']}, en {r['active_days']} días con sesiones "
         f"(media {r['avg_daily']:.1f} por día activo)",
         f"- Sesiones iniciadas en {WINDOW_DAYS} días: {r['sessions_started']}",
-        f"- Sesiones asignadas en {WINDOW_DAYS} días: {r['sessions_assigned']}",
     ]
     if r.get("completion_rate") is not None:
         lines.append(f"- Termina {round(100 * r['completion_rate'])} de cada 100 sesiones que inicia")

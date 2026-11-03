@@ -109,14 +109,16 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
   - Contenido: `{summary, points[2]}`, guardado en `ai_brief`, `ai_brief_at` y `ai_brief_signature` (migración 002).
   - Datos: solo el scoring y el resto de columnas de `daily_stats`. Nada de HubSpot ni datos de contacto.
   - Se genera **después** del commit principal, y se regenera solo si cambia la firma `kind|priority|trend_dir|check_reasons`. Hay un tope de 50 por ejecución.
-  - Las sesiones van al prompt por separado (asignadas, iniciadas, finalizadas), nunca sumadas. `sessions_created` siempre es 0 porque `Session - Created` está en `IGNORED_EVENTS`.
+  - Las sesiones van al prompt por separado (iniciadas, finalizadas), nunca sumadas. Las asignadas no se envían: el modelo acababa sugiriendo "asignar más sesiones". `sessions_created` siempre es 0 porque `Session - Created` está en `IGNORED_EVENTS`.
   - Si falla, solo deja un aviso y el job sigue.
   - Para revisar el tono sin escribir nada: `--dry-run --brief`.
   - Al asignar, `assignUpsellOpportunity` envía el brief a HubSpot (`upsell_ai_justification`); si no hay brief, envía la plantilla.
 
 ### Oportunidades de Sesiones (`scripts/opportunities/sessions/`)
 - Todos los centros tienen sesiones: no hay feature que detectar. La métrica es `sessions_finished`; `sessions_assigned` no clasifica (muchos centros inician sin asignar).
-- Un `opportunity_kind` por centro, el primero que aplique: `access_review` (sin acceso verificado, a Revisar) > `churn` (≥ 20 finalizadas el mes anterior y caída ≥ 50 %) > `adoption` (≥ 20 iniciadas y finalización ≤ 25 %) > `high_use` (clientes verificados en el top 5 %). Trials fuera.
+- Un `opportunity_kind` por centro, el primero que aplique: `access_review` (sin acceso verificado, a Revisar) > `churn` (≥ 40 finalizadas el mes anterior y caída ≥ 60 %) > `adoption` (≥ 40 iniciadas y finalización ≤ 15 %) > `high_use` (clientes verificados en el top 3 %). Trials fuera.
+- Mínimo de uso propio del módulo: 30 sesiones finalizadas en ≥ 8 días (no el compartido de 10 en 3). Los umbrales están en `sessions/pool.py` y se repiten en los textos de `dashboard/.../sessions/config.ts` (constante `T`): si cambian, cambiar los dos.
+- `sessions_detector.py --dry-run --calibrate` imprime cuántos centros saldrían en cada pestaña con otros valores de cada umbral, para ajustarlos con los datos reales.
 - El tipo de una oportunidad abierta puede cambiar de una semana a otra; el job la refresca con el nuevo tipo.
 - `daily_stats` tiene `sessions_home_started`, `sessions_home_finished` (`event_properties.home`) y `session_patients` (pacientes distintos por día, se usa como media por día activo). Migración 003. `events` se purga cada pocos meses, así que lo que se quiera conservar va a `daily_stats`.
 - `scripts/amplitude/backfill.py` (fechas fijas en el código) vuelve a descargar eventos de Amplitude y recalcula `daily_stats` de cada día con `aggregate_daily_stats` de `daily_events.py`. Solo el paso 1: las feature requests no son idempotentes.
