@@ -166,19 +166,25 @@ def process_event_batch(batch, cursor):
     template = "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, NOW())"
     execute_values(cursor, insert_events_query, events_to_insert, template=template)
 
-def run_daily_aggregations(cursor, start_str, end_str):
-    print(f"[INFO] [AMPLITUDE] Calculating aggregations & features | date={start_str}")
-    
-    start_ts = datetime.strptime(start_str, "%Y%m%dT%H").strftime("%Y-%m-%d %H:%M:%S")
-    end_ts = datetime.strptime(end_str, "%Y%m%dT%H").strftime("%Y-%m-%d %H:%M:%S")
+def to_ts(time_str):
+    return datetime.strptime(time_str, "%Y%m%dT%H").strftime("%Y-%m-%d %H:%M:%S")
+
+
+# 1. Agregación de daily_stats, separada para que backfill.py pueda reutilizarla sin el paso 2.
+# Es un upsert (ON CONFLICT DO UPDATE): volver a lanzarla para un día ya calculado no duplica nada.
+def aggregate_daily_stats(cursor, start_str, end_str):
+    start_ts, end_ts = to_ts(start_str), to_ts(end_str)
 
     # 1. Agregación de daily_stats (Adaptado al esquema de tu dashboard actual)
+    # Las 3 últimas columnas son para el módulo de Sesiones (migración 003_daily_stats_session_columns.sql):
+    # sesiones en casa (event_properties.home) y pacientes distintos con sesión ese día.
     cursor.execute("""
         INSERT INTO daily_stats (
             center_id, stat_date, total_logins, activities_started, 
             sessions_assigned, sessions_started, sessions_finished, 
             tests_started, tests_finished, reports_created, 
-            exercises_downloaded, materials_downloaded, active_therapists
+            exercises_downloaded, materials_downloaded, active_therapists,
+            sessions_home_started, sessions_home_finished, session_patients
         )
         SELECT 
             center_id,
@@ -193,7 +199,10 @@ def run_daily_aggregations(cursor, start_str, end_str):
             COUNT(*) FILTER (WHERE event_type = 'Report - Created'),
             COUNT(*) FILTER (WHERE event_type = 'Exercise - Downloaded'),
             COUNT(*) FILTER (WHERE event_type = 'Material - Downloaded'),
-            COUNT(DISTINCT user_id)
+            COUNT(DISTINCT user_id),
+            COUNT(*) FILTER (WHERE event_type = 'Session - Started' AND event_properties->>'home' = 'true'),
+            COUNT(*) FILTER (WHERE event_type = 'Session - Finished' AND event_properties->>'home' = 'true'),
+            COUNT(DISTINCT patient_id) FILTER (WHERE event_type IN ('Session - Started', 'Session - Finished'))
         FROM events
         WHERE event_timestamp >= %s AND event_timestamp < %s
         GROUP BY center_id, DATE(event_timestamp)
@@ -208,8 +217,20 @@ def run_daily_aggregations(cursor, start_str, end_str):
             reports_created = EXCLUDED.reports_created,
             exercises_downloaded = EXCLUDED.exercises_downloaded,
             materials_downloaded = EXCLUDED.materials_downloaded,
-            active_therapists = EXCLUDED.active_therapists;
+            active_therapists = EXCLUDED.active_therapists,
+            sessions_home_started = EXCLUDED.sessions_home_started,
+            sessions_home_finished = EXCLUDED.sessions_home_finished,
+            session_patients = EXCLUDED.session_patients;
     """, (start_ts, end_ts))
+
+
+
+def run_daily_aggregations(cursor, start_str, end_str):
+    print(f"[INFO] [AMPLITUDE] Calculating aggregations & features | date={start_str}")
+    
+    start_ts, end_ts = to_ts(start_str), to_ts(end_str)
+
+    aggregate_daily_stats(cursor, start_str, end_str)
 
     # 2. Extracción e inserción de Feature Requests
     cursor.execute("""

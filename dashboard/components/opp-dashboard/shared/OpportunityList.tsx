@@ -4,10 +4,11 @@ import {
   ArrowDown, ArrowUp, CheckCircle, Copy, AlertTriangle, TrendingUp, TrendingDown, MoveRight, Sparkles,
   UserPlus, UserCheck, Undo2,
 } from "lucide-react";
-import { PriorityBadge, checkReasons, REASON_META } from "./shared/PriorityBadge";
-import { HubSpotIcon } from "./shared/HubSpotIcon";
-import { Tag } from "./shared/Tag";
+import { PriorityBadge, checkReasons, REASON_META } from "./PriorityBadge";
+import { HubSpotIcon } from "./HubSpotIcon";
+import { Tag } from "./Tag";
 import type { Opportunity } from "./types";
+import type { ModuleMetric } from "./moduleConfig";
 
 export type SortKey = "score" | "tests" | "trend" | "created";
 export type SortDir = "desc" | "asc";
@@ -22,13 +23,13 @@ export const isRecent = (opp: Opportunity) =>
 const fmtDate = (d: string) => new Date(d).toLocaleDateString("es", { day: "numeric", month: "short" });
 
 // ---------- TENDENCIA: últimos 30 días frente a los 30 anteriores ----------
-// Sale de trigger_details (tests_recent / tests_previous); las oportunidades anteriores a v2 no lo tienen
+// Sale de trigger_details (<prefix>_recent / <prefix>_previous, p. ej. tests_recent); las anteriores a v2 no lo tienen
 export interface Trend {
   kind: "up" | "down" | "flat" | "new" | "none";
   pct: number | null;
 }
 
-export function trendOf(opp: Opportunity): Trend {
+export function trendOf(opp: Opportunity, prefix: ModuleMetric["prefix"] = "tests"): Trend {
   let td = opp.trigger_details;
   if (typeof td === "string") {
     try {
@@ -37,8 +38,8 @@ export function trendOf(opp: Opportunity): Trend {
       td = null;
     }
   }
-  const recent = typeof td?.tests_recent === "number" ? td.tests_recent : null;
-  const previous = typeof td?.tests_previous === "number" ? td.tests_previous : null;
+  const recent = typeof td?.[`${prefix}_recent`] === "number" ? td[`${prefix}_recent`] : null;
+  const previous = typeof td?.[`${prefix}_previous`] === "number" ? td[`${prefix}_previous`] : null;
   if (recent === null || previous === null) return { kind: "none", pct: null };
   if (previous === 0) return recent > 0 ? { kind: "new", pct: null } : { kind: "none", pct: null };
   const pct = Math.round(((recent - previous) / previous) * 100);
@@ -132,6 +133,8 @@ function SortHeader({
 }
 
 interface Props {
+  // Métrica del módulo: cabecera de la columna y claves de la tendencia
+  metric: ModuleMetric;
   opportunities: Opportunity[];
   emptyText: string;
   sort: { key: SortKey; dir: SortDir };
@@ -145,7 +148,7 @@ interface Props {
 }
 
 export function OpportunityList({
-  opportunities, emptyText, sort, onSort, onOpen, onCopy, copiedField, onReview, onUndo, onAssign,
+  metric, opportunities, emptyText, sort, onSort, onOpen, onCopy, copiedField, onReview, onUndo, onAssign,
 }: Props) {
   return (
     <div className="flex-1 min-h-0 flex flex-col rounded-xl border border-border/60 bg-card overflow-hidden">
@@ -158,7 +161,7 @@ export function OpportunityList({
         <span className="uppercase tracking-wider">nup_id</span>
         <span className="uppercase tracking-wider">Prioridad</span>
         <SortHeader label="Score" k="score" sort={sort} onSort={onSort} />
-        <SortHeader label="Tests 60d" k="tests" sort={sort} onSort={onSort} />
+        <SortHeader label={metric.column} k="tests" sort={sort} onSort={onSort} />
         <SortHeader label="Tendencia" k="trend" sort={sort} onSort={onSort} />
         <SortHeader label="Detectada" k="created" sort={sort} onSort={onSort} />
         <span className="uppercase tracking-wider text-right">Acciones</span>
@@ -260,7 +263,7 @@ export function OpportunityList({
                     </span>
                   </div>
 
-                  {/* Tests 60d */}
+                  {/* Métrica del módulo en 60 días (tests, sesiones…) */}
                   <span className="text-base tabular-nums text-foreground">
                     {opp.total_tests_60d}
                     <span className="md:hidden text-sm text-foreground/55"> tests</span>
@@ -268,7 +271,7 @@ export function OpportunityList({
 
                   {/* Tendencia */}
                   <span className="text-sm">
-                    <TrendCell trend={trendOf(opp)} />
+                    <TrendCell trend={trendOf(opp, metric.prefix)} />
                   </span>
 
                   {/* Detectada */}

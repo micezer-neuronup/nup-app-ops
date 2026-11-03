@@ -1,6 +1,6 @@
 import { ChevronsUp, ChevronUp, AlertTriangle, ShieldQuestion, ShieldOff, CalendarX2, FlaskConical, type LucideIcon } from "lucide-react";
 import { Tag } from "./Tag";
-import type { Opportunity } from "../types";
+import type { Opportunity } from "./types";
 
 // ---------- MOTIVOS DE REVISIÓN (trigger_details.check_reasons, ver scoring.py) ----------
 export type CheckReason =

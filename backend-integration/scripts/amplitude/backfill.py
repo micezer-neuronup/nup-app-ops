@@ -14,6 +14,9 @@ from requests.auth import HTTPBasicAuth
 import gzip
 from dotenv import load_dotenv
 
+# Agregación de daily_stats de daily_events.py (solo el paso 1, sin feature requests: ese paso no es idempotente)
+from daily_events import aggregate_daily_stats
+
 env_path = Path(__file__).resolve().parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
@@ -162,15 +165,18 @@ if __name__ == "__main__":
     )
     
     print("="*80)
-    print("🚀 Starting 1-Year Historical Backfill V2...")
+    print("🚀 Starting Historical Backfill V2 (last 90 days)…")
     print("="*80)
 
     BATCH_SIZE = 5000
     grand_total_processed = 0
     
 
-    current_date = datetime(2025, 10, 1)
-    end_date = datetime(2026, 6, 9)
+    # Últimos 90 días (hasta ayer): eventos de Amplitude + recálculo de daily_stats de cada día,
+    # para rellenar las columnas de sesiones de la migración 003 (sessions_home_*, session_patients).
+    # end_date no se incluye: del 05/08/2026 al 02/11/2026. Desde el despliegue, daily_events.py ya rellena las columnas.
+    current_date = datetime(2026, 8, 5)
+    end_date = datetime(2026, 11, 3)
 
     while current_date < end_date:
         next_date = current_date + timedelta(days=1)
@@ -196,9 +202,12 @@ if __name__ == "__main__":
                 process_event_batch(event_batch, cursor)
                 day_total += len(event_batch)
                 grand_total_processed += len(event_batch)
+
+            # Con los eventos del día completos, recalculamos su fila de daily_stats (upsert, no duplica)
+            aggregate_daily_stats(cursor, start_str, end_str)
                 
             conn.commit()
-            print(f"✅ Finished Day {start_str[:8]}: {day_total} valuable events saved.")
+            print(f"✅ Finished Day {start_str[:8]}: {day_total} valuable events saved, daily_stats updated.")
             
         except Exception as e:
             print(f"❌ Error on day {start_str}: {e}")

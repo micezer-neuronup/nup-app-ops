@@ -20,19 +20,30 @@ const toDayKey = (d: string) => {
 const fmtDay = (key: string) =>
   new Date(`${key}T00:00:00`).toLocaleDateString("es", { day: "numeric", month: "short" });
 
-function UsageTooltip({ active, payload }: { active?: boolean; payload?: any[] }) {
+function UsageTooltip({ active, payload, one, many }: { active?: boolean; payload?: any[]; one: string; many: string }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload as UsagePoint;
   return (
     <div className="rounded-md border border-border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md">
       <span className="font-semibold">{fmtDay(p.date)}</span>
-      <span className="text-foreground/70"> · {p.tests} {p.tests === 1 ? "test" : "tests"}</span>
+      <span className="text-foreground/70"> · {p.tests} {p.tests === 1 ? one : many}</span>
     </div>
   );
 }
 
-// Tests por día de los últimos 60 días del centro (GET /api/opportunities/:id/usage)
-export function UsageChart({ opportunityId, detectedAt }: { opportunityId: number; detectedAt?: string }) {
+// Uso por día de los últimos 60 días del centro (GET /api/opportunities/:id/usage): tests o sesiones según el módulo.
+// one / many: unidad en singular y plural ("test" / "tests", "sesión" / "sesiones")
+export function UsageChart({
+  opportunityId,
+  detectedAt,
+  one = "test",
+  many = "tests",
+}: {
+  opportunityId: number;
+  detectedAt?: string;
+  one?: string;
+  many?: string;
+}) {
   const [data, setData] = useState<UsagePoint[] | null>(null);
   const [error, setError] = useState(false);
 
@@ -62,8 +73,8 @@ export function UsageChart({ opportunityId, detectedAt }: { opportunityId: numbe
     const recent = data.filter((p) => p.recent).reduce((s, p) => s + p.tests, 0);
     const previous = data.filter((p) => !p.recent).reduce((s, p) => s + p.tests, 0);
     const days = data.filter((p) => p.tests > 0).length;
-    return `${recent + previous} tests en 60 días, ${days} días con uso. Últimos 30 días: ${recent}; 30 días anteriores: ${previous}.`;
-  }, [data]);
+    return `${recent + previous} ${many} en 60 días, ${days} días con uso. Últimos 30 días: ${recent}; 30 días anteriores: ${previous}.`;
+  }, [data, many]);
 
   if (error) {
     return <p className="text-sm text-foreground/60 py-6 text-center">No se pudo cargar la actividad.</p>;
@@ -104,7 +115,7 @@ export function UsageChart({ opportunityId, detectedAt }: { opportunityId: numbe
             />
             <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} width={28} />
             <Tooltip
-              content={<UsageTooltip />}
+              content={<UsageTooltip one={one} many={many} />}
               cursor={{ stroke: "var(--muted-foreground)", strokeWidth: 1, strokeDasharray: "4 4" }}
             />
             {showDetected && (
@@ -153,11 +164,11 @@ export function UsageChart({ opportunityId, detectedAt }: { opportunityId: numbe
 
       {/* Versión en tabla para lectores de pantalla */}
       <table className="sr-only">
-        <caption>Tests por día, últimos 60 días</caption>
+        <caption>{many[0].toUpperCase() + many.slice(1)} por día, últimos 60 días</caption>
         <thead>
           <tr>
             <th>Fecha</th>
-            <th>Tests</th>
+            <th>{many[0].toUpperCase() + many.slice(1)}</th>
           </tr>
         </thead>
         <tbody>

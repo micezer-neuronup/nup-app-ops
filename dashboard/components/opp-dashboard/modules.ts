@@ -23,7 +23,7 @@ export const OPP_MODULES: OppModule[] = [
     description: "Centros que usan tests: candidatos a Assessment, suscripciones a revisar y uso alto.",
     href: "/opp-dashboard/assessment",
     icon: ClipboardCheck,
-    image: "/assesment.webp",
+    image: "/assesment-logo.webp",
     accent: "text-[#00a4c2]",
     status: "active",
   },
@@ -39,11 +39,12 @@ export const OPP_MODULES: OppModule[] = [
   {
     key: "sessions",
     title: "Sesiones",
-    description: "Oportunidades a partir del uso de sesiones de los centros.",
+    description: "Centros que usan sesiones: uso alto, suscripciones a revisar, riesgo de abandono y adopción.",
     href: "/opp-dashboard/sessions",
     icon: CalendarCheck,
+    image: "/sesiones.svg",
     accent: "text-rose-500",
-    status: "soon",
+    status: "active",
   },
   {
     key: "licenses",

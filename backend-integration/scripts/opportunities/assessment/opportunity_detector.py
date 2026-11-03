@@ -9,12 +9,16 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from ops_filter import load_center_access, FEATURE_NOW_LEVELS
-from scoring import fetch_usage, build_scored_pool, thresholds, WINDOW_DAYS, COOLDOWN_DAYS
+# ── The shared code lives in scripts/opportunities/shared: we add scripts/opportunities to the path to import it.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from shared.ops_filter import load_center_access, FEATURE_NOW_LEVELS
+from shared.scoring import fetch_usage, WINDOW_DAYS, COOLDOWN_DAYS
+from assessment.pool import build_scored_pool, thresholds
 
 # ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
+env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 
@@ -28,14 +32,15 @@ DB_PORT = os.getenv('DB_PORT')
 
 
 # ────── OpenRouter configuration ────────────────────────────────────────────────────────────────────────────────────────────────
-# ── The config lives in ai_brief.py (the AI contact brief), imported here for generate_ai_justification.
+# ── The config lives in shared/ai_brief.py (the AI contact brief), imported here for generate_ai_justification.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-from ai_brief import (OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_URL, AI_BRIEF_MAX_PER_RUN,
-                      brief_enabled, fetch_context, generate_brief, signature)
+from shared.ai_brief import (OPENROUTER_API_KEY, OPENROUTER_MODEL, OPENROUTER_URL, brief_enabled, fetch_context,
+                             write_briefs)
+from assessment.brief import generate_brief, signature
 
 
 # ────── Script configuration ────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── The thresholds (WINDOW_DAYS, MIN_TESTS, MIN_ACTIVE_DAYS, HIGH_PERCENTILE, COOLDOWN_DAYS) live in scoring.py,
+# ── The thresholds (WINDOW_DAYS, MIN_TESTS, MIN_ACTIVE_DAYS, HIGH_PERCENTILE, COOLDOWN_DAYS) live in shared/scoring.py,
 # ── shared with daily_usage_detector so both jobs score the same way.
 # ── DRY_RUN_TOP: how many candidates the --dry-run prints.
 # ── DRY_RUN_BRIEFS: how many AI briefs the --dry-run --brief generates and prints (not saved).
@@ -59,7 +64,7 @@ def get_db_connection():
 
 
 # ────── AI Justification ────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── Not called since v2 (build_justification is used instead). The AI contact brief now lives in ai_brief.py.
+# ── Not called since v2 (build_justification is used instead). The AI contact brief now lives in assessment/brief.py.
 # ── The function is called for each oportunity detected. 
 # ── We set the prompt fot Open Router.
 # ── If the call to Open Router fails, then we have a fallback that return a manual justification with the data.
@@ -141,11 +146,11 @@ def build_trigger_details(r):
 
 
 # ────── Opportunity detection ───────────────────────────────────────────────────────────────────────────────────────────────────
-# ── load_center_access gives the access level of every center and of its test_all (see ops_filter.py).
+# ── load_center_access gives the access level of every center and of its test_all (see shared/ops_filter.py).
 # ── If the Ops API fails it raises, and the run stops without writing anything.
 # ── fetch_usage gets the 60 days usage of every center from daily_stats in one query.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── build_scored_pool puts every center with tests in a group and scores it (see scoring.py):
+# ── build_scored_pool puts every center with tests in a group and scores it (see assessment/pool.py):
 # ──   'assessment': without test_all now. Verified customers go to Pendientes, the ones with check_reasons to Revisar.
 # ──   'expansion': verified customers with test_all now, only the top percentile (Uso alto con Assessment).
 # ── kind 'review' = had test_all (recovery track), 'upgrade' = never had it, 'expansion' = has it now.
@@ -159,41 +164,11 @@ def build_trigger_details(r):
 # ── New opportunities: eligible centers without a pending one in the same group and without one completed
 # ── in the last COOLDOWN_DAYS.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-# ── AI brief (ai_brief.py): new opportunities, and refreshed ones whose signature (kind|priority|trend) changed or
+# ── AI brief (assessment/brief.py): new opportunities, and refreshed ones whose signature (kind|priority|trend) changed or
 # ── without a brief yet, get one AFTER the commit, so a slow or failing OpenRouter never touches the main writes.
 # ── Each brief is committed on its own. At most AI_BRIEF_MAX_PER_RUN per run, highest score first.
 # ── With --dry-run --brief we print the briefs of the top DRY_RUN_BRIEFS candidates without writing them.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def write_briefs(conn, cursor, pending_briefs):
-    if not pending_briefs:
-        log("Briefs IA: nada que generar")
-        return
-    if not brief_enabled():
-        log(f"Briefs IA: sin OPENROUTER_API_KEY, se omiten {len(pending_briefs)}", "WARN")
-        return
-
-    pending_briefs.sort(key=lambda item: item[2]["score"], reverse=True)
-    to_generate = pending_briefs[:AI_BRIEF_MAX_PER_RUN]
-    skipped = len(pending_briefs) - len(to_generate)
-    context = fetch_context(cursor, [cid for _, cid, _ in to_generate])
-
-    generated = failed = 0
-    for opp_id, cid, r in to_generate:
-        brief = generate_brief(cid, r, context.get(cid))
-        if not brief:
-            failed += 1
-            continue
-        cursor.execute("""
-            UPDATE commercial_opportunity
-            SET ai_brief = %s::jsonb, ai_brief_at = NOW(), ai_brief_signature = %s
-            WHERE id = %s
-        """, (json.dumps(brief, ensure_ascii=False), signature(r), opp_id))
-        conn.commit()
-        generated += 1
-
-    log(f"Briefs IA: generados {generated} | fallidos {failed} | omitidos por límite {skipped}")
-
-
 def run_assessment_detection(dry_run=False, dry_run_brief=False):
     log(f"=== INICIANDO DETECCIÓN SEMANAL ({WINDOW_DAYS} días){' [DRY RUN]' if dry_run else ''} ===")
     conn = get_db_connection()
@@ -316,7 +291,7 @@ def run_assessment_detection(dry_run=False, dry_run_brief=False):
         conn.commit()
         log(f"Total nuevas oportunidades: {new_opportunities} | refrescadas: {refreshed} | expiradas: {expired}")
 
-        write_briefs(conn, cursor, pending_briefs)
+        write_briefs(conn, cursor, pending_briefs, generate_brief, signature)
 
     except Exception as e:
         log(f"Error en detección semanal: {e}", "ERROR")

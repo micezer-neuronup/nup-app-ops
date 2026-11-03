@@ -19,18 +19,14 @@ import {
   ChevronRight,
   Undo2,
   Sparkles,
-  Gauge,
 } from "lucide-react";
-import { HubSpotIcon } from "./shared/HubSpotIcon";
-import { PriorityBadge, getTrack, checkReasons, REASON_META } from "./shared/PriorityBadge";
-import { Tag } from "./shared/Tag";
-import { UsageChart } from "./shared/UsageChart";
+import { HubSpotIcon } from "./HubSpotIcon";
+import { PriorityBadge, getTrack, checkReasons, REASON_META } from "./PriorityBadge";
+import { Tag } from "./Tag";
+import { UsageChart } from "./UsageChart";
 import { trendOf, TrendCell } from "./OpportunityList";
-import { OPP_MODULES } from "./modules";
 import type { Opportunity } from "./types";
-
-// Logo del módulo Assessment para la etiqueta de producto
-const ASSESSMENT_IMAGE = OPP_MODULES.find((m) => m.key === "assessment")?.image;
+import type { ModuleConfig } from "./moduleConfig";
 
 // ---------- HELPERS ----------
 const formatDateShort = (dateStr?: string | null) => {
@@ -53,32 +49,36 @@ const parseTrigger = (trigger: any): Record<string, any> | null => {
 
 const num = (v: any): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
-// Partes del score (scoring.py): peso y explicación de cada una
+// Partes del score (shared/scoring.py): peso de cada una; la explicación sale de config.scoreHints
 const SCORE_PARTS = [
-  {
-    key: "score_volume",
-    label: "Volumen",
-    weight: 50,
-    hint: "Percentil de tests en 60 días frente al resto de centros sin test_all",
-  },
-  {
-    key: "score_consistency",
-    label: "Constancia",
-    weight: 30,
-    hint: "Días con tests sobre los 60 días de la ventana",
-  },
-  {
-    key: "score_trend",
-    label: "Tendencia",
-    weight: 20,
-    hint: "Últimos 30 días frente a los 30 anteriores (50 = estable, 100 = el doble o más)",
-  },
+  { key: "score_volume", label: "Volumen", weight: 50, hint: "volume" },
+  { key: "score_consistency", label: "Constancia", weight: 30, hint: "consistency" },
+  { key: "score_trend", label: "Tendencia", weight: 20, hint: "trend" },
 ] as const;
+
+// Detalle de sesiones (módulo Sesiones): cada cifra por separado, porque no todos los centros trabajan igual
+const SESSION_DETAIL: { key: string; label: string; format: (v: number) => string }[] = [
+  { key: "sessions_started", label: "Iniciadas", format: (v) => `${v}` },
+  { key: "sessions_assigned", label: "Asignadas", format: (v) => `${v}` },
+  { key: "completion_rate", label: "Finalización", format: (v) => `${Math.round(v * 100)}%` },
+  { key: "home_share", label: "En casa", format: (v) => `${Math.round(v * 100)}%` },
+  { key: "avg_patients", label: "Pacientes por día", format: (v) => `${v}` },
+];
 
 // Umbrales del detector: iguales para todos los centros, por eso van plegados en "Detalles técnicos"
 const THRESHOLD_LABELS: Record<string, { label: string; format?: (v: any) => string }> = {
   window_days: { label: "Ventana", format: (v) => `${v} días` },
   min_tests: { label: "Mínimo de tests" },
+  min_sessions: { label: "Mínimo de sesiones finalizadas" },
+  trend_days: { label: "Periodo de la tendencia", format: (v) => `${v} días` },
+  top_percentile: {
+    label: "Uso alto desde el percentil",
+    format: (v) => (typeof v === "number" && v <= 1 ? `${Math.round(v * 100)}` : `${v}`),
+  },
+  churn_min_previous: { label: "Riesgo: mínimo el mes anterior" },
+  churn_drop: { label: "Riesgo: caída hasta", format: (v) => `${Math.round(v * 100)}% del mes anterior` },
+  adoption_min_started: { label: "Adopción: mínimo de iniciadas" },
+  adoption_max_ratio: { label: "Adopción: finalización máxima", format: (v) => `${Math.round(v * 100)}%` },
   min_active_days: { label: "Mínimo de días activos" },
   high_percentile: {
     label: "Prioridad alta desde el percentil",
@@ -92,10 +92,15 @@ const SHOWN_KEYS = new Set([
   "priority",
   "track_reason",
   "total_tests",
+  "total_sessions",
   "active_days",
   "avg_daily",
   "tests_recent",
   "tests_previous",
+  "sessions_recent",
+  "sessions_previous",
+  "sessions_home_finished",
+  ...SESSION_DETAIL.map((d) => d.key),
   "percentile",
   "score_volume",
   "score_consistency",
@@ -228,6 +233,8 @@ function CopyField({
 
 // ---------- COMPONENTE MODAL ----------
 interface ModalOppProps {
+  // Módulo del tablero: métrica, etiquetas por tipo y textos del score
+  config: ModuleConfig;
   opp: Opportunity;
   onClose: () => void;
   onReview?: (id: number) => void;
@@ -236,6 +243,7 @@ interface ModalOppProps {
 }
 
 export function ModalOpp({
+  config,
   opp,
   onClose,
   onReview,
@@ -294,17 +302,21 @@ export function ModalOpp({
 
   const td = parseTrigger(opp.trigger_details);
   const trackReason = getTrack(opp.trigger_details).reason;
-  const trend = trendOf(opp);
+  const { metric } = config;
+  const trend = trendOf(opp, metric.prefix);
 
   const percentile = num(td?.percentile);
   const topPct = percentile !== null ? Math.max(1, Math.ceil(100 - percentile)) : null;
   const windowDays = num(td?.window_days) ?? 60;
-  const testsPerActiveDay =
+  // total_tests_60d guarda la métrica del módulo (tests o sesiones finalizadas)
+  const perActiveDay =
     opp.active_days_60d > 0 ? (opp.total_tests_60d / opp.active_days_60d).toFixed(1) : "0.0";
-  const recent = num(td?.tests_recent);
-  const previous = num(td?.tests_previous);
+  const recent = num(td?.[`${metric.prefix}_recent`]);
+  const previous = num(td?.[`${metric.prefix}_previous`]);
+  const sessionDetail = SESSION_DETAIL.filter((d) => num(td?.[d.key]) !== null);
+  const kindTag = opp.opportunity_kind ? config.kindTags?.[opp.opportunity_kind] : undefined;
 
-  const parts = SCORE_PARTS.map((p) => ({ ...p, value: num(td?.[p.key]) }));
+  const parts = SCORE_PARTS.map((p) => ({ ...p, hint: config.scoreHints[p.hint], value: num(td?.[p.key]) }));
   const hasParts = parts.every((p) => p.value !== null);
 
   // Umbrales conocidos + cualquier clave desconocida, para no perder nada
@@ -371,22 +383,15 @@ export function ModalOpp({
                 title={REASON_META[reason].description}
               />
             ))}
-            {opp.opportunity_kind === "expansion" && (
-              <Tag
-                tone="cyan"
-                icon={Gauge}
-                label="Uso alto con Assessment"
-                title="Ya tiene test_all y está en el top de uso: contactar para conocer sus necesidades"
-              />
-            )}
+            {kindTag && <Tag tone="cyan" icon={kindTag.icon} label={kindTag.label} title={kindTag.title} />}
             {(opp.opportunity_kind as string) === "test_all" && (
               <Tag tone="cyan" icon={FlaskConical} label="Test previo" />
             )}
             <Tag
               tone="neutral"
               icon={Package}
-              image={opp.product?.toLowerCase().includes("assess") ? ASSESSMENT_IMAGE : undefined}
-              label={opp.product || "Sin producto"}
+              image={config.image}
+              label={config.title}
             />
             {opp.upsell_object && (
               <Tag
@@ -416,7 +421,7 @@ export function ModalOpp({
                     title="Puntuación de 0 a 100"
                     popover={hasParts ? <ScoreBreakdown parts={parts} /> : undefined}
                   />
-                  <Kpi label={`Tests ${windowDays}d`} value={opp.total_tests_60d} sub={`${testsPerActiveDay} por día activo`} />
+                  <Kpi label={metric.column} value={opp.total_tests_60d} sub={`${perActiveDay} por día activo`} />
                   <Kpi
                     label="Días activos"
                     value={
@@ -425,7 +430,7 @@ export function ModalOpp({
                         <span className="text-base font-medium text-foreground/50"> / {windowDays}</span>
                       </>
                     }
-                    sub="con algún test"
+                    sub={metric.activeDaysSub}
                   />
                   <Kpi
                     label="Tendencia"
@@ -434,10 +439,22 @@ export function ModalOpp({
                         <TrendCell trend={trend} />
                       </span>
                     }
-                    sub={recent !== null && previous !== null ? `${recent} vs ${previous} tests` : undefined}
-                    title="Tests de los últimos 30 días frente a los 30 anteriores"
+                    sub={recent !== null && previous !== null ? `${recent} vs ${previous} ${metric.many}` : undefined}
+                    title={`${metric.many[0].toUpperCase() + metric.many.slice(1)} de los últimos 30 días frente a los 30 anteriores`}
                   />
                 </div>
+
+                {/* Detalle de sesiones: cada cifra por separado (solo en el módulo Sesiones) */}
+                {sessionDetail.length > 0 && (
+                  <dl className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+                    {sessionDetail.map((d) => (
+                      <div key={d.key} className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1">
+                        <dt className="text-foreground/60">{d.label}</dt>
+                        <dd className="tabular-nums font-semibold text-foreground">{d.format(td?.[d.key])}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
 
                 {/* Detalles técnicos: umbrales del detector, plegados en una fila compacta */}
                 {technical.length > 0 && (
@@ -464,7 +481,7 @@ export function ModalOpp({
               {/* ACTIVIDAD — crece para que su borde inferior coincida con el de Contacto */}
               <Section title={`Actividad · últimos ${windowDays} días`} className="flex-1 flex flex-col">
                 <div className="flex-1 min-h-0 flex flex-col">
-                  <UsageChart opportunityId={opp.id} detectedAt={opp.created_at} />
+                  <UsageChart opportunityId={opp.id} detectedAt={opp.created_at} one={metric.one} many={metric.many} />
                 </div>
               </Section>
             </div>

@@ -1,5 +1,5 @@
-import { ModulePlaceholder } from "@/components/opp-dashboard/ModulePlaceholder";
+import { OppBoard } from "@/components/opp-dashboard/shared/OppBoard";
 
 export default function OppSessionsPage() {
-  return <ModulePlaceholder moduleKey="sessions" />;
+  return <OppBoard moduleKey="sessions" />;
 }

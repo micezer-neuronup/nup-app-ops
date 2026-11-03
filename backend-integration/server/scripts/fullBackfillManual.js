@@ -48,9 +48,14 @@ async function fetchPage(page) {
 // ─── We upsert manual subscription data using OPS API.
 // ─── Recieves the subscription data as parameter.
 // ─── The state is inferred by checking the currentPeriodEnd compared to today to know if its alive.
+// ─── canceledAt (Ops API) is also used, as it is the only explicit cancellation signal for manual subs:
+// ───   canceledAt set and no period end → not alive (before it was taken as alive and forever).
+// ───   canceledAt set and period still running → alive until the period end, canceledAt goes to precancelled_date.
+// ───   not cancelled and period already ended → not alive, as before (the real state is unknown, dates are often outdated).
+// ─── canceledAt can also be outdated, so the inferred current_state of manual subs is never 100% reliable.
 // ─── Then to infer the state, if its alive we asign trial or active.
 // ─── If its not alive, we asign trial_canceled or canceled.
-// ─── Then if the subscription is alive, the state is active and the priod end isnt null, we set is_forever to true.
+// ─── Then if the subscription is alive, the state is active, it is not cancelled and the period end is null, we set is_forever to true.
 // ─── The features are extracted from the data of OPS API.
 // ─── Then we get the subscription id and the nup_center_id.
 // ─── We do the upsert of the subscription and the items( including the access status).
@@ -62,11 +67,18 @@ async function upsertManualSubscription(data) {
     await client.query('BEGIN');
 
     const periodEnd = data.currentPeriodEnd ? new Date(data.currentPeriodEnd) : null;
+    const canceledAt = data.canceledAt ? new Date(data.canceledAt) : null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     let isAlive = true;
     if (periodEnd && periodEnd < today) isAlive = false;
+    if (canceledAt && !periodEnd) isAlive = false;
+
+    // Cancelled but still inside the paid period: keeps access, the cancellation is pending (like Stripe's precancel)
+    const precancelledDate = canceledAt && isAlive ? canceledAt : null;
+    // When it ended: the period end, or the cancellation date if there is no period end
+    const cancelationDate = isAlive ? periodEnd : (periodEnd || canceledAt);
 
     let finalState = '';
     if (isAlive) {
@@ -75,7 +87,7 @@ async function upsertManualSubscription(data) {
       finalState = data.status === 'trial' ? 'trial_canceled' : 'canceled';
     }
 
-    const is_forever = isAlive && finalState === 'active' && periodEnd === null;
+    const is_forever = isAlive && finalState === 'active' && periodEnd === null && !canceledAt;
 
     const features = data.features
       ? data.features.map(f => f.identifier)
@@ -96,6 +108,7 @@ async function upsertManualSubscription(data) {
        ON CONFLICT (subscription_id) DO UPDATE SET
          nup_center_id = EXCLUDED.nup_center_id,
          backend_subscription_id = EXCLUDED.backend_subscription_id,
+         precancelled_date = EXCLUDED.precancelled_date,
          cancelation_date = EXCLUDED.cancelation_date,
          current_state = EXCLUDED.current_state,
          is_forever = EXCLUDED.is_forever,
@@ -111,8 +124,8 @@ async function upsertManualSubscription(data) {
         null,
         null,
         null,
-        null,
-        periodEnd,
+        precancelledDate,
+        cancelationDate,
         null,
         finalState,
         null,
@@ -143,6 +156,7 @@ async function upsertManualSubscription(data) {
          current_period_end = EXCLUDED.current_period_end,
          is_forever = EXCLUDED.is_forever,
          status = EXCLUDED.status,
+         precancelled_date = EXCLUDED.precancelled_date,
          updated_at = CURRENT_TIMESTAMP`,
       [
         itemId,
@@ -161,7 +175,7 @@ async function upsertManualSubscription(data) {
         periodEnd,
         is_forever,
         finalState,
-        null
+        precancelledDate
       ]
     );
 

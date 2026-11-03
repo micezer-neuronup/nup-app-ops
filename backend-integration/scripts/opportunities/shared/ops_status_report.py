@@ -12,7 +12,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
+env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 OPS_API_URL = os.getenv('OPS_API_URL', 'https://api.neuronup.com/ops/subscriptions')

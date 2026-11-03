@@ -32,10 +32,12 @@ NODE_ENV=development node server.js   # carga ../.env.development (NODE_ENV=prod
   `STRIPE_SECRET_KEY=... DB_HOST=localhost REDIS_HOST=localhost PORT=3001 node server.js`
 
 ### Jobs de Python (`cd backend-integration/scripts/opportunities`)
+Un subdirectorio por módulo (`assessment/`, `sessions/`) y el código común en `shared/`. Cada script añade `scripts/opportunities` al `sys.path` para importar `shared.*`.
 ```bash
-DB_HOST=localhost ../venv/bin/python opportunity_detector.py --dry-run   # semanal: imprime el pool y los candidatos, no escribe nada
-DB_HOST=localhost ../venv/bin/python opportunity_detector.py             # semanal: escribe en la BD
-DB_HOST=localhost ../venv/bin/python daily_usage_detector.py             # diario
+DB_HOST=localhost ../venv/bin/python assessment/opportunity_detector.py --dry-run   # semanal: imprime el pool y los candidatos, no escribe nada
+DB_HOST=localhost ../venv/bin/python assessment/opportunity_detector.py             # semanal: escribe en la BD
+DB_HOST=localhost ../venv/bin/python assessment/daily_usage_detector.py             # diario
+DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run        # semanal (Sesiones)
 ```
 - Todos los scripts cargan `backend-integration/.env.development` con `load_dotenv`. Las variables que ya existen en el entorno tienen prioridad, y así funcionan en el contenedor.
 - La llamada a la Ops API tarda unos 3 minutos (cerca de 385 páginas).
@@ -54,8 +56,9 @@ DB_HOST=localhost ../venv/bin/python daily_usage_detector.py             # diari
    | Horario | Job |
    |---|---|
    | 06:00 diario | `scripts/amplitude/daily_events.py`: eventos de Amplitude a la tabla `daily_stats`, una fila por centro y día |
-   | Lunes 06:00 | `scripts/opportunities/opportunity_detector.py`: detección semanal de oportunidades de Assessment |
-   | 07:00 diario | `scripts/opportunities/daily_usage_detector.py`: detecciones diarias, refresco del score y paso a `converted` |
+   | Lunes 06:00 | `scripts/opportunities/assessment/opportunity_detector.py`: detección semanal de oportunidades de Assessment |
+   | Lunes 06:30 | `scripts/opportunities/sessions/sessions_detector.py`: detección semanal de oportunidades de Sesiones |
+   | 07:00 diario | `scripts/opportunities/assessment/daily_usage_detector.py`: detecciones diarias, refresco del score y paso a `converted` (solo `product = 'assessments'`) |
    | Cada 6 h | Sincronización de respaldo con HubSpot (`processPendingHubspotSyncs`), con un flag que impide ejecuciones en paralelo |
    | Cada 4 h | Refresco de la caché de HubSpot |
    | 09/12/16 h | `server/scripts/fullBackfillManual.js`: suscripciones manuales desde la Ops API |
@@ -67,16 +70,20 @@ DB_HOST=localhost ../venv/bin/python daily_usage_detector.py             # diari
 3. **API para el dashboard**:
    - Las consultas viven en `server/db/dbAnalytics.js`.
    - Endpoints de oportunidades:
-     - `GET /api/opportunities`: excluye las que están `expired`.
-     - `GET /api/opportunities/:id/usage`: tests por día de los últimos 60 días.
+     - `GET /api/opportunities?product=assessments|sessions`: excluye las que están `expired`. Cada módulo del dashboard pide solo su producto.
+     - `GET /api/opportunities/:id/usage`: uso por día de los últimos 60 días con la métrica del módulo (`tests_finished` o `sessions_finished`).
      - `PATCH /api/commercial-opportunities/:id`: cambia el estado.
      - `POST /api/commercial-opportunities/:id/assign-upsell`: actualiza la compañía en HubSpot y la BD.
    - Otros endpoints:
      - `GET /api/hubspot/owners`;
      - `GET /api/company-data`: datos para la tarjeta embebida en HubSpot.
 
-### Oportunidades de Assessment (`scripts/opportunities/`)
-- **`ops_filter.py`: la Ops API es la única fuente de qué centros tienen cada feature.**
+### Oportunidades (`scripts/opportunities/`)
+- **`shared/`**: `ops_filter.py` (acceso), `scoring.py` (score genérico por métrica: `fetch_usage(cursor, metric)`, `compute_usage_score`, motivos de acceso), `ai_brief.py` (llamada a OpenRouter, validación, contexto de uso, `write_briefs`) y `ops_status_report.py`.
+- **`assessment/`**: `opportunity_detector.py`, `daily_usage_detector.py`, `pool.py` (clasificación) y `brief.py` (prompt).
+- **`sessions/`**: `sessions_detector.py`, `pool.py` y `brief.py`. Ver abajo.
+- Las columnas `*_tests_60d` de `commercial_opportunity` guardan la métrica del módulo (tests o sesiones finalizadas).
+- **`shared/ops_filter.py`: la Ops API es la única fuente de qué centros tienen cada feature.**
   - Se consulta sin filtro `kind`, porque se quieren todas las suscripciones.
   - Si falla (falta el token, falla una página o se alcanza `MAX_PAGES`), lanza `OpsApiError` y el job se para sin escribir nada. Nunca se usan datos locales como alternativa.
   - `load_center_access` asigna un nivel de acceso a cada centro: `verified`, `cancelling`, `unverified`, `trial` o `none`.
@@ -87,8 +94,8 @@ DB_HOST=localhost ../venv/bin/python daily_usage_detector.py             # diari
     - `assessment`: centros sin test_all. Si son clientes verificados van a Pendientes; si tienen algún `check_reasons`, a Revisar.
     - `expansion`: clientes verificados que ya tienen test_all y están en el top 15 %. Van a la pestaña "Uso alto" y nunca pasan a `converted`.
     - Los centros con solo acceso de prueba (`trial`) quedan fuera.
-  - `scripts/opportunities/ops_status_report.py`: informe de solo lectura con los valores que devuelve la Ops API.
-- **`scoring.py`**:
+  - `scripts/opportunities/shared/ops_status_report.py`: informe de solo lectura con los valores que devuelve la Ops API.
+- **`shared/scoring.py`** (y `assessment/pool.py` para las reglas de Assessment):
   - Constantes: ventana de 60 días, tendencia de 30 frente a 30, mínimo de 10 tests y 3 días activos, prioridad `alta` a partir del percentil 0,85, enfriamiento de 90 días.
   - Score = 50 % volumen (percentil de tests) + 30 % constancia (días activos / 60) + 20 % tendencia.
   - `kind` es `review` si el centro tuvo test_all antes y `upgrade` si no.
@@ -98,23 +105,31 @@ DB_HOST=localhost ../venv/bin/python daily_usage_detector.py             # diari
 - **`trigger_details` (JSON)**: contiene métricas, partes del score, prioridad, `track_reason` y umbrales, y el frontend lo lee directamente.
   - La justificación es una plantilla determinista (`build_justification`).
   - `generate_ai_justification` (OpenRouter) se conserva pero no se llama.
-- **Brief de IA (`ai_brief.py`)**: lo genera el job semanal, con OpenRouter y `gpt-4o-mini`.
+- **Brief de IA (`shared/ai_brief.py` + `<modulo>/brief.py`)**: lo genera el job semanal, con OpenRouter y `gpt-4o-mini`.
   - Contenido: `{summary, points[2]}`, guardado en `ai_brief`, `ai_brief_at` y `ai_brief_signature` (migración 002).
   - Datos: solo el scoring y el resto de columnas de `daily_stats`. Nada de HubSpot ni datos de contacto.
-  - Se genera **después** del commit principal, y se regenera solo si cambia la firma `kind|priority|trend_dir`. Hay un tope de 50 por ejecución.
+  - Se genera **después** del commit principal, y se regenera solo si cambia la firma `kind|priority|trend_dir|check_reasons`. Hay un tope de 50 por ejecución.
+  - Las sesiones van al prompt por separado (asignadas, iniciadas, finalizadas), nunca sumadas. `sessions_created` siempre es 0 porque `Session - Created` está en `IGNORED_EVENTS`.
   - Si falla, solo deja un aviso y el job sigue.
   - Para revisar el tono sin escribir nada: `--dry-run --brief`.
   - Al asignar, `assignUpsellOpportunity` envía el brief a HubSpot (`upsell_ai_justification`); si no hay brief, envía la plantilla.
+
+### Oportunidades de Sesiones (`scripts/opportunities/sessions/`)
+- Todos los centros tienen sesiones: no hay feature que detectar. La métrica es `sessions_finished`; `sessions_assigned` no clasifica (muchos centros inician sin asignar).
+- Un `opportunity_kind` por centro, el primero que aplique: `access_review` (sin acceso verificado, a Revisar) > `churn` (≥ 20 finalizadas el mes anterior y caída ≥ 50 %) > `adoption` (≥ 20 iniciadas y finalización ≤ 25 %) > `high_use` (clientes verificados en el top 5 %). Trials fuera.
+- El tipo de una oportunidad abierta puede cambiar de una semana a otra; el job la refresca con el nuevo tipo.
+- `daily_stats` tiene `sessions_home_started`, `sessions_home_finished` (`event_properties.home`) y `session_patients` (pacientes distintos por día, se usa como media por día activo). Migración 003. `events` se purga cada pocos meses, así que lo que se quiera conservar va a `daily_stats`.
+- `scripts/amplitude/backfill.py` (fechas fijas en el código) vuelve a descargar eventos de Amplitude y recalcula `daily_stats` de cada día con `aggregate_daily_stats` de `daily_events.py`. Solo el paso 1: las feature requests no son idempotentes.
 
 ### Dashboard (`dashboard/`)
 - **Rutas**:
   - `app/[dashboard]/` → `GeneralDashboard`: solo admite `general`. Lee `objectId` y `objectTypeId` de la URL porque se embebe desde HubSpot.
   - `app/opp-dashboard/` → `OppHome`: rejilla de módulos configurada en `components/opp-dashboard/modules.ts`.
-  - `app/opp-dashboard/assessment` → `OppDashboard`: lista ordenada con pestañas, `OpportunityList` y `ModalOpp`.
-  - `activity`, `sessions` y `licenses` → `ModulePlaceholder`.
+  - `app/opp-dashboard/assessment` y `app/opp-dashboard/sessions` → `shared/OppBoard` con la config del módulo (`assessment/config.ts`, `sessions/config.ts`): producto, métrica, pestañas con su filtro, motivos, etiquetas y ayuda.
+  - `activity` y `licenses` → `ModulePlaceholder`.
   - `app/stock-control/`: va contra otro backend (`NEXT_PUBLIC_STOCK_CONTROL_URL`, por defecto `:5000`), no contra este servidor.
 - **Fetching**: todo es del lado del cliente con `NEXT_PUBLIC_SERVER_URL` y la cabecera `ngrok-skip-browser-warning: true`, porque en desarrollo el servidor se expone por ngrok. `next.config.js` tiene `allowedDevOrigins` para el túnel del dashboard.
-- **Piezas compartidas del módulo de oportunidades** (`components/opp-dashboard/shared/`):
+- **Piezas compartidas del módulo de oportunidades** (`components/opp-dashboard/shared/`): `OppBoard`, `OpportunityList`, `ModalOpp`, `AssignUpsellModal`, `types.ts`, `moduleConfig.ts` y además:
   - `Tag`: etiqueta neutra; el color del tipo solo aparece al pasar el ratón.
   - `PriorityBadge`/`getTrack`: leen `trigger_details`.
   - `OppHeader`.

@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 # ────── Env configuration ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
+env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 # ────── Ops API configuration ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -132,6 +132,7 @@ def stripe_level(state):
 # ──   level: the best access level of all its subscriptions.
 # ──   feature_level: the best access level of the subscriptions that include the feature.
 # ──   had_feature: the feature is (or was) on any of its subscriptions.
+# ── feature can be None for modules that don't depend on a feature (sessions): then only level is used.
 # ── If the Ops API fails, OpsApiError propagates: we never continue without knowing who has test_all (fail-closed).
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def load_center_access(cursor, feature='test_all'):
@@ -168,7 +169,7 @@ def load_center_access(cursor, feature='test_all'):
     for a in access.values():
         by_level[a["level"]] = by_level.get(a["level"], 0) + 1
     has_now = sum(1 for a in access.values() if a["feature_level"] in FEATURE_NOW_LEVELS)
-    log(f"Acceso por centro: {by_level} | Con '{feature}' ahora: {has_now}")
+    log(f"Acceso por centro: {by_level}" + (f" | Con '{feature}' ahora: {has_now}" if feature else ""))
     return access
 
 

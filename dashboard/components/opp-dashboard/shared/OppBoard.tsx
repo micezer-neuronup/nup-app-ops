@@ -1,58 +1,28 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
-import { Clock, AlertTriangle, CheckCircle2, Search, HelpCircle, X, Sparkles, Gauge } from "lucide-react";
+import { Search, HelpCircle, X, Sparkles } from "lucide-react";
 import { ModalOpp } from "./ModalOpp";
 import { AssignUpsellModal } from "./AssignUpsellModal";
 import { OpportunityList, trendOf, trendSortValue, isRecent, NEW_DAYS, type SortKey, type SortDir } from "./OpportunityList";
 import type { Opportunity } from "./types";
-import { OppHeader } from "./shared/OppHeader";
-import { OPP_MODULES } from "./modules";
-import { LegendButton } from "./shared/LegendButton";
-import { getTrack, reviewReasons, REASON_META } from "./shared/PriorityBadge";
+import { OppHeader } from "./OppHeader";
+import { LegendButton } from "./LegendButton";
+import { getTrack, REASON_META } from "./PriorityBadge";
+import { MODULE_CONFIGS } from "../moduleConfigs";
+import type { OppModuleKey } from "../modules";
 
 // Reexporta los tipos para mantener compatibilidad con imports existentes
 export type { Detection, Opportunity } from "./types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_SERVER_URL || "";
 
-type TabKey = "pending" | "review" | "expansion" | "reviewed";
 type PriorityFilter = "all" | "alta" | "media";
 
-// hint: explicación corta que aparece al pasar el ratón (o enfocar) por la pestaña
-const TABS: { key: TabKey; label: string; icon: any; empty: string; hint: string }[] = [
-  {
-    key: "pending",
-    label: "Pendientes",
-    icon: Clock,
-    empty: "No hay oportunidades pendientes",
-    hint: "Clientes con la suscripción verificada que usan tests sin tener test_all. Candidatos directos a Assessment. Si tuvieron test_all antes, lo indica su icono.",
-  },
-  {
-    key: "review",
-    label: "Revisar",
-    icon: AlertTriangle,
-    empty: "No hay oportunidades por revisar",
-    hint: "Centros que usan tests pero con dudas sobre su suscripción: sin suscripción activa, cancelada con acceso o sin verificar. Comprobar su situación antes de ofrecer nada.",
-  },
-  {
-    key: "expansion",
-    label: "Uso alto",
-    icon: Gauge,
-    empty: "No hay centros con Assessment y uso alto",
-    hint: "Clientes que ya tienen test_all y están en el top 15% de uso. No hay que venderles Assessment: contactar para conocer sus necesidades.",
-  },
-  {
-    key: "reviewed",
-    label: "Revisadas / Asignadas",
-    icon: CheckCircle2,
-    empty: "No hay oportunidades revisadas o asignadas",
-    hint: "Oportunidades ya revisadas o asignadas a un comercial. Se pueden devolver a pendiente con Deshacer.",
-  },
-];
-
-// ---------- COMPONENTE PRINCIPAL ----------
-export function OppDashboard() {
+// ---------- TABLERO COMÚN DE UN MÓDULO (assessment, sessions…) ----------
+// Pestañas, métrica, textos y etiquetas salen de la config del módulo (<modulo>/config.ts, ver moduleConfigs.ts)
+export function OppBoard({ moduleKey }: { moduleKey: OppModuleKey }) {
+  const config = MODULE_CONFIGS[moduleKey]!;
   const [allOpportunities, setAllOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOpp, setSelectedOpp] = useState<Opportunity | null>(null);
@@ -64,7 +34,7 @@ export function OppDashboard() {
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [assignModalOpp, setAssignModalOpp] = useState<Opportunity | null>(null);
 
-  const [activeTab, setActiveTab] = useState<TabKey>("pending");
+  const [activeTab, setActiveTab] = useState<string>(config.tabs[0].key);
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "score", dir: "desc" });
   const [helpOpen, setHelpOpen] = useState(false);
@@ -74,7 +44,7 @@ export function OppDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${SERVER_URL}/api/opportunities`, {
+      const res = await fetch(`${SERVER_URL}/api/opportunities?product=${encodeURIComponent(config.product)}`, {
         headers: { "ngrok-skip-browser-warning": "true" },
       });
       if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`);
@@ -128,51 +98,11 @@ export function OppDashboard() {
     return [...filteredOpportunities].sort((a, b) => (b.score || 0) - (a.score || 0));
   }, [filteredOpportunities]);
 
-  // ---------- 3 COLUMNAS ----------
-  // Cast a string para evitar el error de TS sin tocar types.ts
-  
-
-  // Pendientes: clientes verificados sin test_all, candidatos directos a upsell (aunque hayan tenido test_all antes)
-  const pendingNoTestAll = useMemo(
-  () =>
-    sorted.filter(
-      (o) =>
-        o.status === "pending" &&
-        o.opportunity_kind !== "expansion" &&
-        reviewReasons(o).length === 0
-    ),
-  [sorted]
-);
-
-// Revisar: hay que comprobar su suscripción antes de vender (acceso sin verificar, sin suscripción, cancelada…)
-const pendingTestAll = useMemo(
-  () =>
-    sorted.filter(
-      (o) =>
-        o.status === "pending" &&
-        o.opportunity_kind !== "expansion" &&
-        reviewReasons(o).length > 0
-    ),
-  [sorted]
-);
-
-// Uso alto: ya tienen test_all y están en el top de uso
-const pendingExpansion = useMemo(
-  () => sorted.filter((o) => o.status === "pending" && o.opportunity_kind === "expansion"),
-  [sorted]
-);
-
-  const reviewedOrAssigned = useMemo(
-    () => sorted.filter((o) => o.status === "completed" || !!o.upsell_object),
-    [sorted]
+  // ---------- PESTAÑAS: cada una con su filtro (config.tabs) ----------
+  const tabList = useMemo(
+    () => Object.fromEntries(config.tabs.map((t) => [t.key, sorted.filter(t.filter)])) as Record<string, Opportunity[]>,
+    [sorted, config.tabs]
   );
-
-  const tabList: Record<TabKey, Opportunity[]> = {
-    pending: pendingNoTestAll,
-    review: pendingTestAll,
-    expansion: pendingExpansion,
-    reviewed: reviewedOrAssigned,
-  };
 
   // ---------- LISTA VISIBLE: pestaña -> prioridad -> orden ----------
   const visible = useMemo(() => {
@@ -188,17 +118,17 @@ const pendingExpansion = useMemo(
         ? o.total_tests_60d || 0
         : sort.key === "created"
         ? new Date(o.created_at).getTime() || 0
-        : trendSortValue(trendOf(o));
+        : trendSortValue(trendOf(o, config.metric.prefix));
     const dir = sort.dir === "desc" ? -1 : 1;
     return [...filtered].sort((a, b) => (value(a) - value(b)) * dir);
-  }, [activeTab, priorityFilter, newOnly, sort, pendingNoTestAll, pendingTestAll, pendingExpansion, reviewedOrAssigned]);
+  }, [activeTab, priorityFilter, newOnly, sort, tabList, config.metric.prefix]);
 
   // Oportunidades nuevas (últimos NEW_DAYS días) en la pestaña activa, para el botón "Nuevas"
   const newInTab = useMemo(() => {
     const base =
       tabList[activeTab];
     return base.filter(isRecent).length;
-  }, [activeTab, pendingNoTestAll, pendingTestAll, pendingExpansion, reviewedOrAssigned]);
+  }, [activeTab, tabList]);
 
   const handleSort = (key: SortKey) =>
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
@@ -232,10 +162,6 @@ const pendingExpansion = useMemo(
     setCopiedField({ id, field });
     setTimeout(() => setCopiedField(null), 2000);
   };
-
-  const totalPendingNoTestAll = pendingNoTestAll.length;
-  const totalPendingTestAll = pendingTestAll.length;
-  const totalReviewedOrAssigned = reviewedOrAssigned.length;
 
   const openAssignModal = (opp: Opportunity) => {
     setAssignModalOpp(opp);
@@ -274,21 +200,15 @@ const pendingExpansion = useMemo(
     );
   }
 
-  const tabCount: Record<TabKey, number> = {
-    pending: totalPendingNoTestAll,
-    review: totalPendingTestAll,
-    expansion: pendingExpansion.length,
-    reviewed: totalReviewedOrAssigned,
-  };
-  const currentTab = TABS.find((t) => t.key === activeTab)!;
+  const currentTab = config.tabs.find((t) => t.key === activeTab) || config.tabs[0];
 
   return (
     <div className="flex flex-col min-h-screen lg:h-screen bg-background text-foreground">
       <OppHeader
-        title="Assessment"
+        title={config.title}
         backHref="/opp-dashboard"
-        titleImage={OPP_MODULES.find((m) => m.key === "assessment")?.image}
-        right={<LegendButton />}
+        titleImage={config.image}
+        right={<LegendButton reasons={config.reasons} />}
       />
 
       <main className="flex-1 min-h-0 max-w-[1900px] mx-auto w-full px-4 md:px-6 py-4 flex flex-col gap-4">
@@ -301,7 +221,7 @@ const pendingExpansion = useMemo(
         {/* ================= TOOLBAR: pestañas + filtros ================= */}
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/60">
           <div className="flex flex-wrap items-end gap-1">
-            {TABS.map((t) => {
+            {config.tabs.map((t) => {
               const Icon = t.icon;
               const active = t.key === activeTab;
               return (
@@ -319,7 +239,7 @@ const pendingExpansion = useMemo(
                   <Icon className={`h-4 w-4 ${active ? "text-[#00a4c2]" : ""}`} />
                   {t.label}
                   <span className="inline-flex items-center justify-center min-w-7 h-6 px-1.5 rounded-md border border-border bg-muted/40 text-sm font-bold tabular-nums">
-                    {tabCount[t.key]}
+                    {tabList[t.key]?.length ?? 0}
                   </span>
                 </button>
                 <div
@@ -398,17 +318,18 @@ const pendingExpansion = useMemo(
                     </button>
                   </div>
                   <ul className="space-y-2 leading-relaxed text-foreground/80">
-                    <li><b>Score</b>: puntuación de 0 a 100 con el uso de los últimos 60 días: volumen de tests (50%), constancia (30%) y tendencia (20%).</li>
-                    <li><b>Prioridad</b>: <b>Alta</b> si el centro está en el top 15% de uso entre los centros sin test_all; <b>Media</b> si tiene un uso constante por encima del mínimo.</li>
-                    <li><b>Pendientes</b>: clientes verificados sin test_all, candidatos directos a Assessment.</li>
+                    <li><b>Score</b>: puntuación de 0 a 100 con el uso de los últimos 60 días: volumen de {config.metric.many} (50%), constancia (30%) y tendencia (20%).</li>
+                    {config.help.map((h) => (
+                      <li key={h.term}><b>{h.term}</b>: {h.text}</li>
+                    ))}
                     <li>
-                      <b>Revisar</b>: hay que comprobar su suscripción antes de vender. El icono junto a la prioridad
-                      dice qué (el de <b>Tuvo test_all</b> es solo contexto y también aparece en Pendientes):
+                      <b>Iconos de revisión</b> (junto a la prioridad):
                       <ul className="mt-1 space-y-1 pl-3">
-                        {Object.values(REASON_META).map((m) => {
+                        {config.reasons.map((r) => {
+                          const m = REASON_META[r];
                           const Icon = m.icon;
                           return (
-                            <li key={m.label} className="flex gap-1.5">
+                            <li key={r} className="flex gap-1.5">
                               <Icon className={`h-4 w-4 shrink-0 mt-0.5 ${m.className}`} />
                               <span><b>{m.label}</b>: {m.description}</span>
                             </li>
@@ -416,9 +337,7 @@ const pendingExpansion = useMemo(
                         })}
                       </ul>
                     </li>
-                    <li><b>Uso alto</b>: clientes que ya tienen test_all y están en el top 15% de uso; contactar para conocer sus necesidades.</li>
-                    <li><b>Tests 60d</b>: tests finalizados en los últimos 60 días.</li>
-                    <li><b>Tendencia</b>: tests de los últimos 30 días frente a los 30 anteriores. <b>Nuevo uso</b> si antes no tenía uso.</li>
+                    <li><b>Tendencia</b>: {config.metric.many} de los últimos 30 días frente a los 30 anteriores. <b>Nuevo uso</b> si antes no tenía uso.</li>
                     <li><b>Detectada</b>: fecha en que entró la oportunidad. Las de los últimos {NEW_DAYS} días llevan la marca <b>Nueva</b> y se pueden filtrar con el botón <b>Nuevas</b>.</li>
                     <li><b>Acciones</b>: abrir en HubSpot, asignar y marcar como revisada (o deshacer para volver a pendiente).</li>
                     <li>Pulsa una fila para ver el contacto, el historial y las acciones (HubSpot, asignar, revisar).</li>
@@ -431,6 +350,7 @@ const pendingExpansion = useMemo(
 
         {/* ================= LISTA ================= */}
         <OpportunityList
+          metric={config.metric}
           opportunities={visible}
           emptyText={currentTab.empty}
           sort={sort}
@@ -446,6 +366,7 @@ const pendingExpansion = useMemo(
 
       {selectedOpp && (
         <ModalOpp
+          config={config}
           opp={selectedOpp}
           onClose={() => setSelectedOpp(null)}
           onReview={handleMarkAsReviewed}

@@ -141,7 +141,7 @@ async function updateOpportunityStatus(id, status) {
 
 
 async function getAllOpportunities(filters = {}) {
-  const { status, search } = filters;
+  const { status, search, product } = filters;
   
   try {
     let query = `
@@ -188,6 +188,13 @@ async function getAllOpportunities(filters = {}) {
     if (status) {
       query += ` AND o.status = $${paramIndex}`;
       params.push(status);
+      paramIndex++;
+    }
+
+    // Each module of the dashboard only asks for its own product ('assessments', 'sessions'...)
+    if (product) {
+      query += ` AND o.product = $${paramIndex}`;
+      params.push(product);
       paramIndex++;
     }
 
@@ -260,14 +267,15 @@ async function getAllOpportunities(filters = {}) {
   }
 }
 
-// ── Tests finished per day of the opportunity's center in the last 60 days (same column and window as scoring.py).
+// ── Usage per day of the opportunity's center in the last 60 days, with the metric of its module (same column and
+// ── window as shared/scoring.py): tests_finished for 'assessments', sessions_finished for 'sessions'.
 // ── generate_series fills the days without usage with 0. recent = the last 30 days used for the trend.
 async function getOpportunityUsage(opportunityId) {
   try {
     const result = await pool.query(
       `SELECT
          to_char(d.day, 'YYYY-MM-DD') AS date,
-         COALESCE(SUM(s.tests_finished), 0)::int AS tests,
+         COALESCE(SUM(CASE WHEN o.product = 'sessions' THEN s.sessions_finished ELSE s.tests_finished END), 0)::int AS tests,
          d.day >= CURRENT_DATE - INTERVAL '30 days' AS recent
        FROM commercial_opportunity o
        CROSS JOIN generate_series(CURRENT_DATE - INTERVAL '60 days', CURRENT_DATE - INTERVAL '1 day', INTERVAL '1 day') AS d(day)

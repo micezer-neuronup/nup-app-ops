@@ -1,17 +1,22 @@
 # ────── Documented ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 import os
+import sys
 import psycopg2
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
-from ops_filter import load_center_access, centers_with_feature_now
-from scoring import fetch_usage, build_scored_pool
+# ── The shared code lives in scripts/opportunities/shared: we add scripts/opportunities to the path to import it.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from shared.ops_filter import load_center_access, centers_with_feature_now
+from shared.scoring import fetch_usage
+from assessment.pool import build_scored_pool
 
 # ────── Env configuration ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-env_path = Path(__file__).resolve().parent.parent.parent / ".env.development"
+env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env.development"
 load_dotenv(dotenv_path=env_path)
 
 
@@ -26,7 +31,7 @@ DB_PORT = os.getenv('DB_PORT')
 
 # ────── Score weights ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── Since v2 the score is not accumulated here anymore: it is recomputed from the current 60 days window
-# ── with compute_usage_score (scoring.py), the same formula the weekly detector uses (0-100).
+# ── with compute_usage_score (shared/scoring.py), the same formula the weekly detector uses (0-100).
 # ── The old formula (score_base + n_detections * 2 + total_tests * 0.1) kept growing forever, so older
 # ── opportunities always outranked new ones.
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -49,7 +54,8 @@ def get_db_connection():
 # ────── Daily detection ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── We call the function load_center_access and get the centers with test_all now (centers_with_feature_now).
 # ── If the Ops API fails it raises and the job stops (we never continue without knowing who has test_all).
-# ── We obtain all pending and completed opportunities (not converted nor expired) and store them in active_opportunities.
+# ── We obtain all pending and completed Assessment opportunities (not converted nor expired) and store them in active_opportunities.
+# ── Only product 'assessments': the other modules (sessions…) have their own jobs and never convert by test_all.
 # ── We get the date of yesterday(To check available data till that date from daily_stats).
 # ── For each opportunity if the center is in active_test_all, we set the status to converted.
 # ── This applies to pending and completed ones: a reviewed center that later buys test_all also converts.
@@ -63,7 +69,7 @@ def get_db_connection():
 # ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 # ── After inserting new dialy detections, we proceed to refresh the score of the pending and completed opportunities.
 # ── Completed ones are refreshed too, so if they are reverted to pending (Deshacer) their numbers are current.
-# ── We build the scored pool (scoring.py) with the current 60 days usage and set score and current_* from it.
+# ── We build the scored pool (assessment/pool.py) with the current 60 days usage and set score and current_* from it.
 # ── If the center is not in the pool of the opportunity's group (no usage, no access, or the group changed)
 # ── we leave it as it is: the weekly job expires it.
 # ── The column score_base must not be touched.
@@ -80,7 +86,7 @@ def run_daily_detection():
         cursor.execute("""
             SELECT id, center_id, created_at::date, status, opportunity_kind
             FROM commercial_opportunity
-            WHERE status IN ('pending', 'completed')
+            WHERE status IN ('pending', 'completed') AND product = 'assessments'
         """)
         active_opportunities = cursor.fetchall()
         log(f"Oportunidades a procesar (pending y completed): {len(active_opportunities)}")

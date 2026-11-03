@@ -51,11 +51,13 @@ const { syncSingleSubscriptionToHubspot,
 // ─── 3. Daily assesment activity detector script.
 // ─── 4. Manual subscriptions sync script.
 // ─── 5. Zoho scripts to aggregate nup_center_id to invoices. (Zoho cron job is currently deactivated)
+// ─── 6. Sessions opportunity detector script.
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const daily_stats_path = path.join(__dirname, '../scripts/amplitude/daily_events.py');
-const opportunity_detector_path = path.join(__dirname, '../scripts/opportunities/opportunity_detector.py');
-const opportunity_daily_activity_path = path.join(__dirname, '../scripts/opportunities/daily_usage_detector.py');
+const opportunity_detector_path = path.join(__dirname, '../scripts/opportunities/assessment/opportunity_detector.py');
+const opportunity_daily_activity_path = path.join(__dirname, '../scripts/opportunities/assessment/daily_usage_detector.py');
 const manualSyncScriptPath = path.join(__dirname, 'scripts/fullBackfillManual.js');
+const sessions_detector_path = path.join(__dirname, '../scripts/opportunities/sessions/sessions_detector.py');
 // const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
 
@@ -226,10 +228,12 @@ app.get('/api/company-data', async (req, res) => {
 // ────── Endpoint: get assesment opportunities data ──────────────────────────────────────────────────────────────────
 // ─── The endpoint calls the fucntion getAllOpportunities from the dbAnalytics file.
 // ─── Called by opportunity dashboard.
+// ─── ?product= filters by module (assessments, sessions). Without it, every product is returned.
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 app.get('/api/opportunities', async (req, res) => {
   try {
-    const opportunities = await getAllOpportunities({});
+    // ?product=assessments | sessions: each module of the dashboard only gets its own opportunities
+    const opportunities = await getAllOpportunities({ product: req.query.product });
     res.json(opportunities);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -489,6 +493,43 @@ cron.schedule('0 6 * * 1', () => {
       log("INFO", "CRON_OPPORTUNITY", "Opportunity detector finished successfully.");
     } else {
       log("WARN", "CRON_OPPORTUNITY", `Opportunity detector exited with code ${code}`);
+    }
+  });
+});
+
+
+// ────── Cron job: Sessions opportunity detection ─────────────────────────────
+// ─── Weekly, Monday 06:30 (after the Assessment detector, so both don't fetch the Ops API at the same time).
+// ─── Runs scripts/opportunities/sessions/sessions_detector.py (product 'sessions').
+// ───────────────────────────────────────────────────────────────────────────
+cron.schedule('30 6 * * 1', () => {
+  log("INFO", "CRON", "Starting sessions opportunity detection job...");
+
+  const pyProcess = spawn('python3', ['-u', sessions_detector_path]);
+
+  pyProcess.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("INFO", "CRON_SESSIONS", line.trim());
+      }
+    });
+  });
+
+  pyProcess.stderr.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      if (line.trim()) {
+        log("ERROR", "CRON_SESSIONS", line.trim());
+      }
+    });
+  });
+
+  pyProcess.on('close', (code) => {
+    if (code === 0) {
+      log("INFO", "CRON_SESSIONS", "Sessions detector finished successfully.");
+    } else {
+      log("WARN", "CRON_SESSIONS", `Sessions detector exited with code ${code}`);
     }
   });
 });

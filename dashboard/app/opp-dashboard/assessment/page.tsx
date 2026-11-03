@@ -1,5 +1,5 @@
-import { OppDashboard } from "@/components/opp-dashboard/OppDashboard";
+import { OppBoard } from "@/components/opp-dashboard/shared/OppBoard";
 
 export default function OppAssessmentPage() {
-  return <OppDashboard />;
+  return <OppBoard moduleKey="assessment" />;
 }

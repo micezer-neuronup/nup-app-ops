@@ -7,7 +7,7 @@ import {
   TrendingUp, TrendingDown, MoveRight, Sparkles, Copy,
 } from "lucide-react";
 import { HubSpotIcon } from "./HubSpotIcon";
-import { REASON_META } from "./PriorityBadge";
+import { REASON_META, type CheckReason } from "./PriorityBadge";
 
 // Muestra de icono con el mismo marco que en la tabla
 function Swatch({ children, className = "text-foreground/70" }: { children: ReactNode; className?: string }) {
@@ -41,7 +41,8 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 
 // Botón "Leyenda" de la cabecera del tablero: abre un popup con el significado de los iconos de la tabla.
 // Se abre con clic y se cierra al sacar el ratón, con la X o con Escape.
-export function LegendButton() {
+// reasons: los motivos de revisión que pueden salir en el módulo (config.reasons)
+export function LegendButton({ reasons }: { reasons: CheckReason[] }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -88,9 +89,9 @@ export function LegendButton() {
 
             <div className="flex flex-col gap-4">
               <Group title="Prioridad">
-                <Item icon={<Swatch><ChevronsUp className={icon} /></Swatch>} label="Alta" description="en el top 15% de uso de su grupo" />
+                <Item icon={<Swatch><ChevronsUp className={icon} /></Swatch>} label="Alta" description="en el top de uso de su grupo (ver la ayuda de cada pestaña)" />
                 <Item icon={<Swatch><ChevronUp className={icon} /></Swatch>} label="Media" description="uso constante por encima del mínimo" />
-                {Object.values(REASON_META).map((m) => {
+                {reasons.map((r) => REASON_META[r]).map((m) => {
                   const Icon = m.icon;
                   return (
                     <Item
