@@ -56,6 +56,7 @@ def log(msg, level="INFO"):
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 CALIBRATION = [
     ("Mínimo (finalizadas, días)", ("MIN_SESSIONS", "MIN_SESSION_DAYS"), [(10, 3), (20, 5), (30, 8), (50, 10), (80, 15)]),
+    ("Revisar (percentil mínimo)", ("REVIEW_MIN_PERCENTILE",), [(0.0,), (0.3,), (0.5,), (0.6,), (0.7,), (0.85,)]),
     ("Uso alto (percentil)", ("TOP_PERCENTILE",), [(0.95,), (0.97,), (0.98,), (0.99,)]),
     ("Riesgo (mín. mes anterior, hasta % del anterior)", ("CHURN_MIN_PREVIOUS", "CHURN_DROP"),
      [(20, 0.5), (40, 0.5), (40, 0.4), (60, 0.4), (60, 0.3), (100, 0.3)]),

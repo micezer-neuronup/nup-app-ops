@@ -116,7 +116,7 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
 
 ### Oportunidades de Sesiones (`scripts/opportunities/sessions/`)
 - Todos los centros tienen sesiones: no hay feature que detectar. La métrica es `sessions_finished`; `sessions_assigned` no clasifica (muchos centros inician sin asignar).
-- Un `opportunity_kind` por centro, el primero que aplique: `access_review` (sin acceso verificado, a Revisar) > `churn` (≥ 40 finalizadas el mes anterior y caída ≥ 60 %) > `adoption` (≥ 40 iniciadas y finalización ≤ 15 %) > `high_use` (clientes verificados en el top 3 %). Trials fuera.
+- Un `opportunity_kind` por centro, el primero que aplique: `access_review` (sin acceso verificado y con uso al menos en el percentil 50 de los clientes, a Revisar) > `churn` (≥ 40 finalizadas el mes anterior y caída ≥ 60 %) > `adoption` (≥ 40 iniciadas y finalización ≤ 15 %) > `high_use` (clientes verificados en el top 3 %). Trials fuera.
 - Mínimo de uso propio del módulo: 30 sesiones finalizadas en ≥ 8 días (no el compartido de 10 en 3). Los umbrales están en `sessions/pool.py` y se repiten en los textos de `dashboard/.../sessions/config.ts` (constante `T`): si cambian, cambiar los dos.
 - `sessions_detector.py --dry-run --calibrate` imprime cuántos centros saldrían en cada pestaña con otros valores de cada umbral, para ajustarlos con los datos reales.
 - El tipo de una oportunidad abierta puede cambiar de una semana a otra; el job la refresca con el nuevo tipo.

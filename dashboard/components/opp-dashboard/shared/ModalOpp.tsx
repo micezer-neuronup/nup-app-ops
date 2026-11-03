@@ -79,6 +79,7 @@ const THRESHOLD_LABELS: Record<string, { label: string; format?: (v: any) => str
   churn_drop: { label: "Riesgo: caída hasta", format: (v) => `${Math.round(v * 100)}% del mes anterior` },
   adoption_min_started: { label: "Adopción: mínimo de iniciadas" },
   adoption_max_ratio: { label: "Adopción: finalización máxima", format: (v) => `${Math.round(v * 100)}%` },
+  review_min_percentile: { label: "Revisar desde el percentil", format: (v) => `${Math.round(v * 100)}` },
   min_active_days: { label: "Mínimo de días activos" },
   high_percentile: {
     label: "Prioridad alta desde el percentil",

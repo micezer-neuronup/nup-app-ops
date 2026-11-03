@@ -21,6 +21,9 @@ PREFIX = 'sessions'
 # ──   gave 302 opportunities (116 to review). It also sets the reference pool of the score (verified customers over it).
 # ── Centers that start a lot (ADOPTION_MIN_STARTED) also pass the floor, as they barely finish but they do use sessions.
 # ── First values (prod dry run 03/11/2026): top 5%, churn 20 / 50%, adoption 20 / 0.25 → 41 high_use, 43 churn, 102 adoption.
+# ── REVIEW_MIN_PERCENTILE: access_review only for centers whose score is at or above this percentile of the verified
+# ──   customers (0.5 = they use sessions at least as much as the median customer). With only the floor, 76 centers
+# ──   went to review and the floor barely changed it: most of them use sessions a lot.
 # ── To compare other values against the real data: sessions_detector.py --dry-run --calibrate.
 # ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 MIN_SESSIONS = 30
@@ -30,6 +33,7 @@ CHURN_MIN_PREVIOUS = 40
 CHURN_DROP = 0.4
 ADOPTION_MIN_STARTED = 40
 ADOPTION_MAX_RATIO = 0.15
+REVIEW_MIN_PERCENTILE = 0.5
 
 
 # ────── Extra usage ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -131,6 +135,7 @@ def build_scored_pool(usage, extras, access):
         r["priority"] = 'alta' if r["score_percentile"] >= HIGH_PERCENTILE else 'media'
         if r["access"] != 'verified':
             r["kind"] = 'access_review'
+            r["eligible"] = r["eligible"] and r["score_percentile"] >= REVIEW_MIN_PERCENTILE
             r["check_reasons"] = [ACCESS_REASONS[r["access"]]]
             r["track_reason"] = REASON_TEXT[r["check_reasons"][0]]
         elif is_churn(r):
@@ -163,5 +168,6 @@ def thresholds():
         "churn_drop": CHURN_DROP,
         "adoption_min_started": ADOPTION_MIN_STARTED,
         "adoption_max_ratio": ADOPTION_MAX_RATIO,
+        "review_min_percentile": REVIEW_MIN_PERCENTILE,
         "cooldown_days": COOLDOWN_DAYS,
     }

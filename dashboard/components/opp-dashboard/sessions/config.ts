@@ -7,8 +7,8 @@ import { REVIEWED_TAB, type ModuleConfig } from "../shared/moduleConfig";
 // opportunity_kind: high_use, access_review, churn, adoption (ver sessions/pool.py)
 
 // Umbrales que salen en los textos de ayuda: tienen que coincidir con sessions/pool.py
-// (TOP_PERCENTILE, CHURN_MIN_PREVIOUS, CHURN_DROP, ADOPTION_MIN_STARTED, ADOPTION_MAX_RATIO)
-const T = { topPct: 3, churnMinPrevious: 40, churnDropPct: 60, adoptionMinStarted: 40, adoptionMaxPct: 15 };
+// (TOP_PERCENTILE, CHURN_MIN_PREVIOUS, CHURN_DROP, ADOPTION_MIN_STARTED, ADOPTION_MAX_RATIO, REVIEW_MIN_PERCENTILE)
+const T = { topPct: 3, churnMinPrevious: 40, churnDropPct: 60, adoptionMinStarted: 40, adoptionMaxPct: 15, reviewMinPercentile: 50 };
 
 const pendingOf =(kind: string) => (o: { status: string; opportunity_kind?: string }) =>
   o.status === "pending" && o.opportunity_kind === kind;
@@ -32,7 +32,7 @@ export const SESSIONS_CONFIG: ModuleConfig = {
       label: "Revisar",
       icon: AlertTriangle,
       empty: "No hay centros por revisar",
-      hint: "Centros que usan sesiones pero con dudas sobre su suscripción: sin suscripción activa, cancelada con acceso o sin verificar. Comprobar su situación antes de contactar.",
+      hint: `Centros que usan sesiones (al menos tanto como el ${T.reviewMinPercentile}% de los clientes) pero con dudas sobre su suscripción: sin suscripción activa, cancelada con acceso o sin verificar. Comprobar su situación antes de contactar.`,
       filter: pendingOf("access_review"),
     },
     {
