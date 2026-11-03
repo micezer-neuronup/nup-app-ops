@@ -4,6 +4,7 @@
 
 import os
 import json
+import time
 import psycopg2
 from datetime import datetime, timedelta
 from zipfile import ZipFile
@@ -22,6 +23,7 @@ load_dotenv(dotenv_path=env_path)
 
 AMPLITUDE_API_KEY = os.getenv('AMPLITUDE_API_KEY') 
 AMPLITUDE_SECRET_KEY = os.getenv('AMPLITUDE_SECRET_KEY')
+DOWNLOAD_RETRIES = 4  # intentos por día; espera 1, 2 y 3 min entre ellos
 
 IGNORED_EVENTS = {
     'Exercise - Finished',
@@ -71,22 +73,33 @@ def fetch_stream_events(start_str, end_str):
     print("="*80, flush=True)
     print(f"☁️ Fetching Amplitude API: {start_str} to {end_str}...")
     
-    url = f'https://analytics.eu.amplitude.com/api/2/export?start={start_str}&end={end_str}' 
-    auth = HTTPBasicAuth(AMPLITUDE_API_KEY, AMPLITUDE_SECRET_KEY) 
-    
-    response = requests.get(url, auth=auth, stream=True) 
-    
-    if response.status_code == 404:
-        print("⚠️ No data found for this day. Skipping...")
-        return
-        
-    response.raise_for_status() 
-    
+    url = f'https://analytics.eu.amplitude.com/api/2/export?start={start_str}&end={end_str}'
+    auth = HTTPBasicAuth(AMPLITUDE_API_KEY, AMPLITUDE_SECRET_KEY)
+
     zip_path = 'backfill_export.zip'
-    
-    with open(zip_path, 'wb') as f: 
-        for chunk in response.iter_content(chunk_size=8192): 
-            f.write(chunk) 
+
+    # Amplitude a veces corta la conexión sin responder (RemoteDisconnected) en exports grandes.
+    # Se reintenta la descarga entera del día: hasta que no está completa no se procesa nada.
+    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        try:
+            response = requests.get(url, auth=auth, stream=True, timeout=(30, 600))
+
+            if response.status_code == 404:
+                print("⚠️ No data found for this day. Skipping...")
+                return
+
+            response.raise_for_status()
+
+            with open(zip_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt == DOWNLOAD_RETRIES:
+                raise
+            wait = 60 * attempt
+            print(f"⚠️ Download failed (attempt {attempt}/{DOWNLOAD_RETRIES}): {e}. Retrying in {wait}s...", flush=True)
+            time.sleep(wait)
 
     with ZipFile(zip_path, 'r') as zf:
         for file_name in zf.namelist():
@@ -175,7 +188,9 @@ if __name__ == "__main__":
     # Últimos 90 días (hasta ayer): eventos de Amplitude + recálculo de daily_stats de cada día,
     # para rellenar las columnas de sesiones de la migración 003 (sessions_home_*, session_patients).
     # end_date no se incluye: del 05/08/2026 al 02/11/2026. Desde el despliegue, daily_events.py ya rellena las columnas.
-    current_date = datetime(2026, 8, 5)
+    # La primera ejecución en prod llegó hasta el 30/09 (Amplitude cortó la conexión el 01/10): se reanuda desde ahí.
+    # Para repetir los 90 días completos, volver a datetime(2026, 8, 5).
+    current_date = datetime(2026, 10, 1)
     end_date = datetime(2026, 11, 3)
 
     while current_date < end_date:
