@@ -2,6 +2,7 @@
 // ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const { upsertSubscriptionData, updateInvoiceData, markHubspotSyncStatus, getBackendSubscriptionId   } = require('../db/dbSubscriptions');
 const { syncSingleSubscriptionToHubspot, getHubspotFeatures } = require('./hubspotServices');
+const { mapStripeSubscription } = require('./stripeMapping');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const { log } = require("../utils/logger");
 
@@ -132,20 +133,16 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
 // ─── The fetchSubscriptionFromOps function return nup_center_id, backendSubscriptionId, access status and features.
 // ─── Then we obtain the customer from stripe attached to the subscription to get the name and default_payment_method.
 // ─── The features, if not returned by OPS API, are fetched from Hubspot using the nup_center_id from the database linked to the subscription. 
-// ─── To know if a subscription has pending invoices, we check the list of open invoices limited to one. 
-// ─── Then we set pendingPayment to True or False.
-// ─── We Obtain the startDate and precancelledDate. Note that precancelledDate is canceled_at(The date the cancel option was clicked).
-// ─── The precancelledDate field will be empty until the cancel button is clicked. The date it was clicked is the precancelledDate.
-// ─── We then after to infer the cancelationDate which is the date the subscription state will transition to cancelled.
-// ─── If there is a cancel_at value, we asign it to cancelationDate.
-// ─── If the subscription is cancelled we get the ended_at field.
-// ─── We obtain revokedAccessDate from cancelationDate.
-// ─── The isForever variable is infered by checking if the subscription is not canceled and there is not any cancelation date.
-// ─── We then get the state of the subscription(parentState).
-// ─── For each item we store a row in items with all the fields for each one corrlating it to the subscription.
-// ─── We retrieve the product, if not on stripe we assume its a manual porduct.
-// ─── Then we get the item status(childStatus) which is the same as the aprent unless there is current_period_end
-// ─── If the status is past_due, unpaid or incomplete and itemPeriodEndDate is after today, we set it as active.
+// ─── To know if a subscription has pending invoices, we check the list of open invoices limited to one.
+// ─── Then we set pendingPayment to True or False. (Invoice fields will come from Zoho, this stays as is until then.)
+// ─── We retrieve the product names, if not on stripe we assume its a manual porduct.
+// ─── The rest of the fields are mapped by mapStripeSubscription (services/stripeMapping.js), the same function the backfill uses:
+// ───   precancelledDate is canceled_at (the date the cancel option was clicked), empty until the cancel button is clicked.
+// ───   cancelationDate is the date the subscription transitions to cancelled: ended_at if it is already cancelled,
+// ───   else cancel_at (scheduled). revokedAccessDate is the cancelationDate.
+// ───   The state (parentState) and, for each item, its row with the billing period of the item. The item status (childStatus) is
+// ───   the parent's, unless the status is past_due, unpaid or incomplete and the item period end is after today: then active.
+// ─── is_forever is computed by Postgres (migration 005): live and without an end date.
 // ─── Then we build the payload and await the call of upsertSubscriptionData from dbSubscriptions.
 // ─── After responding, we proceed to sync the subscription to hubspot by awaiting markHubspotSyncStatus from hubspotServices.
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -178,15 +175,6 @@ async function processSubscriptionUpsert(event) {
   const customer = await stripe.customers.retrieve(subscription.customer, {
     expand: ['invoice_settings.default_payment_method']
   });
-  
-  const centerName = customer.name || customer.description || null;
-
-  let paymentMethodType = null;
-  if (subscription.default_payment_method) {
-    paymentMethodType = subscription.default_payment_method.type;
-  } else if (customer.invoice_settings?.default_payment_method) {
-    paymentMethodType = customer.invoice_settings.default_payment_method.type;
-  }
 
   let centerFeatures = [];
   if (opsData) {
@@ -200,104 +188,27 @@ async function processSubscriptionUpsert(event) {
   const openInvoices = await stripe.invoices.list({ subscription: subId, status: 'open', limit: 1 });
   const pendingPayment = openInvoices.data.length > 0;
 
-  const startDate = formatStripeDate(subscription.start_date);
-  const precancelledDate = formatStripeDate(subscription.canceled_at);
-  
-  let cancelationDate = null;
-  if (subscription.cancel_at) {
-    cancelationDate = formatStripeDate(subscription.cancel_at);
-  } else if (subscription.status === 'canceled') {
-    cancelationDate = formatStripeDate(subscription.ended_at);
-  }
-
-  const revokedAccessDate = cancelationDate;
-  const isForever =
-  subscription.status !== 'canceled' &&
-  !subscription.ended_at &&
-  subscription.cancel_at_period_end === false &&
-  subscription.cancel_at === null;
-
-  let parentState = subscription.status;
-  const trialEnd = subscription.trial_end;
-  if (parentState === 'canceled' && trialEnd && subscription.canceled_at && subscription.canceled_at <= trialEnd) {
-    parentState = 'trial_canceled';
-  } else if (parentState === 'trialing') {
-    parentState = 'trial';
-  }
-
-  const subscriptionItems = [];
-  const items = subscription.items.data;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  for (const item of items) {
-    const stripeItemId = item.id;
-    const productId = item.price.product;
-    const quantity = item.quantity;
-    const unitPrice = item.price.unit_amount ? item.price.unit_amount / 100 : null;
-    const billingInterval = item.price.recurring?.interval || 'month';
-    const paymentFrequency = item.price.recurring?.interval_count || 1;
-
-    let product = { name: 'Producto Desconocido', metadata: {} };
+  const productNames = new Map();
+  for (const item of subscription.items.data) {
+    const productId = typeof item.price.product === 'object' ? item.price.product.id : item.price.product;
+    if (productNames.has(productId)) continue;
     try {
-      product = await stripe.products.retrieve(productId);
+      const product = await stripe.products.retrieve(productId);
+      productNames.set(productId, product.name);
     } catch (error) {
       log('WARN', 'STRIPE', `Product ${productId} not found in Stripe. Using fallback.`);
     }
-
-    let childStatus = parentState;
-    const itemPeriodEndStr = formatStripeDate(item.current_period_end || subscription.current_period_end);
-    const itemPeriodEndDate = itemPeriodEndStr ? new Date(itemPeriodEndStr) : null;
-
-    if (['past_due', 'unpaid', 'incomplete'].includes(parentState)) {
-      if (itemPeriodEndDate && itemPeriodEndDate > today) {
-        childStatus = 'active';
-      }
-    }
-
-    subscriptionItems.push({
-      item_id: stripeItemId,
-      hubspot_item_id: null,
-      subscription_id: subId,
-      nup_center_id: nupCenterId,
-      product_id: productId,
-      product_name: product.name,
-      billing_interval: billingInterval,
-      payment_frequency: paymentFrequency,
-      unit_price: unitPrice,
-      features: JSON.stringify(centerFeatures),
-      quantity: quantity,
-      start_date: formatStripeDate(item.created),
-      current_period_start: formatStripeDate(item.current_period_start || subscription.current_period_start),
-      current_period_end: itemPeriodEndStr,
-      is_forever: isForever,
-      number_of_renovations: 0,
-      status: childStatus,
-      precancelled_date: precancelledDate
-    });
   }
 
+  const { subscription: mapped, items: subscriptionItems } = mapStripeSubscription(subscription, {
+    customer,
+    ops: { backendSubscriptionId, nupCenterId, features: centerFeatures, status: access },
+    productNames,
+  });
+
   const payload = {
-    subscription_id: subId,
-    hubspot_subscription_id: null,
-    nup_center_id: nupCenterId,
-    backend_subscription_id: backendSubscriptionId,
-    segment: subscription.metadata?.segment || null,
-    manages_own_payment: null,
-    center_name: centerName,
-    start_date: startDate,
-    precancelled_date: precancelledDate,
-    cancelation_date: cancelationDate,
-    revoked_access_date: revokedAccessDate,
-    current_state: parentState,
-    currency: subscription.currency ? subscription.currency.toUpperCase() : 'EUR',
-    creation_source: null,
-    source: 'stripe',
-    payment_method_type: paymentMethodType,
-    market: null,
-    is_forever: isForever,
+    ...mapped,
     pending_payment: pendingPayment,
-    access: access,
     items: subscriptionItems,
     stripe_event_id: event.id,
     event_type: event.type,

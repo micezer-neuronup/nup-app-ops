@@ -136,7 +136,7 @@ export function SubscriptionModal({
     { label: "Cancelación", value: formatDate(activeSub.cancelation_date || activeSub.cancellation_date) },
     { label: "Precancelación", value: formatDate(activeSub.precancelled_date) },
     { label: "Estado actual", value: activeSub.current_state || "—" },
-    { label: "Origen", value: getSourceLabel(activeSub.creation_source || activeSub.source) },
+    { label: "Origen", value: getSourceLabel(activeSub.source) },
     { label: "Método pago", value: activeSub.payment_method_type || "—" },
     { label: "Moneda", value: (currencyDisplay || "—").toUpperCase() },
     { label: "Vitalicia", value: activeSub.is_forever ? "Sí" : "No" },
@@ -198,7 +198,7 @@ export function SubscriptionModal({
                   <div className="flex justify-between items-center text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <CreditCard className="h-3 w-3" />
-                      <span className="capitalize">{getSourceLabel(histSub.source || histSub.creation_source)}</span>
+                      <span className="capitalize">{getSourceLabel(histSub.source)}</span>
                     </span>
                     <span>
                       {(histSub.items || histSub.subscription_items || []).length} items

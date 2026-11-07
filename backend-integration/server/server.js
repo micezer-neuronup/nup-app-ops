@@ -125,17 +125,22 @@ app.post(
         log("WARN", "STRIPE", `Failed to forward webhook to n8n: ${err.message} (event: ${event.id})`);
       });
 
+    // Signature verified: reply 200 now. The processing (Stripe, Ops API, database, HubSpot) can take minutes
+    // (fetchSubscriptionFromOps may go through up to 400 pages) and Stripe marks the delivery as failed if it waits.
+    // A processing error no longer makes Stripe retry: it is logged, and the next fullBackfillStripe.js run repairs the data.
+    response.status(200).send();
+
     try {
       switch (event.type) {
-        
+
         case 'customer.subscription.created':
-        case 'customer.subscription.updated': 
-        case 'customer.subscription.deleted': 
+        case 'customer.subscription.updated':
+        case 'customer.subscription.deleted':
           await processSubscriptionUpsert(event);
           break;
 
         case 'invoice.paid':
-        case 'invoice.payment_failed': 
+        case 'invoice.payment_failed':
           await processInvoiceEvent(event);
           break;
 
@@ -143,16 +148,13 @@ app.post(
           log("INFO", "STRIPE", `Unhandled event type: ${event.type}`);
       }
 
-      response.status(200).send();
-
     } catch (error) {
       if (error.code === '23505') {
         log("INFO", "STRIPE", `Duplicate webhook ignored. Event ID: ${event.id}`);
-        return response.status(200).send(); 
+        return;
       }
 
-      log("ERROR", "STRIPE", `Webhook processing failed. Error: ${error.message}`);
-      return response.status(500).send('Internal Server Error');
+      log("ERROR", "STRIPE", `Webhook processing failed (already answered 200). Event ${event.id} (${event.type}): ${error.message}`);
     }
 });
 

@@ -46,7 +46,7 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
 ### Docker
 `docker compose up -d --build server-michael` (o `dashboard-michael`) desde la raíz.
 - Los `.env.*` y `docker-compose*.yml` están en `.gitignore`.
-- Las migraciones SQL (`backend-integration/server/db/migrations/`) se aplican a mano con `psql`. No hay un runner de migraciones.
+- Las migraciones SQL (`backend-integration/server/db/migrations/`) se aplican a mano con `psql`. No hay un runner de migraciones. La cabecera de cada una dice si va antes o después del rebuild (p. ej. 004 antes, 005 justo después).
 
 ## Arquitectura
 
@@ -67,6 +67,13 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
 2. **Suscripciones**:
    - Llegan por el webhook de Stripe `POST /apiwebhooks/stripe`, que usa `express.raw` y verifica la firma. Responde 200 antes de procesar.
    - Las procesan `services/subscriptionServices.js` y `db/dbSubscriptions.js`, y se sincronizan con HubSpot (`services/hubspotServices.js`).
+   - **Mapeo Stripe → filas**: `services/stripeMapping.js` (`mapStripeSubscription`, función pura). Lo usan el webhook y `scripts/fullBackfillStripe.js`; no duplicar la lógica en ninguno de los dos.
+     - Fin (`cancelation_date` = `revoked_access_date`): si está `canceled`, `ended_at`; si no, `cancel_at`. El periodo de facturación se lee del item (API de Stripe ≥ 2025-03).
+   - **`is_forever` lo calcula Postgres** (columna generada, migración 005): viva (`active`/`past_due`/`trial`) y sin fecha de fin. No se escribe desde el código. `subscription_items` ya no tiene `is_forever`.
+   - **Manuales** (`scripts/fullBackfillManual.js`): `start_date` = `createdAt` de la Ops API. Solo reescribe y marca `PENDING` para HubSpot cuando algo cambia. `revoked_access_date` vacío (la Ops API aún no da la fecha de fin real).
+   - **Manual → Stripe**: la Ops API cambia el `kind` del mismo registro. `closeMigratedManualSubs` rellena `migrated_to_subscription_id` (la de Stripe, que lleva el id manual en `backend_subscription_id`) y cierra la manual si seguía viva.
+   - `hubspot_subscription_id` / `hubspot_item_id`: record ID de HubSpot, guardado por `saveHubspotIds` tras el sync.
+   - Campos de facturas y dinero (`pending_payment`, `last_invoice_*`, `number_of_renovations`, `unit_price`) vendrán de Zoho; no se tocan hasta entonces.
 3. **API para el dashboard**:
    - Las consultas viven en `server/db/dbAnalytics.js`.
    - Endpoints de oportunidades:

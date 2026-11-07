@@ -21,7 +21,6 @@ async function getSubscriptionByCenterId(centerId) {
         s.nup_center_id,
         s.backend_subscription_id,
         s.segment,
-        s.manages_own_payment,
         s.center_name,
         s.start_date,
         s.precancelled_date,
@@ -29,8 +28,8 @@ async function getSubscriptionByCenterId(centerId) {
         s.revoked_access_date,
         s.current_state,
         s.currency,
-        s.creation_source,
         s.source,
+        s.migrated_to_subscription_id,
         s.payment_method_type,
         s.market,
         s.is_forever,
@@ -56,7 +55,7 @@ async function getSubscriptionByCenterId(centerId) {
             'start_date', si.start_date,
             'current_period_start', si.current_period_start,
             'current_period_end', si.current_period_end,
-            'is_forever', si.is_forever,
+            'is_forever', s.is_forever,
             'status', si.status,
             'precancelled_date', si.precancelled_date,
             'updated_at', si.updated_at
@@ -122,10 +121,11 @@ async function getSubscriptionByCenterId(centerId) {
 // ─── 
 // ─── 
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── is_forever is not written: Postgres computes it (migration 005).
+// ─── hubspot_subscription_id / hubspot_item_id are not overwritten: saveHubspotIds stores them after the HubSpot sync.
 async function upsertSubscriptionData(data) {
   const client = await pool.connect();
-  
-  const is_forever = data.is_forever !== undefined ? data.is_forever : data.isForever;
+
   const pending_payment = data.pending_payment !== undefined ? data.pending_payment : data.pendingPayment;
   const safePrecancelledDate = data.precancelled_date || data.precanceled_date || null;
 
@@ -138,20 +138,18 @@ async function upsertSubscriptionData(data) {
     // ==========================================
     await client.query(
       `INSERT INTO subscriptions (
-         subscription_id, hubspot_subscription_id, nup_center_id, backend_subscription_id, segment, 
-         manages_own_payment, center_name, start_date, precancelled_date, 
-         cancelation_date, revoked_access_date, current_state, currency, 
-         creation_source, source, payment_method_type, market, last_invoice_status, 
-         last_invoice_amount, last_invoice_date, is_forever, pending_payment, access, updated_at
-       ) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, CURRENT_TIMESTAMP)
-       ON CONFLICT (subscription_id) 
-       DO UPDATE SET 
-         hubspot_subscription_id = EXCLUDED.hubspot_subscription_id,
+         subscription_id, nup_center_id, backend_subscription_id, segment,
+         center_name, start_date, precancelled_date,
+         cancelation_date, revoked_access_date, current_state, currency,
+         source, payment_method_type, market, last_invoice_status,
+         last_invoice_amount, last_invoice_date, pending_payment, access, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP)
+       ON CONFLICT (subscription_id)
+       DO UPDATE SET
          nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
          backend_subscription_id = COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id),
          segment = EXCLUDED.segment,
-         manages_own_payment = EXCLUDED.manages_own_payment,
          center_name = EXCLUDED.center_name,
          start_date = EXCLUDED.start_date,
          precancelled_date = EXCLUDED.precancelled_date,
@@ -159,20 +157,18 @@ async function upsertSubscriptionData(data) {
          revoked_access_date = EXCLUDED.revoked_access_date,
          current_state = EXCLUDED.current_state,
          currency = EXCLUDED.currency,
-         creation_source = EXCLUDED.creation_source,
          payment_method_type = EXCLUDED.payment_method_type,
          market = EXCLUDED.market,
-         is_forever = EXCLUDED.is_forever,
          pending_payment = EXCLUDED.pending_payment,
          access = COALESCE(EXCLUDED.access, subscriptions.access),
          hubspot_sync_status = 'PENDING',
          updated_at = CURRENT_TIMESTAMP`,
       [
-        data.subscription_id, data.hubspot_subscription_id, data.nup_center_id, data.backend_subscription_id, data.segment, 
-        data.manages_own_payment, data.center_name, data.start_date, safePrecancelledDate, 
-        data.cancelation_date, data.revoked_access_date, data.current_state, data.currency, 
-        data.creation_source, data.source || 'stripe', data.payment_method_type, data.market, data.last_invoice_status, 
-        data.last_invoice_amount, data.last_invoice_date, is_forever, pending_payment, data.access || null
+        data.subscription_id, data.nup_center_id, data.backend_subscription_id, data.segment,
+        data.center_name, data.start_date, safePrecancelledDate,
+        data.cancelation_date, data.revoked_access_date, data.current_state, data.currency,
+        data.source || 'stripe', data.payment_method_type, data.market, data.last_invoice_status,
+        data.last_invoice_amount, data.last_invoice_date, pending_payment, data.access || null
       ]
     );
 
@@ -194,19 +190,17 @@ async function upsertSubscriptionData(data) {
 
       for (const item of data.items) {
         const itemFrequency = item.payment_frequency || item.interval_count || 1;
-        const itemIsForever = item.is_forever !== undefined ? item.is_forever : is_forever;
         const safeItemPrecancelledDate = item.precancelled_date || item.precanceled_date || safePrecancelledDate;
 
         await client.query(
           `INSERT INTO subscription_items (
-             item_id, hubspot_item_id, subscription_id, nup_center_id, 
-             product_id, product_name, billing_interval, payment_frequency, unit_price, 
-             features, quantity, start_date, current_period_start, current_period_end, 
-             is_forever, number_of_renovations, status, precancelled_date, updated_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CURRENT_TIMESTAMP)
-           ON CONFLICT (item_id) 
-           DO UPDATE SET 
-             hubspot_item_id = EXCLUDED.hubspot_item_id,
+             item_id, subscription_id, nup_center_id,
+             product_id, product_name, billing_interval, payment_frequency, unit_price,
+             features, quantity, start_date, current_period_start, current_period_end,
+             number_of_renovations, status, precancelled_date, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)
+           ON CONFLICT (item_id)
+           DO UPDATE SET
              subscription_id = EXCLUDED.subscription_id,
              nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscription_items.nup_center_id),
              product_id = EXCLUDED.product_id,
@@ -219,15 +213,14 @@ async function upsertSubscriptionData(data) {
              start_date = EXCLUDED.start_date,
              current_period_start = EXCLUDED.current_period_start,
              current_period_end = EXCLUDED.current_period_end,
-             is_forever = EXCLUDED.is_forever,
              status = EXCLUDED.status,
              precancelled_date = EXCLUDED.precancelled_date,
              updated_at = CURRENT_TIMESTAMP`,
           [
-            item.item_id, item.hubspot_item_id, data.subscription_id, item.nup_center_id, 
-            item.product_id, item.product_name, item.billing_interval, itemFrequency, 
-            item.unit_price, item.features, item.quantity, item.start_date, 
-            item.current_period_start, item.current_period_end, itemIsForever, 
+            item.item_id, data.subscription_id, item.nup_center_id,
+            item.product_id, item.product_name, item.billing_interval, itemFrequency,
+            item.unit_price, item.features, item.quantity, item.start_date,
+            item.current_period_start, item.current_period_end,
             item.number_of_renovations || 0, item.status, safeItemPrecancelledDate
           ]
         );
@@ -350,6 +343,31 @@ async function markHubspotSyncStatus(subscriptionId, status) {
 }
 
 
+// ────── Query: Save HubSpot record IDs ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Called by syncSingleSubscriptionToHubspot after the batch/upsert of the subscription and its items.
+// ─── hubspotSubId: record ID of the subscription object. itemIds: Map item_id → record ID of the item object.
+// ─── Only writes when the ID changed, so updated_at keeps meaning "last change".
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+async function saveHubspotIds(subscriptionId, hubspotSubId, itemIds = new Map()) {
+  try {
+    await pool.query(
+      `UPDATE subscriptions SET hubspot_subscription_id = $1
+       WHERE subscription_id = $2 AND hubspot_subscription_id IS DISTINCT FROM $1`,
+      [String(hubspotSubId), subscriptionId]
+    );
+    for (const [itemId, hubspotItemId] of itemIds) {
+      await pool.query(
+        `UPDATE subscription_items SET hubspot_item_id = $1
+         WHERE item_id = $2 AND hubspot_item_id IS DISTINCT FROM $1`,
+        [String(hubspotItemId), itemId]
+      );
+    }
+  } catch (error) {
+    log("ERROR", "DB", `Could not save HubSpot IDs for ${subscriptionId}: ${error.message}`);
+  }
+}
+
+
 // ────── Query:  ───────────────────────────────────────────────────────────────────────────────────────────────────────
 // ─── 
 // ─── 
@@ -452,6 +470,7 @@ module.exports = {
   upsertSubscriptionData,
   updateInvoiceData,
   markHubspotSyncStatus,
+  saveHubspotIds,
   processPendingHubspotSyncs,
   getBackendSubscriptionId,
   getNupCenterIdBySubscriptionId  

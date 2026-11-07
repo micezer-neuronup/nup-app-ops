@@ -2,6 +2,7 @@ const { pool } = require('../db/db'); // Ajusta la ruta a tu conexión DB
 const fetch = require('node-fetch'); // O el fetch nativo si usas Node 18+
 const { log } = require("../utils/logger");
 const { getCache, setCache } = require('../redisClient');
+const { saveHubspotIds } = require('../db/dbSubscriptions');
 
 
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
@@ -145,7 +146,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     if (subRows.length === 0) return false;
     const sub = subRows[0];
 
-    const mapped = sourceMap[String(sub.source || sub.creation_source || '').toLowerCase()];
+    const mapped = sourceMap[String(sub.source || '').toLowerCase()];
 
 
     // 🔥 FILTRO: Solo sincronizar con HubSpot si el estado es válido
@@ -197,6 +198,8 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
     
     const hubspotSubId = subData.results[0].id;
     await createAssociation(ACCOUNT_SUB_OBJECT_ID, hubspotSubId, "company", companyHubspotId, ASSOC_SUB_TO_COMPANY);
+    // Record IDs of HubSpot saved in the database (hubspot_subscription_id / hubspot_item_id)
+    const hubspotItemIds = new Map();
 
     // 3. Sincronizar Hijos
     const { rows: relatedItems } = await pool.query(`SELECT * FROM subscription_items WHERE subscription_id = $1`, [subscriptionId]);
@@ -226,7 +229,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
             start_date: formatHsDate(item.start_date),
             current_period_start: formatHsDate(item.current_period_start),
             current_period_end: formatHsDate(item.current_period_end),
-            isforever: item.is_forever ? "true" : "false",
+            isforever: sub.is_forever ? "true" : "false",
             features: featuresText,
             number_of_renovations: item.number_of_renovations || 0,
             product_name: item.product_name || "",
@@ -249,8 +252,13 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
       for (const record of itemsData.results) {
         await createAssociation(ITEM_OBJECT_ID, record.id, "company", companyHubspotId, ASSOC_ITEM_TO_COMPANY);
         await createAssociation(ITEM_OBJECT_ID, record.id, ACCOUNT_SUB_OBJECT_ID, hubspotSubId, ASSOC_ITEM_TO_SUB);
+        // The results don't keep the input order: the item is matched by its unique property
+        const itemId = record.properties?.stripe_item_id_unique;
+        if (itemId) hubspotItemIds.set(itemId, record.id);
       }
     }
+
+    await saveHubspotIds(subscriptionId, hubspotSubId, hubspotItemIds);
 
     console.log(`[HUBSPOT-SYNC] Suscripción ${subscriptionId} enviada a HubSpot.`);
     return true; 

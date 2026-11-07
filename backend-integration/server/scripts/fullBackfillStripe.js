@@ -7,6 +7,7 @@ dotenv.config({ path: envPath });
 
 const { pool } = require('../db/db');
 const { log } = require('../utils/logger');
+const { mapStripeSubscription } = require('../services/stripeMapping');
 
 
 // ────── OPS API, Stripe and HubSpot Credentials ───────────────────────────────────────────────────────────────────────────────────
@@ -67,12 +68,11 @@ function findOpsSubscription(opsSubs, stripeSubscriptionId) {
 }
 
 // ────── Stripe: Query to Upsert stripe Subscriptions ───────────────────────────────────────────────────────────────────
-// ─── We define the query to Upsert the subscription.
-// ─── 
-// ───
-// ───
-// ───
-// ───
+// ─── We define the query to Upsert the subscription and its items.
+// ─── is_forever is not written: Postgres computes it (migration 005).
+// ─── nup_center_id / backend_subscription_id keep the stored value when the Ops API doesn't know the subscription (COALESCE),
+// ─── and the item's centre is also updated (before, items created without centre never got it).
+// ─── hubspot_subscription_id / hubspot_item_id are not touched: the HubSpot sync stores them (saveHubspotIds).
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function upsertSubscription(sub, items) {
   const client = await pool.connect();
@@ -82,16 +82,15 @@ async function upsertSubscription(sub, items) {
 
     await client.query(
       `INSERT INTO subscriptions (
-         subscription_id, hubspot_subscription_id, nup_center_id, backend_subscription_id,
-         segment, manages_own_payment, center_name, start_date, precancelled_date,
+         subscription_id, nup_center_id, backend_subscription_id,
+         segment, center_name, start_date, precancelled_date,
          cancelation_date, revoked_access_date, current_state, currency,
-         creation_source, source, payment_method_type, market,
-         is_forever, pending_payment, access, hubspot_sync_status
+         source, payment_method_type, pending_payment, access, hubspot_sync_status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        ON CONFLICT (subscription_id) DO UPDATE SET
-         nup_center_id = EXCLUDED.nup_center_id,
-         backend_subscription_id = EXCLUDED.backend_subscription_id,
+         nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
+         backend_subscription_id = COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id),
          center_name = EXCLUDED.center_name,
          start_date = EXCLUDED.start_date,
          precancelled_date = EXCLUDED.precancelled_date,
@@ -100,18 +99,15 @@ async function upsertSubscription(sub, items) {
          current_state = EXCLUDED.current_state,
          currency = EXCLUDED.currency,
          payment_method_type = EXCLUDED.payment_method_type,
-         is_forever = EXCLUDED.is_forever,
          pending_payment = EXCLUDED.pending_payment,
          access = COALESCE(EXCLUDED.access, subscriptions.access),
          hubspot_sync_status = 'PENDING',
          updated_at = CURRENT_TIMESTAMP`,
       [
         sub.subscription_id,
-        null,
         sub.nup_center_id,
         sub.backend_subscription_id,
         sub.segment,
-        null,
         sub.center_name,
         sub.start_date,
         sub.precancelled_date,
@@ -119,11 +115,8 @@ async function upsertSubscription(sub, items) {
         sub.revoked_access_date,
         sub.current_state,
         sub.currency,
-        null,
         'stripe',
         sub.payment_method_type,
-        null,
-        sub.is_forever,
         sub.pending_payment,
         sub.access,
         'PENDING'
@@ -143,28 +136,29 @@ async function upsertSubscription(sub, items) {
       for (const item of items) {
         await client.query(
           `INSERT INTO subscription_items (
-             item_id, hubspot_item_id, subscription_id, nup_center_id,
+             item_id, subscription_id, nup_center_id,
              product_id, product_name, billing_interval, payment_frequency, unit_price,
              features, quantity, start_date, current_period_start, current_period_end,
-             is_forever, status, precancelled_date
+             status, precancelled_date
            )
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            ON CONFLICT (item_id) DO UPDATE SET
+             nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscription_items.nup_center_id),
+             product_id = EXCLUDED.product_id,
              product_name = EXCLUDED.product_name,
              billing_interval = EXCLUDED.billing_interval,
              payment_frequency = EXCLUDED.payment_frequency,
              unit_price = EXCLUDED.unit_price,
              features = EXCLUDED.features,
              quantity = EXCLUDED.quantity,
+             start_date = EXCLUDED.start_date,
              current_period_start = EXCLUDED.current_period_start,
              current_period_end = EXCLUDED.current_period_end,
-             is_forever = EXCLUDED.is_forever,
              status = EXCLUDED.status,
              precancelled_date = EXCLUDED.precancelled_date,
              updated_at = CURRENT_TIMESTAMP`,
           [
             item.item_id,
-            null,
             sub.subscription_id,
             item.nup_center_id,
             item.product_id,
@@ -177,7 +171,6 @@ async function upsertSubscription(sub, items) {
             item.start_date,
             item.current_period_start,
             item.current_period_end,
-            item.is_forever,
             item.status,
             item.precancelled_date
           ]
@@ -228,117 +221,32 @@ async function main() {
 
     // 3. Cargar todas las suscripciones de Stripe
     log('INFO', 'FULL-BACKFILL', 'Starting Stripe subscriptions iteration...');
+    // default_payment_method expanded so mapStripeSubscription can read its type (as the webhook does)
     const subscriptions = stripe.subscriptions.list({
       status: 'all',
-      expand: ['data.customer', 'data.customer.invoice_settings.default_payment_method']
+      expand: ['data.customer', 'data.customer.invoice_settings.default_payment_method', 'data.default_payment_method']
     });
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
     for await (const stripeSub of subscriptions) {
       try {
         // Buscar en Ops API
         const opsSub = findOpsSubscription(opsSubs, stripeSub.id);
-        
-        let backendSubscriptionId = null;
-        let nupCenterId = null;
-        let opsFeatures = [];
-        let access = null;
+        const ops = opsSub ? {
+          backendSubscriptionId: opsSub.id,
+          nupCenterId: opsSub.center?.id,
+          features: opsSub.features ? opsSub.features.map(f => f.identifier) : [],
+          status: opsSub.status,
+        } : null;
 
-        if (opsSub) {
-          backendSubscriptionId = opsSub.id;
-          nupCenterId = opsSub.center.id;
-          opsFeatures = opsSub.features ? opsSub.features.map(f => f.identifier) : [];
-          access = opsSub.status;
-        }
-
-        // Parseo de fechas (desde Stripe)
-        const startDate = stripeSub.start_date ? new Date(stripeSub.start_date * 1000) : null;
-        const currentPeriodStart = stripeSub.current_period_start ? new Date(stripeSub.current_period_start * 1000) : null;
-        const precancelledDate = stripeSub.canceled_at ? new Date(stripeSub.canceled_at * 1000) : null;
-        const cancelationDate = stripeSub.cancel_at
-          ? new Date(stripeSub.cancel_at * 1000)
-          : (stripeSub.status === 'canceled' && stripeSub.ended_at ? new Date(stripeSub.ended_at * 1000) : null);
-        const trialEnd = stripeSub.trial_end ? new Date(stripeSub.trial_end * 1000) : null;
-
-        const isForever =
-          stripeSub.status !== 'canceled' &&
-          !stripeSub.ended_at &&
-          stripeSub.cancel_at_period_end === false &&
-          stripeSub.cancel_at === null;
-
-        const pendingPayment = ['past_due', 'unpaid', 'incomplete'].includes(stripeSub.status);
-
-        // Customer
-        let centerName = null;
-        let pmType = null;
-        const customer = stripeSub.customer;
-        if (customer && typeof customer === 'object') {
-          centerName = customer.name || customer.description || null;
-          if (customer.invoice_settings?.default_payment_method) {
-            pmType = customer.invoice_settings.default_payment_method.type;
-          }
-        }
-
-        // Estado
-        let parentState = stripeSub.status;
-        if (parentState === 'canceled' && trialEnd && precancelledDate && precancelledDate <= trialEnd) {
-          parentState = 'trial_canceled';
-        } else if (parentState === 'trialing') {
-          parentState = 'trial';
-        }
-
-        // Payload padre
-        const payloadSub = {
-          subscription_id: stripeSub.id,
-          backend_subscription_id: backendSubscriptionId,
-          nup_center_id: nupCenterId,
-          segment: stripeSub.metadata?.segment || null,
-          center_name: centerName,
-          start_date: startDate,
-          precancelled_date: precancelledDate,
-          cancelation_date: cancelationDate,
-          revoked_access_date: null,
-          current_state: parentState,
-          currency: stripeSub.currency ? stripeSub.currency.toUpperCase() : null,
-          payment_method_type: pmType,
-          is_forever: isForever,
-          pending_payment: pendingPayment,
-          access: access,
-        };
-
-        // Items
-        const payloadItems = stripeSub.items.data.map(item => {
-          const productId = typeof item.price.product === 'object' ? item.price.product.id : item.price.product;
-          const productName = productsMap.get(productId) || 'Producto Desconocido';
-          const itemPeriodEnd = stripeSub.current_period_end ? new Date(stripeSub.current_period_end * 1000) : null;
-
-          let childStatus = parentState;
-          if (['past_due', 'unpaid', 'incomplete'].includes(parentState)) {
-            if (itemPeriodEnd && itemPeriodEnd > today) {
-              childStatus = 'active';
-            }
-          }
-
-          return {
-            item_id: item.id,
-            nup_center_id: nupCenterId,
-            product_id: productId,
-            product_name: productName,
-            billing_interval: item.price.recurring?.interval || null,
-            payment_frequency: item.price.recurring?.interval_count || 1,
-            unit_price: item.price.unit_amount ? (item.price.unit_amount / 100) : null,
-            features: JSON.stringify(opsFeatures),
-            quantity: item.quantity,
-            start_date: startDate,
-            current_period_start: currentPeriodStart,
-            current_period_end: itemPeriodEnd,
-            is_forever: isForever,
-            status: childStatus,
-            precancelled_date: precancelledDate
-          };
+        // Same mapping as the webhook (services/stripeMapping.js)
+        const { subscription: payloadSub, items: payloadItems } = mapStripeSubscription(stripeSub, {
+          customer: stripeSub.customer,
+          ops,
+          productNames: productsMap,
         });
+
+        // Invoice fields will come from Zoho: until then, the backfill keeps its status-based pending_payment
+        payloadSub.pending_payment = ['past_due', 'unpaid', 'incomplete'].includes(stripeSub.status);
 
         await upsertSubscription(payloadSub, payloadItems);
 

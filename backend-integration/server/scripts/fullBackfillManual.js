@@ -55,10 +55,15 @@ async function fetchPage(page) {
 // ─── canceledAt can also be outdated, so the inferred current_state of manual subs is never 100% reliable.
 // ─── Then to infer the state, if its alive we asign trial or active.
 // ─── If its not alive, we asign trial_canceled or canceled.
-// ─── Then if the subscription is alive, the state is active, it is not cancelled and the period end is null, we set is_forever to true.
+// ─── is_forever is computed by Postgres (migration 005): alive, not cancelled and without period end, as before.
 // ─── The features are extracted from the data of OPS API.
-// ─── Then we get the subscription id and the nup_center_id.
+// ─── Then we get the subscription id, the nup_center_id and the start date (Ops createdAt).
 // ─── We do the upsert of the subscription and the items( including the access status).
+// ─── The upserts only write when something changed (ON CONFLICT ... WHERE ... IS DISTINCT FROM). Only then the subscription
+// ─── goes back to hubspot_sync_status 'PENDING': before, every run (3 a day) marked all of them and the HubSpot cron
+// ─── re-synced the ~5200 manual subscriptions each time.
+// ─── revoked_access_date stays empty: on manual subs the access is not revoked at the period end, and the Ops API has no
+// ─── real end date yet.
 // ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function upsertManualSubscription(data) {
   const client = await pool.connect();
@@ -87,54 +92,45 @@ async function upsertManualSubscription(data) {
       finalState = data.status === 'trial' ? 'trial_canceled' : 'canceled';
     }
 
-    const is_forever = isAlive && finalState === 'active' && periodEnd === null && !canceledAt;
-
     const features = data.features
       ? data.features.map(f => f.identifier)
       : [];
 
-    const subscriptionId = data.id;
-    const nupCenterId = data.center.id;
+    const subscriptionId = String(data.id);
+    const nupCenterId = String(data.center.id);
+    const startDate = data.createdAt ? new Date(data.createdAt) : null;
 
-    await client.query(
+    const subResult = await client.query(
       `INSERT INTO subscriptions (
-         subscription_id, hubspot_subscription_id, nup_center_id, backend_subscription_id,
-         segment, manages_own_payment, center_name, start_date, precancelled_date,
-         cancelation_date, revoked_access_date, current_state, currency,
-         creation_source, source, payment_method_type, market,
-         is_forever, pending_payment, access, hubspot_sync_status
+         subscription_id, nup_center_id, backend_subscription_id,
+         start_date, precancelled_date, cancelation_date, current_state,
+         source, access, hubspot_sync_status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (subscription_id) DO UPDATE SET
          nup_center_id = EXCLUDED.nup_center_id,
          backend_subscription_id = EXCLUDED.backend_subscription_id,
+         start_date = EXCLUDED.start_date,
          precancelled_date = EXCLUDED.precancelled_date,
          cancelation_date = EXCLUDED.cancelation_date,
          current_state = EXCLUDED.current_state,
-         is_forever = EXCLUDED.is_forever,
          access = COALESCE(EXCLUDED.access, subscriptions.access),
-         hubspot_sync_status = 'PENDING',
-         updated_at = CURRENT_TIMESTAMP`,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE (subscriptions.nup_center_id, subscriptions.backend_subscription_id, subscriptions.start_date,
+              subscriptions.precancelled_date, subscriptions.cancelation_date, subscriptions.current_state, subscriptions.access)
+         IS DISTINCT FROM
+             (EXCLUDED.nup_center_id, EXCLUDED.backend_subscription_id, EXCLUDED.start_date,
+              EXCLUDED.precancelled_date, EXCLUDED.cancelation_date, EXCLUDED.current_state,
+              COALESCE(EXCLUDED.access, subscriptions.access))`,
       [
         subscriptionId,
-        null,
         nupCenterId,
         subscriptionId,
-        null,
-        null,
-        null,
-        null,
+        startDate,
         precancelledDate,
         cancelationDate,
-        null,
         finalState,
-        null,
-        null,
         'backend',
-        null,
-        null,
-        is_forever,
-        null,
         data.status || null,
         'PENDING'
       ]
@@ -142,45 +138,110 @@ async function upsertManualSubscription(data) {
 
     const itemId = `man_item_${subscriptionId}`;
 
-    await client.query(
+    const itemResult = await client.query(
       `INSERT INTO subscription_items (
-         item_id, hubspot_item_id, subscription_id, nup_center_id,
-         product_id, product_name, billing_interval, payment_frequency, unit_price,
-         features, quantity, start_date, current_period_start, current_period_end,
-         is_forever, status, precancelled_date
+         item_id, subscription_id, nup_center_id,
+         product_name, features, quantity, start_date, current_period_end,
+         status, precancelled_date
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (item_id) DO UPDATE SET
          nup_center_id = EXCLUDED.nup_center_id,
          features = EXCLUDED.features,
+         start_date = EXCLUDED.start_date,
          current_period_end = EXCLUDED.current_period_end,
-         is_forever = EXCLUDED.is_forever,
          status = EXCLUDED.status,
          precancelled_date = EXCLUDED.precancelled_date,
-         updated_at = CURRENT_TIMESTAMP`,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE (subscription_items.nup_center_id, subscription_items.features, subscription_items.start_date,
+              subscription_items.current_period_end, subscription_items.status, subscription_items.precancelled_date)
+         IS DISTINCT FROM
+             (EXCLUDED.nup_center_id, EXCLUDED.features, EXCLUDED.start_date,
+              EXCLUDED.current_period_end, EXCLUDED.status, EXCLUDED.precancelled_date)`,
       [
         itemId,
-        null,
         subscriptionId,
         nupCenterId,
-        null,
         'Producto Manual',
-        null,
-        null,
-        null,
         JSON.stringify(features),
         1,
-        null,
-        null,
+        startDate,
         periodEnd,
-        is_forever,
         finalState,
         precancelledDate
       ]
     );
 
-    await client.query('COMMIT');
+    // Inserted or changed (subscription or item) → it has to go to HubSpot again
+    const changed = subResult.rowCount > 0 || itemResult.rowCount > 0;
+    if (changed) {
+      await client.query(
+        `UPDATE subscriptions SET hubspot_sync_status = 'PENDING' WHERE subscription_id = $1`,
+        [subscriptionId]
+      );
+    }
 
+    await client.query('COMMIT');
+    return changed;
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+
+
+// ────── Manual: Subscriptions that migrated to Stripe ─────────────────────────────────────────────────────────────────────────────────────
+// ─── NeuronUP is moving the manual subscriptions to Stripe little by little. The Ops API keeps the same record and changes its
+// ─── kind from manual to stripe, so it no longer comes in the kind=manual pages and its row stayed 'active' forever.
+// ─── The Stripe row (written by the webhook) carries that Ops id in backend_subscription_id, so the link is in the database:
+// ───   migrated_to_subscription_id = the Stripe subscription (the registry, set for every migrated one).
+// ───   If the manual row was still live, it is closed: canceled (trial_canceled if it was a trial), ended when the Stripe
+// ───   subscription started, and back to 'PENDING' for HubSpot. Its item follows the same state.
+// ─── If a manual id has several Stripe rows, the most recent one.
+// ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+async function closeMigratedManualSubs() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(`
+      UPDATE subscriptions m
+      SET migrated_to_subscription_id = s.subscription_id,
+          current_state = CASE WHEN m.current_state = 'active' THEN 'canceled'
+                               WHEN m.current_state = 'trial' THEN 'trial_canceled'
+                               ELSE m.current_state END,
+          cancelation_date = CASE WHEN m.current_state IN ('active', 'trial')
+                                  THEN COALESCE(s.start_date, NOW()) ELSE m.cancelation_date END,
+          precancelled_date = CASE WHEN m.current_state IN ('active', 'trial') THEN NULL ELSE m.precancelled_date END,
+          hubspot_sync_status = CASE WHEN m.current_state IN ('active', 'trial') THEN 'PENDING' ELSE m.hubspot_sync_status END,
+          updated_at = CURRENT_TIMESTAMP
+      FROM (
+        SELECT DISTINCT ON (backend_subscription_id) backend_subscription_id, subscription_id, start_date
+        FROM subscriptions
+        WHERE source = 'stripe' AND backend_subscription_id IS NOT NULL
+        ORDER BY backend_subscription_id, start_date DESC NULLS LAST
+      ) s
+      WHERE m.source = 'backend'
+        AND s.backend_subscription_id = m.subscription_id
+        AND (m.migrated_to_subscription_id IS DISTINCT FROM s.subscription_id OR m.current_state IN ('active', 'trial'))
+      RETURNING m.subscription_id, m.current_state
+    `);
+
+    if (rows.length > 0) {
+      await client.query(
+        `UPDATE subscription_items i SET status = s.current_state, precancelled_date = NULL, updated_at = CURRENT_TIMESTAMP
+         FROM subscriptions s
+         WHERE s.subscription_id = i.subscription_id AND s.subscription_id = ANY($1) AND i.status IS DISTINCT FROM s.current_state`,
+        [rows.map(r => r.subscription_id)]
+      );
+    }
+
+    await client.query('COMMIT');
+    return rows.length;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -196,10 +257,12 @@ async function upsertManualSubscription(data) {
 // ─── We start a loop and call the function fetchPage feeding it the pages.
 // ─── The loop breaks when the returned data from OPS API is empty, if not the page increments with each loop.
 // ─── For each subscription returned from OPS API, we call upsertManualSubscription for it.
+// ─── Then closeMigratedManualSubs registers (and closes) the manual subscriptions that moved to Stripe.
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function main() {
   let page = 1;
   let totalProcessed = 0;
+  let changedCount = 0;
   let errorCount = 0;
 
   log('INFO', 'SYNC-MANUAL', 'Starting manual subscriptions sync...');
@@ -218,7 +281,7 @@ async function main() {
 
       for (const sub of subscriptions) {
         try {
-          await upsertManualSubscription(sub);
+          if (await upsertManualSubscription(sub)) changedCount++;
           totalProcessed++;
         } catch (error) {
           log('ERROR', 'SYNC-MANUAL', `Error on ${sub.id}: ${error.message}`);
@@ -230,7 +293,8 @@ async function main() {
       page++;
     }
 
-    log('INFO', 'SYNC-MANUAL', `Done. Success: ${totalProcessed} | Errors: ${errorCount}`);
+    const migrated = await closeMigratedManualSubs();
+    log('INFO', 'SYNC-MANUAL', `Done. Success: ${totalProcessed} | Changed: ${changedCount} | Migrated to Stripe (updated): ${migrated} | Errors: ${errorCount}`);
 
   } catch (error) {
     log('ERROR', 'SYNC-MANUAL', `Fatal error: ${error.message}`);

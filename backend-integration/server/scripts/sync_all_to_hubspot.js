@@ -101,7 +101,7 @@ async function main() {
         continue; // Saltamos si no encontramos la empresa en HubSpot
       }
 
-      const mappedSource = sourceMap[String(sub.source || sub.creation_source || "").toLowerCase()];
+      const mappedSource = sourceMap[String(sub.source || "").toLowerCase()];
 
 
       // Preparar payload del Padre
@@ -177,7 +177,7 @@ async function main() {
               start_date: formatHsDate(item.start_date),
               current_period_start: formatHsDate(item.current_period_start),
               current_period_end: formatHsDate(item.current_period_end),
-              isforever: item.is_forever ? "true" : "false",
+              isforever: sub.is_forever ? "true" : "false",
               features: featuresText,
               number_of_renovations: item.number_of_renovations || 0,
               product_name: item.product_name || "",
