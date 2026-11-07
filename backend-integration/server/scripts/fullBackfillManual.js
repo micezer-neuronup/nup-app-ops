@@ -175,8 +175,11 @@ async function upsertManualSubscription(data) {
     // Inserted or changed (subscription or item) → it has to go to HubSpot again
     const changed = subResult.rowCount > 0 || itemResult.rowCount > 0;
     if (changed) {
+      // Except an ended one that was already skipped (never reached HubSpot) and is still not live
       await client.query(
-        `UPDATE subscriptions SET hubspot_sync_status = 'PENDING' WHERE subscription_id = $1`,
+        `UPDATE subscriptions SET hubspot_sync_status = 'PENDING'
+         WHERE subscription_id = $1
+           AND NOT (hubspot_sync_status = 'SKIPPED_STATE' AND current_state NOT IN ('active', 'trial', 'trialing', 'past_due'))`,
         [subscriptionId]
       );
     }

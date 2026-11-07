@@ -73,6 +73,9 @@ function findOpsSubscription(opsSubs, stripeSubscriptionId) {
 // ─── nup_center_id / backend_subscription_id keep the stored value when the Ops API doesn't know the subscription (COALESCE),
 // ─── and the item's centre is also updated (before, items created without centre never got it).
 // ─── hubspot_subscription_id / hubspot_item_id are not touched: the HubSpot sync stores them (saveHubspotIds).
+// ─── The upserts only write when something changed (ON CONFLICT ... WHERE ... IS DISTINCT FROM), and only then the subscription
+// ─── goes back to hubspot_sync_status 'PENDING'. Before, every run marked the ~37k subscriptions and the HubSpot cron spent
+// ─── hours going through them. Returns true if the subscription or any of its items was inserted or changed.
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function upsertSubscription(sub, items) {
   const client = await pool.connect();
@@ -80,7 +83,9 @@ async function upsertSubscription(sub, items) {
   try {
     await client.query('BEGIN');
 
-    await client.query(
+    let changed = false;
+
+    const subResult = await client.query(
       `INSERT INTO subscriptions (
          subscription_id, nup_center_id, backend_subscription_id,
          segment, center_name, start_date, precancelled_date,
@@ -99,10 +104,18 @@ async function upsertSubscription(sub, items) {
          current_state = EXCLUDED.current_state,
          currency = EXCLUDED.currency,
          payment_method_type = EXCLUDED.payment_method_type,
-         pending_payment = EXCLUDED.pending_payment,
          access = COALESCE(EXCLUDED.access, subscriptions.access),
-         hubspot_sync_status = 'PENDING',
-         updated_at = CURRENT_TIMESTAMP`,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE (subscriptions.nup_center_id, subscriptions.backend_subscription_id, subscriptions.center_name,
+              subscriptions.start_date, subscriptions.precancelled_date, subscriptions.cancelation_date,
+              subscriptions.revoked_access_date, subscriptions.current_state, subscriptions.currency,
+              subscriptions.payment_method_type, subscriptions.access)
+         IS DISTINCT FROM
+             (COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
+              COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id), EXCLUDED.center_name,
+              EXCLUDED.start_date, EXCLUDED.precancelled_date, EXCLUDED.cancelation_date,
+              EXCLUDED.revoked_access_date, EXCLUDED.current_state, EXCLUDED.currency,
+              EXCLUDED.payment_method_type, COALESCE(EXCLUDED.access, subscriptions.access))`,
       [
         sub.subscription_id,
         sub.nup_center_id,
@@ -122,19 +135,22 @@ async function upsertSubscription(sub, items) {
         'PENDING'
       ]
     );
+    changed = changed || subResult.rowCount > 0;
 
     if (items && items.length > 0) {
       const currentItemIds = items.map(i => i.item_id);
 
-      await client.query(
+      // Items no longer in the subscription → canceled (only the ones not already canceled)
+      const removedResult = await client.query(
         `UPDATE subscription_items
          SET status = 'canceled', precancelled_date = COALESCE(precancelled_date, CURRENT_DATE), updated_at = CURRENT_TIMESTAMP
-         WHERE subscription_id = $1 AND item_id != ALL($2)`,
+         WHERE subscription_id = $1 AND item_id != ALL($2) AND status IS DISTINCT FROM 'canceled'`,
         [sub.subscription_id, currentItemIds]
       );
+      changed = changed || removedResult.rowCount > 0;
 
       for (const item of items) {
-        await client.query(
+        const itemResult = await client.query(
           `INSERT INTO subscription_items (
              item_id, subscription_id, nup_center_id,
              product_id, product_name, billing_interval, payment_frequency, unit_price,
@@ -156,7 +172,18 @@ async function upsertSubscription(sub, items) {
              current_period_end = EXCLUDED.current_period_end,
              status = EXCLUDED.status,
              precancelled_date = EXCLUDED.precancelled_date,
-             updated_at = CURRENT_TIMESTAMP`,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE (subscription_items.nup_center_id, subscription_items.product_id, subscription_items.product_name,
+                  subscription_items.billing_interval, subscription_items.payment_frequency, subscription_items.unit_price,
+                  subscription_items.features, subscription_items.quantity, subscription_items.start_date,
+                  subscription_items.current_period_start, subscription_items.current_period_end,
+                  subscription_items.status, subscription_items.precancelled_date)
+             IS DISTINCT FROM
+                 (COALESCE(EXCLUDED.nup_center_id, subscription_items.nup_center_id), EXCLUDED.product_id, EXCLUDED.product_name,
+                  EXCLUDED.billing_interval, EXCLUDED.payment_frequency, EXCLUDED.unit_price,
+                  EXCLUDED.features, EXCLUDED.quantity, EXCLUDED.start_date,
+                  EXCLUDED.current_period_start, EXCLUDED.current_period_end,
+                  EXCLUDED.status, EXCLUDED.precancelled_date)`,
           [
             item.item_id,
             sub.subscription_id,
@@ -175,17 +202,31 @@ async function upsertSubscription(sub, items) {
             item.precancelled_date
           ]
         );
+        changed = changed || itemResult.rowCount > 0;
       }
     } else {
-      await client.query(
+      const removedResult = await client.query(
         `UPDATE subscription_items
          SET status = 'canceled', precancelled_date = COALESCE(precancelled_date, CURRENT_DATE), updated_at = CURRENT_TIMESTAMP
-         WHERE subscription_id = $1`,
+         WHERE subscription_id = $1 AND status IS DISTINCT FROM 'canceled'`,
+        [sub.subscription_id]
+      );
+      changed = changed || removedResult.rowCount > 0;
+    }
+
+    // Inserted or changed → it has to go to HubSpot again. Except an ended one that was already skipped (never reached
+    // HubSpot) and is still not live: re-checking it would cost a HubSpot lookup for nothing (~30k old cancelled ones).
+    if (changed) {
+      await client.query(
+        `UPDATE subscriptions SET hubspot_sync_status = 'PENDING'
+         WHERE subscription_id = $1
+           AND NOT (hubspot_sync_status = 'SKIPPED_STATE' AND current_state NOT IN ('active', 'trial', 'trialing', 'past_due'))`,
         [sub.subscription_id]
       );
     }
 
     await client.query('COMMIT');
+    return changed;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -203,6 +244,7 @@ async function upsertSubscription(sub, items) {
 
 async function main() {
   let successCount = 0;
+  let changedCount = 0;
   let errorCount = 0;
 
   log('INFO', 'FULL-BACKFILL', 'Starting FULL Stripe backfill...');
@@ -245,14 +287,15 @@ async function main() {
           productNames: productsMap,
         });
 
-        // Invoice fields will come from Zoho: until then, the backfill keeps its status-based pending_payment
+        // Invoice fields will come from Zoho. Until then pending_payment is only set here on insert (status-based);
+        // on existing rows the backfill doesn't touch it, the webhook keeps it (open invoices)
         payloadSub.pending_payment = ['past_due', 'unpaid', 'incomplete'].includes(stripeSub.status);
 
-        await upsertSubscription(payloadSub, payloadItems);
+        if (await upsertSubscription(payloadSub, payloadItems)) changedCount++;
 
         successCount++;
         if (successCount % 50 === 0) {
-          log('INFO', 'FULL-BACKFILL', `Processed ${successCount} subscriptions...`);
+          log('INFO', 'FULL-BACKFILL', `Processed ${successCount} subscriptions (${changedCount} changed)...`);
         }
         await delay(50);
 
@@ -262,7 +305,7 @@ async function main() {
       }
     }
 
-    log('INFO', 'FULL-BACKFILL', `✅ Done. Success: ${successCount} | Errors: ${errorCount}`);
+    log('INFO', 'FULL-BACKFILL', `✅ Done. Success: ${successCount} | Changed: ${changedCount} | Errors: ${errorCount}`);
 
   } catch (error) {
     log('ERROR', 'FULL-BACKFILL', `Fatal error: ${error.message}`);

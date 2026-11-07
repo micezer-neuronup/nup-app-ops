@@ -131,6 +131,20 @@ async function findCompanyHubspotId(nupCenterId) {
   return data.results[0].id;
 }
 
+// ────── Function: findHubspotSubscriptionRecord ──────────────────────────────────────────────────────────────────────────────
+// ─── Record ID of the subscription object in HubSpot, looked up by its unique property (subscription_id_unique).
+// ─── null if it doesn't exist (404). Other errors are thrown, so the sync is marked FAILED and retried.
+// ─── Used for subscriptions that ended before hubspot_subscription_id was stored in the database.
+// ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+async function findHubspotSubscriptionRecord(subscriptionId) {
+  const url = `https://api.hubapi.com/crm/v3/objects/${ACCOUNT_SUB_OBJECT_ID}/${encodeURIComponent(subscriptionId)}?idProperty=subscription_id_unique`;
+  const response = await fetch(url, { headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}` } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`HubSpot lookup failed for ${subscriptionId}: ${response.status}`);
+  const data = await response.json();
+  return data.id || null;
+}
+
 async function createAssociation(fromType, fromId, toType, toId, assocId) {
   await fetch(`https://api.hubapi.com/crm/v4/objects/${fromType}/${fromId}/associations/${toType}/${toId}`, {
     method: 'PUT',
@@ -150,10 +164,17 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
 
 
     // 🔥 FILTRO: Solo sincronizar con HubSpot si el estado es válido
+    // A subscription that is no longer live is only synced if it already exists in HubSpot, so its record shows the
+    // cancellation (before, it stayed "active" there forever). Ended subscriptions that never reached HubSpot are still skipped.
     const validStates = ['active', 'trial', 'trialing', 'past_due'];
-    if (!validStates.includes(String(sub.current_state).toLowerCase())) {
-      console.log(`[HUBSPOT-SYNC][SKIP] Sub ${subscriptionId} está en estado "${sub.current_state}". No se sincroniza con HubSpot.`);
-      return 'SKIPPED_STATE';
+    const state = String(sub.current_state).toLowerCase();
+    if (!validStates.includes(state)) {
+      const alreadyInHubspot = statusMap[state] && (sub.hubspot_subscription_id || await findHubspotSubscriptionRecord(sub.subscription_id));
+      if (!alreadyInHubspot) {
+        console.log(`[HUBSPOT-SYNC][SKIP] Sub ${subscriptionId} está en estado "${sub.current_state}". No se sincroniza con HubSpot.`);
+        return 'SKIPPED_STATE';
+      }
+      console.log(`[HUBSPOT-SYNC] Sub ${subscriptionId} en estado "${sub.current_state}" ya existe en HubSpot: se actualiza.`);
     }
 
     if (!sub.nup_center_id) {
