@@ -563,5 +563,7 @@ module.exports = {
   refreshCompanyCache,
   refreshAllActiveCaches,
   getAllOwners,
-  getHubspotFeatures
+  getHubspotFeatures,
+  ACCOUNT_SUB_OBJECT_ID,
+  statusMap
 };

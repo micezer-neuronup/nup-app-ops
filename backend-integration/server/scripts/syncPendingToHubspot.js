@@ -3,7 +3,7 @@
 // ─── by hand after a backfill instead of waiting for the cron.
 // ─── Don't run it while the cron job is running (the server's isHubspotJobRunning flag doesn't see this process): the same
 // ─── subscriptions would be sent twice. The cron runs at minute 0 every 6 hours.
-// ─── Run: docker exec server-michael node scripts/syncPendingToHubspot.js
+// ─── Run: docker exec server-michael node server/scripts/syncPendingToHubspot.js (in the container /app/scripts is the Python one)
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const path = require('path');
 const dotenv = require('dotenv');
