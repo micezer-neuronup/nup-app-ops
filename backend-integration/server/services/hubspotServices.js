@@ -3,6 +3,7 @@ const fetch = require('node-fetch'); // O el fetch nativo si usas Node 18+
 const { log } = require("../utils/logger");
 const { getCache, setCache } = require('../redisClient');
 const { saveHubspotIds } = require('../db/dbSubscriptions');
+const { getCenterHubspotCompanyId } = require('../db/dbCenters');
 
 
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
@@ -118,7 +119,12 @@ const formatHsDate = (dateVal) => {
 
 
 
+// The company comes from the centers table (filled by services/centersSync.js) when the centre is there; the search by
+// nup_center_id is only the fallback for centres the daily sync hasn't picked up yet.
 async function findCompanyHubspotId(nupCenterId) {
+  const fromCenters = await getCenterHubspotCompanyId(nupCenterId);
+  if (fromCenters) return fromCenters;
+
   const response = await fetch('https://api.hubapi.com/crm/v3/objects/companies/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${HUBSPOT_TOKEN}` },

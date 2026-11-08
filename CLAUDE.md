@@ -63,6 +63,7 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
    | Cada 4 h | Refresco de la caché de HubSpot |
    | 09/12/16 h | `server/scripts/fullBackfillManual.js`: suscripciones manuales desde la Ops API |
    | 03:00 diario | `services/stripeCatchup.js`: reprocesa las suscripciones con eventos de Stripe de las últimas 26 h (el webhook responde 200 antes de procesar y Stripe no reintenta). Manual: `server/scripts/stripeCatchup.js [horas]` |
+   | 05:00 diario | `services/centersSync.js`: tabla `centers` desde HubSpot (empresas con `nup_center_id`) + IDs de Stripe/Zoho de la Ops API. Manual: `server/scripts/syncCenters.js` |
    | Domingo 04:00 | `server/scripts/reconcileHubspotStatuses.js --apply`: la BD es la fuente de verdad; las suscripciones de HubSpot que no coinciden (estado, isforever, fechas) y las vivas que faltan pasan a `PENDING`. Sin `--apply` es un dry run |
 
    El cron de Zoho está desactivado.
@@ -76,6 +77,10 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
    - **Manual → Stripe**: la Ops API cambia el `kind` del mismo registro. `closeMigratedManualSubs` rellena `migrated_to_subscription_id` (la de Stripe, que lleva el id manual en `backend_subscription_id`) y cierra la manual si seguía viva.
    - `hubspot_subscription_id` / `hubspot_item_id`: record ID de HubSpot, guardado por `saveHubspotIds` tras el sync.
    - Campos de facturas y dinero (`pending_payment`, `last_invoice_*`, `number_of_renovations`, `unit_price`) vendrán de Zoho; no se tocan hasta entonces.
+   - **`centers`** (migración 006): una fila por centro. El universo son las empresas de HubSpot con `nup_center_id` numérico (no todas tienen suscripción).
+     - De HubSpot: `hubspot_company_id` (la empresa que TIENE el `nup_center_id`), `name`, `commercial_name`, `segment` (se va rellenando; null si vacío), `market`, `currency` (mayúsculas).
+     - De la Ops API: `stripe_customer_id`, `zoho_contact_id`. Su `hubspotCompanyId` no se usa: tras un merge en HubSpot guarda el id de la empresa que desapareció.
+     - El sync de HubSpot (`findCompanyHubspotId`) lee la empresa de `centers`; la búsqueda por `nup_center_id` queda como respaldo.
 3. **API para el dashboard**:
    - Las consultas viven en `server/db/dbAnalytics.js`.
    - Endpoints de oportunidades:

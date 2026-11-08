@@ -39,6 +39,7 @@ const { processSubscriptionUpsert,
         processInvoiceEvent} = require('./services/subscriptionServices');
 
 const { runStripeCatchup } = require('./services/stripeCatchup');
+const { runCentersSync } = require('./services/centersSync');
 
 const { syncSingleSubscriptionToHubspot, 
         resolveCompanyData, 
@@ -655,6 +656,29 @@ cron.schedule('0 3 * * *', async () => {
     log("ERROR", "CRON", `Stripe catch-up failed: ${error.message}`);
   } finally {
     isStripeCatchupRunning = false;
+  }
+});
+
+
+// ────── Cron job: Centers sync ─────────────────────────────────────────────────────────────────────────
+// ─── Runs every day at 05:00 (before the 06:00 HubSpot sync, which reads the company from centers).
+// ─── HubSpot companies with nup_center_id + Stripe / Zoho IDs from the Ops API into centers (services/centersSync.js).
+// ─── Manual run: node server/scripts/syncCenters.js
+// ───────────────────────────────────────────────────────────────────────────
+let isCentersSyncRunning = false;
+
+cron.schedule('0 5 * * *', async () => {
+  if (isCentersSyncRunning) {
+    log("WARN", "CRON", "Previous centers sync is still running. Skipping.");
+    return;
+  }
+  isCentersSyncRunning = true;
+  try {
+    await runCentersSync();
+  } catch (error) {
+    log("ERROR", "CRON", `Centers sync failed (nothing written): ${error.message}`);
+  } finally {
+    isCentersSyncRunning = false;
   }
 });
 
