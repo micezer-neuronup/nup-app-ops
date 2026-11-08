@@ -62,6 +62,8 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
    | Cada 6 h | Sincronización de respaldo con HubSpot (`processPendingHubspotSyncs`), con un flag que impide ejecuciones en paralelo |
    | Cada 4 h | Refresco de la caché de HubSpot |
    | 09/12/16 h | `server/scripts/fullBackfillManual.js`: suscripciones manuales desde la Ops API |
+   | 03:00 diario | `services/stripeCatchup.js`: reprocesa las suscripciones con eventos de Stripe de las últimas 26 h (el webhook responde 200 antes de procesar y Stripe no reintenta). Manual: `server/scripts/stripeCatchup.js [horas]` |
+   | Domingo 04:00 | `server/scripts/reconcileHubspotStatuses.js --apply`: la BD es la fuente de verdad; las suscripciones de HubSpot que no coinciden (estado, isforever, fechas) y las vivas que faltan pasan a `PENDING`. Sin `--apply` es un dry run |
 
    El cron de Zoho está desactivado.
 2. **Suscripciones**:

@@ -35,8 +35,10 @@ const { getAnalyticsByCenterId,
 const { getSubscriptionByCenterId, 
         processPendingHubspotSyncs  } = require('./db/dbSubscriptions');
 
-const { processSubscriptionUpsert, 
+const { processSubscriptionUpsert,
         processInvoiceEvent} = require('./services/subscriptionServices');
+
+const { runStripeCatchup } = require('./services/stripeCatchup');
 
 const { syncSingleSubscriptionToHubspot, 
         resolveCompanyData, 
@@ -52,12 +54,14 @@ const { syncSingleSubscriptionToHubspot,
 // ─── 4. Manual subscriptions sync script.
 // ─── 5. Zoho scripts to aggregate nup_center_id to invoices. (Zoho cron job is currently deactivated)
 // ─── 6. Sessions opportunity detector script.
+// ─── 7. HubSpot reconciliation script (subscriptions in HubSpot aligned with the database).
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const daily_stats_path = path.join(__dirname, '../scripts/amplitude/daily_events.py');
 const opportunity_detector_path = path.join(__dirname, '../scripts/opportunities/assessment/opportunity_detector.py');
 const opportunity_daily_activity_path = path.join(__dirname, '../scripts/opportunities/assessment/daily_usage_detector.py');
 const manualSyncScriptPath = path.join(__dirname, 'scripts/fullBackfillManual.js');
 const sessions_detector_path = path.join(__dirname, '../scripts/opportunities/sessions/sessions_detector.py');
+const hubspotReconcileScriptPath = path.join(__dirname, 'scripts/reconcileHubspotStatuses.js');
 // const zoho_script_Path = path.join(__dirname, '../python-jobs/zoho_daily_worker.py');
 
 
@@ -628,6 +632,60 @@ cron.schedule('0 9,12,16 * * *', () => {
       log("WARN", "CRON-MANUAL", `Manual sync exited with code ${code}`);
     }
     isManualSyncRunning = false;
+  });
+});
+
+
+// ────── Cron job: Stripe catch-up ─────────────────────────────────────────────────────────────────────────
+// ─── Runs every night at 03:00. The webhook answers 200 before processing, so a failed processing is not retried by Stripe:
+// ─── this reprocesses the subscriptions with Stripe events in the last 26 h (services/stripeCatchup.js).
+// ─── Manual run: node server/scripts/stripeCatchup.js [hours]
+// ───────────────────────────────────────────────────────────────────────────
+let isStripeCatchupRunning = false;
+
+cron.schedule('0 3 * * *', async () => {
+  if (isStripeCatchupRunning) {
+    log("WARN", "CRON", "Previous Stripe catch-up is still running. Skipping.");
+    return;
+  }
+  isStripeCatchupRunning = true;
+  try {
+    await runStripeCatchup({ hours: 26 });
+  } catch (error) {
+    log("ERROR", "CRON", `Stripe catch-up failed: ${error.message}`);
+  } finally {
+    isStripeCatchupRunning = false;
+  }
+});
+
+
+// ────── Cron job: HubSpot reconciliation ────────────────────────────────────────────────────────────────────
+// ─── Runs every Sunday at 04:00. The database is the source of truth: every HubSpot subscription that doesn't match it, and
+// ─── every live one missing in HubSpot, is marked 'PENDING' (scripts/reconcileHubspotStatuses.js --apply).
+// ─── The 06:00 HubSpot cron then sends them.
+// ───────────────────────────────────────────────────────────────────────────
+cron.schedule('0 4 * * 0', () => {
+  log("INFO", "CRON", "Starting HubSpot reconciliation...");
+
+  const child = spawn('node', [hubspotReconcileScriptPath, '--apply'], {
+    cwd: __dirname,
+    env: process.env
+  });
+
+  child.stdout.on('data', (data) => {
+    data.toString().split('\n').forEach(line => {
+      if (line.trim()) log("INFO", "CRON-RECONCILE", line.trim());
+    });
+  });
+
+  child.stderr.on('data', (data) => {
+    data.toString().split('\n').forEach(line => {
+      if (line.trim()) log("ERROR", "CRON-RECONCILE", line.trim());
+    });
+  });
+
+  child.on('close', (code) => {
+    log(code === 0 ? "INFO" : "WARN", "CRON-RECONCILE", `HubSpot reconciliation exited with code ${code}`);
   });
 });
 
