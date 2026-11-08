@@ -162,7 +162,11 @@ async function createAssociation(fromType, fromId, toType, toId, assocId) {
 async function syncSingleSubscriptionToHubspot(subscriptionId) {
   try {
     // 1. Obtener datos frescos de TU base de datos
-    const { rows: subRows } = await pool.query(`SELECT * FROM subscriptions WHERE subscription_id = $1`, [subscriptionId]);
+    // The centre name comes from the centers table (HubSpot company): name, else commercial_name
+    const { rows: subRows } = await pool.query(
+      `SELECT s.*, COALESCE(c.name, c.commercial_name) AS center_name
+       FROM subscriptions s LEFT JOIN centers c ON c.nup_center_id = s.nup_center_id
+       WHERE s.subscription_id = $1`, [subscriptionId]);
     if (subRows.length === 0) return false;
     const sub = subRows[0];
 

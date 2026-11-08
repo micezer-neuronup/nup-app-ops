@@ -6,7 +6,7 @@
 // ───    If the Ops API fails the run goes on: those two IDs keep their stored value (COALESCE in upsertCenters).
 // ───    Its hubspotCompanyId is not used (stale after merges in HubSpot).
 // ─── 3. upsertCenters (db/dbCenters.js): only writes what changed.
-// ─── The log lists the non-numeric nup_center_id of HubSpot (left out, to fix there) and the centres with a live subscription
+// ─── The log lists the non-numeric nup_center_id of HubSpot (left out: other products' ids, phones...) and the centres with a live subscription
 // ─── that have no company in HubSpot (the HubSpot sync can't send their subscriptions: FAILED_NO_COMPANY).
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const { pool } = require('../db/db');
@@ -133,7 +133,7 @@ async function runCentersSync() {
   log('INFO', 'CENTERS-SYNC', `Done. HubSpot companies: ${companies.length} | Centres: ${centers.length} | ` +
     `Inserted or changed: ${changed} | Non-numeric nup_center_id left out: ${nonNumeric.length} | ` +
     `Ops API centres: ${opsIds.size} | Live subscriptions without HubSpot company: ${liveWithoutCompany.length}`);
-  if (nonNumeric.length) log('INFO', 'CENTERS-SYNC', `Non-numeric nup_center_id (fix in HubSpot): ${nonNumeric.slice(0, 100).join(', ')}`);
+  if (nonNumeric.length) log('INFO', 'CENTERS-SYNC', `Non-numeric nup_center_id left out (Stimulus, HUB…, VP-INV…, NA-…, phones: not NeuronUP centre ids): ${nonNumeric.slice(0, 100).join(', ')}`);
   if (liveWithoutCompany.length) {
     log('INFO', 'CENTERS-SYNC', `Centres with a live subscription and no HubSpot company: ${liveWithoutCompany.slice(0, 100).map(r => r.nup_center_id).join(', ')}${liveWithoutCompany.length > 100 ? ' ...' : ''}`);
   }

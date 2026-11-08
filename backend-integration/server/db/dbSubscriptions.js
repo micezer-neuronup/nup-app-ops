@@ -20,8 +20,8 @@ async function getSubscriptionByCenterId(centerId) {
         s.hubspot_subscription_id,
         s.nup_center_id,
         s.backend_subscription_id,
-        s.segment,
-        s.center_name,
+        c.segment,
+        COALESCE(c.name, c.commercial_name) AS center_name,
         s.start_date,
         s.precancelled_date,
         s.cancelation_date,
@@ -31,7 +31,7 @@ async function getSubscriptionByCenterId(centerId) {
         s.source,
         s.migrated_to_subscription_id,
         s.payment_method_type,
-        s.market,
+        c.market,
         s.is_forever,
         s.pending_payment,
         s.last_invoice_status,
@@ -63,9 +63,10 @@ async function getSubscriptionByCenterId(centerId) {
         ) as items
       FROM subscriptions s
       LEFT JOIN subscription_items si ON s.subscription_id = si.subscription_id
+      LEFT JOIN centers c ON c.nup_center_id = s.nup_center_id
       WHERE s.nup_center_id = $1
-      GROUP BY 
-        s.subscription_id
+      GROUP BY
+        s.subscription_id, c.nup_center_id
       ORDER BY MAX(si.current_period_end) DESC NULLS LAST, s.updated_at DESC;
     `;
 
@@ -138,19 +139,17 @@ async function upsertSubscriptionData(data) {
     // ==========================================
     await client.query(
       `INSERT INTO subscriptions (
-         subscription_id, nup_center_id, backend_subscription_id, segment,
-         center_name, start_date, precancelled_date,
+         subscription_id, nup_center_id, backend_subscription_id,
+         start_date, precancelled_date,
          cancelation_date, revoked_access_date, current_state, currency,
-         source, payment_method_type, market, last_invoice_status,
+         source, payment_method_type, last_invoice_status,
          last_invoice_amount, last_invoice_date, pending_payment, access, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)
        ON CONFLICT (subscription_id)
        DO UPDATE SET
          nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
          backend_subscription_id = COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id),
-         segment = EXCLUDED.segment,
-         center_name = EXCLUDED.center_name,
          start_date = EXCLUDED.start_date,
          precancelled_date = EXCLUDED.precancelled_date,
          cancelation_date = EXCLUDED.cancelation_date,
@@ -158,16 +157,15 @@ async function upsertSubscriptionData(data) {
          current_state = EXCLUDED.current_state,
          currency = EXCLUDED.currency,
          payment_method_type = EXCLUDED.payment_method_type,
-         market = EXCLUDED.market,
          pending_payment = EXCLUDED.pending_payment,
          access = COALESCE(EXCLUDED.access, subscriptions.access),
          hubspot_sync_status = 'PENDING',
          updated_at = CURRENT_TIMESTAMP`,
       [
-        data.subscription_id, data.nup_center_id, data.backend_subscription_id, data.segment,
-        data.center_name, data.start_date, safePrecancelledDate,
+        data.subscription_id, data.nup_center_id, data.backend_subscription_id,
+        data.start_date, safePrecancelledDate,
         data.cancelation_date, data.revoked_access_date, data.current_state, data.currency,
-        data.source || 'stripe', data.payment_method_type, data.market, data.last_invoice_status,
+        data.source || 'stripe', data.payment_method_type, data.last_invoice_status,
         data.last_invoice_amount, data.last_invoice_date, pending_payment, data.access || null
       ]
     );

@@ -81,6 +81,7 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
      - De HubSpot: `hubspot_company_id` (la empresa que TIENE el `nup_center_id`), `name`, `commercial_name`, `segment` (se va rellenando; null si vacío), `market`, `currency` (mayúsculas).
      - De la Ops API: `stripe_customer_id`, `zoho_contact_id`. Su `hubspotCompanyId` no se usa: tras un merge en HubSpot guarda el id de la empresa que desapareció.
      - El sync de HubSpot (`findCompanyHubspotId`) lee la empresa de `centers`; la búsqueda por `nup_center_id` queda como respaldo.
+     - `subscriptions` ya no guarda datos del centro (`center_name`, `segment`, `market`; migración 007): quien los necesite hace JOIN con `centers` (`COALESCE(name, commercial_name)`).
 3. **API para el dashboard**:
    - Las consultas viven en `server/db/dbAnalytics.js`.
    - Endpoints de oportunidades:

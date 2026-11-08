@@ -51,8 +51,9 @@ async function main() {
   try {
     // 1. FILTRAMOS DIRECTAMENTE DESDE LA BASE DE DATOS
     const { rows: allSubs } = await pool.query(`
-      SELECT * FROM subscriptions 
-      WHERE current_state IN ('active', 'trial', 'trialing', 'past_due');
+      SELECT s.*, COALESCE(c.name, c.commercial_name) AS center_name
+      FROM subscriptions s LEFT JOIN centers c ON c.nup_center_id = s.nup_center_id
+      WHERE s.current_state IN ('active', 'trial', 'trialing', 'past_due');
     `);
     
     // Traemos SOLO los ítems que pertenecen a las suscripciones filtradas arriba

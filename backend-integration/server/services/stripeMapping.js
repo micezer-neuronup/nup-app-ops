@@ -87,6 +87,7 @@ function mapItems(sub, { state, nupCenterId, features, productNames, now }) {
 // ─── ops: { backendSubscriptionId, nupCenterId, features, status } from the Ops API, or null if it doesn't know it yet.
 // ─── productNames: Map product id → name.
 // ─── revoked_access_date = the end date: on Stripe the access to the app is revoked when the subscription is cancelled.
+// ─── Centre data (name, segment, market) is not mapped: it lives in the centers table (HubSpot company).
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function mapStripeSubscription(sub, { customer = null, ops = null, productNames = new Map(), now = new Date() } = {}) {
   const state = mapState(sub);
@@ -98,8 +99,6 @@ function mapStripeSubscription(sub, { customer = null, ops = null, productNames 
     subscription_id: sub.id,
     nup_center_id: nupCenterId,
     backend_subscription_id: ops?.backendSubscriptionId != null ? String(ops.backendSubscriptionId) : null,
-    segment: sub.metadata?.segment || null,
-    center_name: (customer && typeof customer === 'object') ? (customer.name || customer.description || null) : null,
     start_date: formatStripeDate(sub.start_date),
     precancelled_date: formatStripeDate(sub.canceled_at),
     cancelation_date: endDate,

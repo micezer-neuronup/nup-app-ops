@@ -88,15 +88,14 @@ async function upsertSubscription(sub, items) {
     const subResult = await client.query(
       `INSERT INTO subscriptions (
          subscription_id, nup_center_id, backend_subscription_id,
-         segment, center_name, start_date, precancelled_date,
+         start_date, precancelled_date,
          cancelation_date, revoked_access_date, current_state, currency,
          source, payment_method_type, pending_payment, access, hubspot_sync_status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (subscription_id) DO UPDATE SET
          nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
          backend_subscription_id = COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id),
-         center_name = EXCLUDED.center_name,
          start_date = EXCLUDED.start_date,
          precancelled_date = EXCLUDED.precancelled_date,
          cancelation_date = EXCLUDED.cancelation_date,
@@ -106,13 +105,13 @@ async function upsertSubscription(sub, items) {
          payment_method_type = EXCLUDED.payment_method_type,
          access = COALESCE(EXCLUDED.access, subscriptions.access),
          updated_at = CURRENT_TIMESTAMP
-       WHERE (subscriptions.nup_center_id, subscriptions.backend_subscription_id, subscriptions.center_name,
+       WHERE (subscriptions.nup_center_id, subscriptions.backend_subscription_id,
               subscriptions.start_date, subscriptions.precancelled_date, subscriptions.cancelation_date,
               subscriptions.revoked_access_date, subscriptions.current_state, subscriptions.currency,
               subscriptions.payment_method_type, subscriptions.access)
          IS DISTINCT FROM
              (COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
-              COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id), EXCLUDED.center_name,
+              COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id),
               EXCLUDED.start_date, EXCLUDED.precancelled_date, EXCLUDED.cancelation_date,
               EXCLUDED.revoked_access_date, EXCLUDED.current_state, EXCLUDED.currency,
               EXCLUDED.payment_method_type, COALESCE(EXCLUDED.access, subscriptions.access))`,
@@ -120,8 +119,6 @@ async function upsertSubscription(sub, items) {
         sub.subscription_id,
         sub.nup_center_id,
         sub.backend_subscription_id,
-        sub.segment,
-        sub.center_name,
         sub.start_date,
         sub.precancelled_date,
         sub.cancelation_date,
