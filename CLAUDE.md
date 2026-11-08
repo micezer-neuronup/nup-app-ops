@@ -46,6 +46,12 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
 ### Docker
 `docker compose up -d --build server-michael` (o `dashboard-michael`) desde la raíz.
 - Los `.env.*` y `docker-compose*.yml` están en `.gitignore`.
+- **Base de datos (`michael_db`)**, tres esquemas (migración 008); el `search_path` de la BD es `core, analytics, opportunities, public`, así que el código no cualifica los nombres (las consultas nuevas pueden hacerlo):
+  - `core`: `centers`, `subscriptions`, `subscription_items`, `subscription_events`.
+  - `analytics`: `events`, `daily_stats`, `feature_requests`, `fetch_metadata`.
+  - `opportunities`: `commercial_opportunity`, `opportunity_detections`.
+  - `backend-integration/server/db/schema.sql`: la estructura completa, para crear una BD vacía. Si una migración cambia la estructura, actualizarlo en el mismo cambio.
+  - Tras cambiar el `search_path` o mover tablas, reiniciar el servidor: el pool de pg conserva conexiones con el anterior.
 - Las migraciones SQL (`backend-integration/server/db/migrations/`) se aplican a mano con `psql`. No hay un runner de migraciones. La cabecera de cada una dice si va antes o después del rebuild (p. ej. 004 antes, 005 justo después).
 
 ## Arquitectura
