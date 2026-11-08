@@ -61,7 +61,7 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
 
    | Horario | Job |
    |---|---|
-   | 06:00 diario | `scripts/amplitude/daily_events.py`: eventos de Amplitude a la tabla `daily_stats`, una fila por centro y día |
+   | 06:00 diario | `scripts/amplitude/daily_events.py`: eventos de Amplitude a la tabla `daily_stats`, una fila por centro y día. Procesa todos los días pendientes desde `fetch_metadata` (si una ejecución falla, la siguiente se pone al día) |
    | Lunes 06:00 | `scripts/opportunities/assessment/opportunity_detector.py`: detección semanal de oportunidades de Assessment |
    | Lunes 06:30 | `scripts/opportunities/sessions/sessions_detector.py`: detección semanal de oportunidades de Sesiones |
    | 07:00 diario | `scripts/opportunities/assessment/daily_usage_detector.py`: detecciones diarias, refresco del score y paso a `converted` (solo `product = 'assessments'`) |

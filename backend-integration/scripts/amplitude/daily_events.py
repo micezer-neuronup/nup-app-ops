@@ -402,52 +402,62 @@ if __name__ == "__main__":
     
 
     start_str, end_str = get_time_window(conn)
-    
+
 
     #start_str = "20260616T00"
     #end_str = "20260617T00"
-    
+
     if not start_str:
         print("[INFO] [AMPLITUDE] No new data ready yet. Exiting gracefully.")
         conn.close()
         exit(0)
 
-    print(f"[INFO] [AMPLITUDE] Starting daily run | range={start_str} → {end_str}")
+    # Catch-up: get_time_window gives one day at a time, so if a run failed (or the server was down) one run per day
+    # would leave the data behind forever. We process every pending day in order, each one committed with its bookmark
+    # (update_last_fetch_date), so a failure stops at that day and the next run starts from it. The HubSpot metrics
+    # (last 30 days) are synced once, at the end, with the last day processed.
+    last_start_str = None
 
     try:
         cursor = conn.cursor()
-        
-        event_batch = []
-        BATCH_SIZE = 5000
-        total_processed = 0
 
-        for event in fetch_stream_events(start_str, end_str):
-             event_batch.append(event)
-             total_processed += 1
-        #     
-             if len(event_batch) >= BATCH_SIZE:
+        while start_str:
+            print(f"[INFO] [AMPLITUDE] Starting daily run | range={start_str} → {end_str}")
+
+            event_batch = []
+            BATCH_SIZE = 5000
+            total_processed = 0
+
+            for event in fetch_stream_events(start_str, end_str):
+                 event_batch.append(event)
+                 total_processed += 1
+            #
+                 if len(event_batch) >= BATCH_SIZE:
+                     process_event_batch(event_batch, cursor)
+                     event_batch.clear()
+            #
+            if event_batch:
                  process_event_batch(event_batch, cursor)
-                 event_batch.clear()
-        # 
-        if event_batch:
-             process_event_batch(event_batch, cursor)
 
-        conn.commit()
+            conn.commit()
 
-        if total_processed > 0:
-             run_daily_aggregations(cursor, start_str, end_str)
-        # ========================================================
+            if total_processed > 0:
+                 run_daily_aggregations(cursor, start_str, end_str)
+            # ========================================================
+
+            # === 🚫 COMENTAMOS EL MARCAPÁGINAS PARA QUE NO SE MUEVA ===
+            update_last_fetch_date(conn, end_str)
+            conn.commit()
+
+            last_start_str = start_str
+            start_str, end_str = get_time_window(conn)
 
 
         # === 🚀 EJECUTAMOS DIRECTAMENTE LA LLAMADA A HUBSPOT ===
         # Le pasamos "20260616T00" para que use el día de hoy como fecha de referencia
         # y calcule los últimos 30 días hacia atrás en la base de datos.
-        sync_hubspot_metrics(cursor, start_str)
+        sync_hubspot_metrics(cursor, last_start_str)
 
-
-        # === 🚫 COMENTAMOS EL MARCAPÁGINAS PARA QUE NO SE MUEVA ===
-        update_last_fetch_date(conn, end_str) 
-        
         conn.commit()
         print("[INFO] [HUBSPOT] Manual test run completed successfully!")
 
