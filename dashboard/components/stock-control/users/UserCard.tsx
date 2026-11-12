@@ -43,10 +43,14 @@ export function UserCard({ user, onEdit, onToggleAutomation }: Props) {
   ];
 
   return (
+    // Border = automation state, same colors as the toggle button: green active, red inactive
     <div
-      className={`rounded-lg border-2 border-foreground/20 bg-card hover:border-primary/40 hover:shadow-md transition-all p-2.5 space-y-2 ${
-        active ? '' : 'opacity-60 hover:opacity-100'
+      className={`rounded-lg border-2 bg-card hover:shadow-md transition-all p-2.5 space-y-2 ${
+        active
+          ? 'border-emerald-500/50 hover:border-emerald-500'
+          : 'border-rose-500/40 hover:border-rose-500/70 opacity-60 hover:opacity-100'
       }`}
+      title={active ? 'Automatización activa' : 'Automatización inactiva'}
     >
       {/* Fila 1: Nombre + Rol + botones */}
       <div className="flex items-center gap-1.5">

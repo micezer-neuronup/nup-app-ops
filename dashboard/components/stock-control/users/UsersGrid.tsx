@@ -56,20 +56,8 @@ export function UsersGrid({ users, onEdit, onToggleAutomation }: Props) {
             </span>
           </div>
 
-          <div className="space-y-2">{g.active.map(renderCard)}</div>
-
-          {g.inactive.length > 0 && (
-            <>
-              <div className="flex items-center gap-2 pt-1">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Inactivos ({g.inactive.length})
-                </span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
-              <div className="space-y-2">{g.inactive.map(renderCard)}</div>
-            </>
-          )}
+          {/* One list: active first, inactive always at the bottom (the card border shows which is which) */}
+          <div className="space-y-2">{[...g.active, ...g.inactive].map(renderCard)}</div>
         </div>
       ))}
     </div>
