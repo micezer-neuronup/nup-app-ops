@@ -1,10 +1,12 @@
 import { SERVER_URL } from '@/lib/stock-control/constants';
 import type {
   User,
-  Lead,
   Market,
   DashboardStats,
   DashboardSettings,
+  HubspotOwner,
+  DistributionRun,
+  DistributionAssignmentItem,
 } from '@/lib/stock-control/types';
 
 const HEADERS = {
@@ -12,80 +14,83 @@ const HEADERS = {
   'ngrok-skip-browser-warning': 'true',
 };
 
+// ────── Function: request ─────────────────────────────────────────────────
+// ─── Calls the stock-control API and returns the JSON body
+// ─── Throws the API's own error message ("error" field) if the call fails
+// ──────────────────────────────────────────────────────────────────────────
+async function request<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  const r = await fetch(`${SERVER_URL}${path}`, {
+    method,
+    headers: HEADERS,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(data?.error || `Error ${r.status} en ${path}`);
+  return data as T;
+}
+
 // ─── Dashboard ─────────────────────────────────────────────
 export async function fetchDashboardStats(): Promise<DashboardStats> {
-  const r = await fetch(`${SERVER_URL}/api/stock-control`, { headers: HEADERS });
-  const d = await r.json();
-  return d.stats;
+  return (await request('/api/stock-control')).stats;
 }
 
 // ─── Global automation ─────────────────────────────────────
 export async function fetchGlobalAutomation(): Promise<boolean> {
-  const r = await fetch(`${SERVER_URL}/api/global-automation`, { headers: HEADERS });
-  const d = await r.json();
-  return d.automation_enabled;
+  return (await request('/api/global-automation')).automation_enabled;
 }
 
 export async function updateGlobalAutomation(enabled: boolean): Promise<void> {
-  await fetch(`${SERVER_URL}/api/global-automation`, {
-    method: 'PUT',
-    headers: HEADERS,
-    body: JSON.stringify({ enabled }),
-  });
+  await request('/api/global-automation', 'PUT', { enabled });
 }
 
 // ─── Markets ───────────────────────────────────────────────
 export async function fetchMarkets(): Promise<Market[]> {
-  const r = await fetch(`${SERVER_URL}/api/markets`, { headers: HEADERS });
-  return r.json();
+  return request('/api/markets');
 }
 
 export async function updateMarketAutomation(marketId: number, enabled: boolean): Promise<void> {
-  await fetch(`${SERVER_URL}/api/markets/${marketId}`, {
-    method: 'PUT',
-    headers: HEADERS,
-    body: JSON.stringify({ automation_enabled: enabled }),
-  });
+  await request(`/api/markets/${marketId}`, 'PUT', { automation_enabled: enabled });
 }
 
 // ─── Dashboard settings (auto-rotate) ──────────────────────
 export async function fetchDashboardSettings(): Promise<DashboardSettings> {
-  const r = await fetch(`${SERVER_URL}/api/dashboard-settings`, { headers: HEADERS });
-  return r.json();
+  return request('/api/dashboard-settings');
 }
 
 export async function updateDashboardSettings(
   payload: Partial<DashboardSettings>
 ): Promise<DashboardSettings> {
-  const r = await fetch(`${SERVER_URL}/api/dashboard-settings`, {
-    method: 'PUT',
-    headers: HEADERS,
-    body: JSON.stringify(payload),
-  });
-  return r.json();
+  return request('/api/dashboard-settings', 'PUT', payload);
 }
 
 // ─── Users ─────────────────────────────────────────────────
 export async function fetchUsers(): Promise<User[]> {
-  const r = await fetch(`${SERVER_URL}/api/users/`, { headers: HEADERS });
-  if (!r.ok) throw new Error('Error al conectar con la API de Flask');
-  return r.json();
+  return request('/api/users/');
 }
 
 export async function updateUser(userId: number, payload: Record<string, any>): Promise<void> {
-  const r = await fetch(`${SERVER_URL}/api/users/${userId}`, {
-    method: 'PUT',
-    headers: HEADERS,
-    body: JSON.stringify(payload),
-  });
-  if (!r.ok) throw new Error('Error al actualizar usuario');
+  await request(`/api/users/${userId}`, 'PUT', payload);
 }
 
-export async function fetchUserByName(name: string): Promise<any[]> {
-  const r = await fetch(`${SERVER_URL}/api/users/by-name/${encodeURIComponent(name)}`, {
-    headers: HEADERS,
-  });
-  return r.json();
+export async function createUser(payload: Record<string, any>): Promise<number> {
+  return (await request('/api/users/', 'POST', payload)).id;
+}
+
+export async function deleteUser(
+  userId: number,
+  payload: { deleted_by: string }
+): Promise<void> {
+  await request(`/api/users/${userId}`, 'DELETE', payload);
+}
+
+// Admins que pueden eliminar usuarios
+export async function fetchAdmins(): Promise<string[]> {
+  return request('/api/admins');
+}
+
+// ─── HubSpot owners (para crear usuarios) ──────────────────
+export async function fetchHubspotOwners(): Promise<HubspotOwner[]> {
+  return request('/api/hubspot/owners');
 }
 
 // ─── Market targets ────────────────────────────────────────
@@ -93,22 +98,18 @@ export async function updateUserMarketTargets(
   userId: number,
   targets: { market_id: number; target_percent: number }[]
 ): Promise<void> {
-  await fetch(`${SERVER_URL}/api/users/${userId}/market-targets`, {
-    method: 'PUT',
-    headers: HEADERS,
-    body: JSON.stringify({ targets }),
-  });
+  await request(`/api/users/${userId}/market-targets`, 'PUT', { targets });
 }
 
 export async function deleteUserMarketTargets(userId: number): Promise<void> {
-  await fetch(`${SERVER_URL}/api/users/${userId}/market-targets`, {
-    method: 'DELETE',
-    headers: HEADERS,
-  });
+  await request(`/api/users/${userId}/market-targets`, 'DELETE');
 }
 
-// ─── User leads ────────────────────────────────────────────
-export async function fetchUserLeads(userId: number): Promise<Lead[]> {
-  const r = await fetch(`${SERVER_URL}/api/users/${userId}/leads`, { headers: HEADERS });
-  return r.json();
+// ─── Historial de distribuciones ───────────────────────────
+export async function fetchDistributionRuns(includeEmpty = false): Promise<DistributionRun[]> {
+  return request(`/api/distribution-runs?limit=50&include_empty=${includeEmpty ? 1 : 0}`);
+}
+
+export async function fetchDistributionRun(runId: number): Promise<DistributionAssignmentItem[]> {
+  return request(`/api/distribution-runs/${runId}`);
 }

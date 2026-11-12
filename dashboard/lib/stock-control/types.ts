@@ -31,16 +31,15 @@ export interface User {
   updated_at: string | null;
 }
 
-export interface Lead {
+export interface HubspotOwner {
   id: string;
-  market_name: string;
-  status: string;
-  score: number;
-  owner_name: string;
-  lead_type: string | null;
+  name: string;
+  email: string;
 }
 
 export interface DashboardStats {
+  lastSync: string | null;
+
   // Hero
   totalLeadsVivos: number;
   leadsEnPool: number;
@@ -64,10 +63,8 @@ export interface DashboardStats {
   pipelineData: PipelineItem[];
   pipelineMM: number;
   pipelineENT: number;
-  pipelineLead: number;
   pipelineMMPct: number;
   pipelineENTPct: number;
-  pipelineLeadPct: number;
   ratioMMENT: number;
 
   // Mercados
@@ -78,6 +75,23 @@ export interface DashboardStats {
 
   // SDRs
   sdrWorkloadData: SdrWorkloadItem[];
+
+  // Leads fuera del pool
+  poolBlocked: PoolBlocked;
+  externalOwner: ExternalOwner;
+}
+
+export interface PoolBlocked {
+  total: number;
+  noMarket: number;
+  noScore: number;
+  noSegment: number;
+  notNeuronUP: number;
+}
+
+export interface ExternalOwner {
+  total: number;
+  byOwner: { ownerId: string; count: number }[];
 }
 
 export interface MarketStackedItem {
@@ -95,6 +109,7 @@ export interface MarketStackedItem {
   asigIN: number;
   asigOUT: number;
   pct: number;
+  huecos: number;
 }
 
 export interface PipelineItem {
@@ -109,7 +124,9 @@ export interface StateItem {
 }
 
 export interface SdrWorkloadItem {
+  id: number;
   name: string;
+  marketIds: number[];
   cargaNormal: number;
   sobrecarga: number;
   maxStock: number;
@@ -124,3 +141,27 @@ export interface DashboardSettings {
 }
 
 export type ViewMode = 'tabla' | 'barras' | 'inout' | 'pie';
+
+// ─── Historial de distribuciones ───────────────────────────
+export interface DistributionRun {
+  id: number;
+  startedAt: string;
+  finishedAt: string | null;
+  trigger: 'automatica' | 'manual' | 'script';
+  status: 'running' | 'ok' | 'error';
+  totalAssigned: number;
+  restarts: number;
+  note: string | null;
+  error: string | null;
+  byUser: { name: string; count: number }[];
+}
+
+export interface DistributionAssignmentItem {
+  leadId: string;
+  leadName: string | null;
+  userName: string | null;
+  marketId: number | null;
+  pipeline: string | null;
+  score: number | null;
+  assignedAt: string;
+}

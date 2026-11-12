@@ -10,6 +10,11 @@
 // ───    properties that could link
 // ───    them to a centre or a subscription (nup, stripe, zoho, subscription, center, sub_).
 // ─── 4. Records modified in the last 24 h / 7 days (size of an incremental sync by hs_lastmodifieddate).
+// ─── 5. Values of the low-cardinality text properties (categories: ≤ 15 distinct; names, emails and URLs are never printed).
+// ─── 6. Identifiers: format of invoice_id / id_factura_zoho, and whether the article's zoho_invoice_number / nup_center_id match
+// ───    the invoice it is associated with.
+// ─── 7. Articles history: per year, invoices, invoices with articles, articles, and the most used products (the catalogue
+// ───    changed in 2026, the old invoices may not have articles).
 // ─── Run (prod, real HubSpot token): docker exec server-michael node server/scripts/auditHubspotInvoices.js
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const path = require('path');
@@ -21,6 +26,8 @@ dotenv.config({ path: path.resolve(__dirname, envFile) });
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 const SAMPLE = 1000;
 const LINK_HINT = /nup|stripe|zoho|subscri|center|centro|sub_/i;
+const SENSITIVE = /customer|email|vendedor|created_by|url|comments/i;  // never print their values
+const MAX_CATEGORY_VALUES = 15;
 const INVOICE_OBJECT = { id: '2-145603246', label: 'invoices (custom)' };
 const ARTICLE_OBJECT = { id: '2-202420827', label: 'articles (custom)' };
 // Our subscription / subscription item objects (hubspotServices.js ACCOUNT_SUB_OBJECT_ID / ITEM_OBJECT_ID)
@@ -101,7 +108,14 @@ async function auditObject(obj) {
       const sorted = values.map(v => p.type === 'number' ? Number(v) : v).sort((a, b) => a > b ? 1 : -1);
       if (sorted.length) detail = `min ${sorted[0]} | max ${sorted[sorted.length - 1]}`;
     } else {
-      detail = `${new Set(values).size} distinct`;
+      const distinct = new Set(values);
+      detail = `${distinct.size} distinct`;
+      if (distinct.size > 0 && distinct.size <= MAX_CATEGORY_VALUES && !SENSITIVE.test(p.name)) {
+        const counter = {};
+        for (const v of values) counter[v] = (counter[v] || 0) + 1;
+        detail += ': ' + Object.entries(counter).sort((a, b) => b[1] - a[1])
+          .map(([k, n]) => `${String(k).slice(0, 40)}: ${n}`).join(', ');
+      }
     }
     return { p, filled: values.length, detail };
   });
@@ -114,23 +128,88 @@ async function auditObject(obj) {
   const emptyNative = rows.filter(r => r.filled === 0 && r.p.hubspotDefined).length;
   console.log(`  (+ ${emptyNative} native properties always empty in the sample, not printed)`);
 
-  return [...records.keys()];
+  return records;
 }
 
 
 // ────── 3. Associations of invoices ─────────────────────────────────────────────────────────────────────────────────────────────
-async function auditAssociations(obj, ids) {
-  const sampleIds = ids.slice(0, 100);
+async function auditAssociations(obj, records) {
+  const sampleIds = [...records.keys()].slice(0, 100);
+  const articleOf = new Map();  // invoice id → article ids
   console.log(`\n  associations of ${sampleIds.length} ${obj.label}:`);
   for (const to of ASSOCIATIONS) {
     const r = await hs(`/crm/v4/associations/${obj.id}/${to}/batch/read`, { inputs: sampleIds.map(id => ({ id })) });
     if (!r.ok && r.status !== 207) { console.log(`    → ${to}: ${r.status} ${String(r.data.message || '').slice(0, 100)}`); continue; }
     const withAny = (r.data.results || []).filter(x => (x.to || []).length > 0);
+    if (to === ARTICLE_OBJECT.id) for (const x of withAny) articleOf.set(String(x.from.id), x.to.map(t => String(t.toObjectId)));
     const counts = withAny.map(x => x.to.length);
     const labels = {};
     for (const x of withAny) for (const t of x.to) for (const a of t.associationTypes || []) labels[a.label || a.typeId] = (labels[a.label || a.typeId] || 0) + 1;
     console.log(`    → ${to}: ${withAny.length}/${sampleIds.length} have at least one` +
       (counts.length ? ` (max ${Math.max(...counts)} per record; types: ${Object.entries(labels).map(([k, n]) => `${k}: ${n}`).join(', ')})` : ''));
+  }
+
+  // ── 6. Identifiers: formats and article ↔ invoice match
+  const sampleRecords = sampleIds.map(id => records.get(id));
+  console.log(`\n  identifiers (examples): invoice_id ${sampleRecords.slice(0, 3).map(r => r.invoice_id).join(', ')} | ` +
+    `id_factura_zoho ${sampleRecords.slice(0, 3).map(r => r.id_factura_zoho).join(', ')}`);
+  const articleIds = [...new Set([...articleOf.values()].flat())];
+  const articles = new Map();
+  for (let i = 0; i < articleIds.length; i += 100) {
+    const r = await hs(`/crm/v3/objects/${ARTICLE_OBJECT.id}/batch/read`, {
+      properties: ['zoho_invoice_number', 'zoho_invoice_nup_center_id'], inputs: articleIds.slice(i, i + 100).map(id => ({ id }))
+    });
+    for (const a of r.data.results || []) articles.set(String(a.id), a.properties);
+  }
+  const match = { invoice_id: 0, id_factura_zoho: 0, none: 0, center_ok: 0, center_diff: 0 };
+  for (const [invoiceId, ids] of articleOf) {
+    const inv = records.get(invoiceId);
+    for (const aid of ids) {
+      const a = articles.get(aid);
+      if (!a) continue;
+      if (a.zoho_invoice_number && a.zoho_invoice_number === inv.invoice_id) match.invoice_id++;
+      else if (a.zoho_invoice_number && a.zoho_invoice_number === inv.id_factura_zoho) match.id_factura_zoho++;
+      else match.none++;
+      if (String(a.zoho_invoice_nup_center_id || '') === String(inv.nup_center_id || '')) match.center_ok++; else match.center_diff++;
+    }
+  }
+  console.log(`  articles of those invoices: ${articles.size} | zoho_invoice_number = invoice_id: ${match.invoice_id}, ` +
+    `= id_factura_zoho: ${match.id_factura_zoho}, matches neither: ${match.none} | ` +
+    `same nup_center_id as the invoice: ${match.center_ok}, different: ${match.center_diff}`);
+  const examples = [...articles.values()].slice(0, 3).map(a => a.zoho_invoice_number).join(', ');
+  console.log(`  article zoho_invoice_number (examples): ${examples}`);
+}
+
+
+// ────── 7. Articles history per year ────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Counts with the search total (one call per figure) and a sample of 200 articles per year for the most used products.
+// ─── Date properties are filtered with the epoch milliseconds of midnight UTC.
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+async function auditHistory() {
+  console.log(`\n================ articles history per year ================`);
+  console.log(`  year | invoices | invoices with articles (number_of_associates_zoho_articles > 0) | articles | distinct products in 200 | top products`);
+  const count = async (objectId, filters) => (await hs(`/crm/v3/objects/${objectId}/search`, { limit: 1, filterGroups: [{ filters }] })).data.total ?? '?';
+  for (let year = 2016; year <= new Date().getUTCFullYear(); year++) {
+    const from = String(Date.UTC(year, 0, 1));
+    const to = String(Date.UTC(year + 1, 0, 1));
+    const inYear = (prop) => [{ propertyName: prop, operator: 'GTE', value: from }, { propertyName: prop, operator: 'LT', value: to }];
+
+    const invoices = await count(INVOICE_OBJECT.id, inYear('zoho_invoice_created_date'));
+    const withArticles = await count(INVOICE_OBJECT.id, [...inYear('zoho_invoice_created_date'),
+      { propertyName: 'number_of_associates_zoho_articles', operator: 'GT', value: '0' }]);
+    const articles = await count(ARTICLE_OBJECT.id, inYear('zoho_invoice_created_date'));
+
+    const sample = await hs(`/crm/v3/objects/${ARTICLE_OBJECT.id}/search`, {
+      limit: 200, properties: ['item_name', 'zoho_item_id'], filterGroups: [{ filters: inYear('zoho_invoice_created_date') }]
+    });
+    const items = {};
+    const productIds = new Set();
+    for (const a of sample.data.results || []) {
+      items[a.properties.item_name || '-'] = (items[a.properties.item_name || '-'] || 0) + 1;
+      if (a.properties.zoho_item_id) productIds.add(a.properties.zoho_item_id);
+    }
+    const topItems = Object.entries(items).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${k.slice(0, 35)} (${n})`).join('; ');
+    console.log(`  ${year} | ${invoices} | ${withArticles} | ${articles} | ${productIds.size} | ${topItems || '-'}`);
   }
 }
 
@@ -140,9 +219,10 @@ async function main() {
   try {
     const objects = await discoverObjects();
     for (const obj of objects) {
-      const ids = await auditObject(obj);
-      if (ids && obj.id === INVOICE_OBJECT.id) await auditAssociations(obj, ids);
+      const records = await auditObject(obj);
+      if (records && obj.id === INVOICE_OBJECT.id) await auditAssociations(obj, records);
     }
+    if (objects.some(o => o.id === ARTICLE_OBJECT.id)) await auditHistory();
   } catch (error) {
     console.error(`Fatal error: ${error.message}`);
     process.exitCode = 1;

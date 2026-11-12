@@ -2,13 +2,21 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { DashboardHeader } from './DashboardHeader';
-import { MainMetrics } from './MainMetrics';
-import { PoolByMarket } from './PoolByMarket';
-import { AssignedByMarket } from './AssignedByMarket';
-import { StatesChart } from './StatesChart';
+import { KpiStrip } from './KpiStrip';
+import { PoolAssignedByMarket } from './PoolAssignedByMarket';
 import { SdrWorkload } from './SdrWorkload';
-import { ManageUsersCard } from './ManageUsersCard';
+import { DistributionHistoryModal } from './DistributionHistoryModal';
 import { useAutoRotate } from '@/lib/hooks/useAutoRotate';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 import {
   fetchDashboardStats,
   fetchGlobalAutomation,
@@ -17,7 +25,6 @@ import {
   updateMarketAutomation,
   fetchDashboardSettings,
   updateDashboardSettings,
-  fetchUserByName,
   updateUser,
 } from '@/lib/api/stock-control';
 import type {
@@ -27,27 +34,18 @@ import type {
   ViewMode,
 } from '@/lib/stock-control/types';
 
-const DEFAULT_MARKETS: Market[] = [
-  { id: 1, name: 'España',            flag: '🇪🇸', automation_enabled: true },
-  { id: 2, name: 'Brasil - Portugal', flag: '🇧🇷', automation_enabled: true },
-  { id: 3, name: 'Francia',           flag: '🇫🇷', automation_enabled: false },
-  { id: 4, name: 'LATAM',             flag: '🌎', automation_enabled: true },
-  { id: 5, name: 'Italia',            flag: '🇮🇹', automation_enabled: true },
-  { id: 6, name: 'USA',               flag: '🇺🇸', automation_enabled: false },
-];
-
 export default function StockControlDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [globalAutomation, setGlobalAutomation] = useState(true);
-  const [markets, setMarkets] = useState<Market[]>(DEFAULT_MARKETS);
+  const [confirmGlobalOff, setConfirmGlobalOff] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [markets, setMarkets] = useState<Market[]>([]);
 
   const [poolView, setPoolView] = useState<ViewMode>('tabla');
   const [assignedView, setAssignedView] = useState<ViewMode>('tabla');
   const [poolAutoRotate, setPoolAutoRotate] = useState(false);
   const [assignedAutoRotate, setAssignedAutoRotate] = useState(false);
-
-  const [metricsAutoRotate, setMetricsAutoRotate] = useState(false);
 
   // Rotación automática de Pool / Asignados
   useAutoRotate(poolAutoRotate, poolView, setPoolView);
@@ -86,7 +84,6 @@ export default function StockControlDashboard() {
     const s: DashboardSettings = await fetchDashboardSettings();
     setPoolAutoRotate(!!s.pool_auto_rotate);
     setAssignedAutoRotate(!!s.assigned_auto_rotate);
-    setMetricsAutoRotate(!!s.metrics_auto_rotate);   // ← nuevo
   } catch (err) {
     console.error('Error al cargar dashboard settings:', err);
   }
@@ -100,8 +97,7 @@ export default function StockControlDashboard() {
   }, []);
 
   // ── Toggles ──────────────────────────────────────────────
-  const toggleGlobalAutomation = async () => {
-    const next = !globalAutomation;
+  const setGlobal = async (next: boolean) => {
     setGlobalAutomation(next);
     try {
       await updateGlobalAutomation(next);
@@ -110,6 +106,12 @@ export default function StockControlDashboard() {
       console.error('Error:', err);
       setGlobalAutomation(!next);
     }
+  };
+
+  // Turning automation OFF asks for confirmation first; turning it ON applies directly
+  const toggleGlobalAutomation = () => {
+    if (globalAutomation) setConfirmGlobalOff(true);
+    else setGlobal(true);
   };
 
   const toggleMarketAutomation = async (marketId: number) => {
@@ -129,62 +131,46 @@ export default function StockControlDashboard() {
     }
   };
 
-  const toggleSdrAutomation = async (sdrName: string) => {
-    try {
-      const users = await fetchUserByName(sdrName);
-      if (!users || users.length === 0) return;
-      const user = users[0];
-      const next = !user.automation_enabled;
-
+  const toggleSdrAutomation = async (userId: number) => {
+    const sdr = stats?.sdrWorkloadData.find((s) => s.id === userId);
+    if (!sdr) return;
+    const next = !sdr.automation_enabled;
+    const setSdr = (value: boolean) =>
       setStats((prev) =>
         prev
           ? {
               ...prev,
-              sdrWorkloadData: prev.sdrWorkloadData.map((sdr) =>
-                sdr.name === sdrName ? { ...sdr, automation_enabled: next } : sdr
+              sdrWorkloadData: prev.sdrWorkloadData.map((s) =>
+                s.id === userId ? { ...s, automation_enabled: value } : s
               ),
             }
           : prev
       );
 
-      await updateUser(user.id, { automation_enabled: next });
-      await loadStats();
+    setSdr(next);
+    try {
+      await updateUser(userId, { automation_enabled: next });
     } catch (err) {
       console.error('Error al cambiar automatización:', err);
+      setSdr(!next);
     }
   };
 
-  const toggleAutoRotate = async (which: 'pool' | 'assigned' | 'metrics') => {
-  const isPool = which === 'pool';
-  const isMetrics = which === 'metrics';
+  const toggleAutoRotate = async (which: 'pool' | 'assigned') => {
+    const isPool = which === 'pool';
+    const current = isPool ? poolAutoRotate : assignedAutoRotate;
+    const setValue = isPool ? setPoolAutoRotate : setAssignedAutoRotate;
 
-  const current = isPool
-    ? poolAutoRotate
-    : isMetrics
-    ? metricsAutoRotate
-    : assignedAutoRotate;
-
-  const next = !current;
-
-  if (isPool) setPoolAutoRotate(next);
-  else if (isMetrics) setMetricsAutoRotate(next);
-  else setAssignedAutoRotate(next);
-
-  try {
-    const payload = isPool
-      ? { pool_auto_rotate: next }
-      : isMetrics
-      ? { metrics_auto_rotate: next }
-      : { assigned_auto_rotate: next };
-
-    await updateDashboardSettings(payload);
-  } catch (err) {
-    console.error('Error al guardar auto-rotate:', err);
-    if (isPool) setPoolAutoRotate(current);
-    else if (isMetrics) setMetricsAutoRotate(current);
-    else setAssignedAutoRotate(current);
-  }
-};
+    setValue(!current);
+    try {
+      await updateDashboardSettings(
+        isPool ? { pool_auto_rotate: !current } : { assigned_auto_rotate: !current }
+      );
+    } catch (err) {
+      console.error('Error al guardar auto-rotate:', err);
+      setValue(current);
+    }
+  };
 
   // ── Datos derivados para los componentes ────────────────
 const poolRows = useMemo(() => {
@@ -198,6 +184,7 @@ const poolRows = useMemo(() => {
     out: m.poolOUT,
     total: m.enPool,
     pct: total > 0 ? Math.round((m.enPool / total) * 100) : 0,
+    huecos: m.huecos,
   }));
 }, [stats]);
 
@@ -215,11 +202,9 @@ const assignedRows = useMemo(() => {
   }));
 }, [stats]);
 
-  const poolTotal = stats?.leadsEnPool ?? 0;
-  const assignedTotal = stats?.asignadosReales ?? 0;
 
-  // ── Loading ──────────────────────────────────────────────
-  if (loading || !stats) {
+  // ── Loading (first load only; "Recargar" keeps the page visible) ──
+  if (!stats) {
     return (
       <div className="flex flex-1 items-center justify-center min-h-screen bg-background">
         <div className="text-center">
@@ -232,8 +217,8 @@ const assignedRows = useMemo(() => {
 
   // ── Render ───────────────────────────────────────────────
   return (
-    <div className="flex flex-1 flex-col gap-5 py-5 w-full">
-      <div className="max-w-7xl mx-auto w-full px-4 md:px-6 lg:px-8">
+    <div className="flex flex-1 flex-col gap-4 py-4 w-full">
+      <div className="w-full px-6 md:px-10 lg:px-16 xl:px-20">
         <DashboardHeader
           globalAutomation={globalAutomation}
           onToggleGlobal={toggleGlobalAutomation}
@@ -241,41 +226,57 @@ const assignedRows = useMemo(() => {
           onToggleMarket={toggleMarketAutomation}
           onReload={loadStats}
           loading={loading}
+          lastSync={stats.lastSync}
+          onOpenHistory={() => setHistoryOpen(true)}
         />
       </div>
 
-      <div className="w-full px-6 md:px-10 lg:px-16 xl:px-20 pb-5 flex flex-col gap-5">
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch">
-          <MainMetrics
-  stats={stats}
-  autoRotate={metricsAutoRotate}
-  onToggleAutoRotate={() => toggleAutoRotate('metrics')}
-/>
-          <PoolByMarket
+      {historyOpen && <DistributionHistoryModal onClose={() => setHistoryOpen(false)} />}
+
+      <AlertDialog open={confirmGlobalOff} onOpenChange={setConfirmGlobalOff}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Desactivar la automatización?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se detiene la distribución en todos los mercados. No se asignarán leads hasta que la vuelvas a activar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => setGlobal(false)}>Desactivar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="w-full px-6 md:px-10 lg:px-16 xl:px-20 pb-4 flex flex-col gap-4">
+        <KpiStrip stats={stats} />
+
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+          <PoolAssignedByMarket
+            title="Pool por Mercado"
             rows={poolRows}
-            total={poolTotal}
+            showHuecos
             view={poolView}
             setView={setPoolView}
             autoRotate={poolAutoRotate}
             onToggleAutoRotate={() => toggleAutoRotate('pool')}
           />
-          <AssignedByMarket
+          <PoolAssignedByMarket
+            title="Asignados por Mercado"
             rows={assignedRows}
-            total={assignedTotal}
             view={assignedView}
             setView={setAssignedView}
             autoRotate={assignedAutoRotate}
             onToggleAutoRotate={() => toggleAutoRotate('assigned')}
           />
-          <StatesChart stateData={stats.stateData} />
         </section>
 
-        <section className="grid grid-cols-1 sm:grid-cols-4 gap-5">
+        <section>
           <SdrWorkload
             sdrData={stats.sdrWorkloadData}
+            markets={markets}
             onToggleAutomation={toggleSdrAutomation}
           />
-          <ManageUsersCard />
         </section>
       </div>
     </div>

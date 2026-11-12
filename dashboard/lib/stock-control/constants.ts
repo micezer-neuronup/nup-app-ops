@@ -12,14 +12,6 @@ export const MARKET_LIST = [
 export const MARKET_BY_ID = Object.fromEntries(MARKET_LIST.map(m => [m.id, m]));
 export const MARKET_BY_NAME = Object.fromEntries(MARKET_LIST.map(m => [m.name, m]));
 
-export const STATE_FULL_MAP: Record<string, string> = {
-  'New':   'New',
-  'Att.':  'Attempting',
-  'Cont.': 'Contacted',
-  'Qual.': 'Qualified',
-  'Disq.': 'Disqualified',
-};
-
 export const CHART_COLORS = {
   primary:   '#64748b',
   secondary: '#94a3b8',

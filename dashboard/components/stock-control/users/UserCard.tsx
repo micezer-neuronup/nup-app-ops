@@ -1,144 +1,105 @@
 'use client';
 
-import { CustomTooltip } from '@/components/stock-control/shared/Tooltips';
+import { Pencil, RefreshCw } from 'lucide-react';
 import type { User } from '@/lib/stock-control/types';
 
 interface Props {
   user: User;
-  tooltipId: string | null;
-  setTooltipId: (id: string | null) => void;
   onEdit: (user: User) => void;
   onToggleAutomation: (userId: number) => void;
 }
 
-export function UserCard({
-  user,
-  tooltipId,
-  setTooltipId,
-  onEdit,
-  onToggleAutomation,
-}: Props) {
-  const carga = Math.round((user.current_stock / Math.max(user.max_stock, 1)) * 100);
-  const isOverloaded = carga > 100;
+export function UserCard({ user, onEdit, onToggleAutomation }: Props) {
+  const max = Math.max(user.max_stock, 1);
+  const load = user.current_stock / max;
+  const active = user.automation_enabled;
+  const hasTarget = user.target_e_percent !== null && user.target_e_percent !== undefined;
 
-  const dotColor = isOverloaded
-    ? '#f43f5e'
-    : carga > 80
-    ? '#f59e0b'
-    : carga > 50
-    ? '#3b82f6'
-    : '#10b981';
+  // Same color scale as "Carga por SDR": green, amber > 80%, red if overloaded
+  const barColor = !active
+    ? 'bg-muted-foreground/40'
+    : load > 1
+    ? 'bg-rose-500'
+    : load > 0.8
+    ? 'bg-amber-500'
+    : 'bg-emerald-500';
 
-  const badges = [
-    { key: 'in',  label: `IN ${user.inbound_count}`,  tooltip: 'Inbound',     value: user.inbound_count },
-    { key: 'out', label: `OUT ${user.outbound_count}`, tooltip: 'Outbound',    value: user.outbound_count },
-    { key: 'mm',  label: `MM ${user.mm_percent}%`,    tooltip: 'Mid-Market',  value: user.mm_percent },
-    { key: 'e',   label: `ENT ${user.e_percent}%`,    tooltip: 'Enterprise',  value: user.e_percent },
+  const stats = [
+    { label: 'IN',  value: `${user.inbound_count}`,  hint: `${user.inbound_count} leads inbound` },
+    { label: 'OUT', value: `${user.outbound_count}`, hint: `${user.outbound_count} leads outbound` },
+    {
+      label: 'MM',
+      value: `${user.mm_percent}%`,
+      hint: `${user.mm_count} leads Mid-Market · ${user.mm_percent}% de su stock`,
+    },
+    {
+      label: 'ENT',
+      value: `${user.e_percent}%`,
+      sub: hasTarget ? `obj. ${user.target_e_percent}%` : 'obj. —',
+      hint: `${user.ent_count} leads Enterprise · ${user.e_percent}% de su stock · ${
+        hasTarget ? `objetivo ${user.target_e_percent}%` : 'sin objetivo ENT'
+      }`,
+    },
   ];
 
   return (
-    <div className="rounded-lg border-2 border-foreground/20 bg-card hover:border-primary/40 hover:shadow-md transition-all group overflow-visible p-2 space-y-1.5">
-      {/* Fila 1: Nombre + Rol + Objetivo ENT */}
-      <div className="flex items-center gap-1">
-        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: dotColor }} />
-        <p className="text-xs font-bold truncate">{user.owner_name}</p>
+    <div
+      className={`rounded-lg border-2 border-foreground/20 bg-card hover:border-primary/40 hover:shadow-md transition-all p-2.5 space-y-2 ${
+        active ? '' : 'opacity-60 hover:opacity-100'
+      }`}
+    >
+      {/* Fila 1: Nombre + Rol + botones */}
+      <div className="flex items-center gap-1.5">
+        <p className="text-xs font-bold truncate min-w-0" title={user.owner_name}>{user.owner_name}</p>
         <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-muted text-foreground border border-border shrink-0">
           {user.role}
         </span>
-
-        <div
-          className="relative inline-flex shrink-0 ml-auto"
-          onMouseEnter={() => setTooltipId(`${user.id}-target-e`)}
-          onMouseLeave={() => setTooltipId(null)}
-        >
-          <span className="text-[9px] font-medium text-foreground cursor-help whitespace-nowrap">
-            {user.target_e_percent === null || user.target_e_percent === undefined
-              ? 'X'
-              : `ENT ${user.target_e_percent}%`}
-          </span>
-          {tooltipId === `${user.id}-target-e` && (
-            <div className="absolute right-full top-1/2 -translate-y-1/2 mr-2 z-50">
-              <CustomTooltip
-                active={true}
-                payload={[{
-                  name: 'Enterprise',
-                  value:
-                    user.target_e_percent === null || user.target_e_percent === undefined
-                      ? 'No aplica'
-                      : user.target_e_percent,
-                  color: '#64748b',
-                }]}
-                label={`${user.owner_name} - Objetivo`}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Fila 2: Stock + botones */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[9px] text-muted-foreground font-medium shrink-0">Stock</span>
-        <div className="flex-1 h-1.5 bg-muted/70 rounded-full overflow-hidden">
-          <div className="h-full flex rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500 transition-all" style={{ width: `${Math.min(carga, 100)}%` }} />
-            {isOverloaded && <div className="h-full bg-rose-500" style={{ width: `${carga - 100}%` }} />}
-          </div>
-        </div>
-        <span className={`text-[9px] font-bold shrink-0 ${isOverloaded ? 'text-rose-500' : 'text-foreground'}`}>
-          {user.current_stock}/{user.max_stock}
-        </span>
-
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="ml-auto flex items-center gap-1 shrink-0">
           <button
             onClick={() => onEdit(user)}
-            className="shrink-0 p-1 rounded-full border transition-all bg-blue-500/15 border-blue-500/40 text-blue-600 hover:bg-blue-500/25"
+            className="p-1 rounded-full border transition-all bg-blue-500/15 border-blue-500/40 text-blue-600 hover:bg-blue-500/25"
             title="Editar usuario"
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
+            <Pencil className="w-3 h-3" />
           </button>
           <button
             onClick={() => onToggleAutomation(user.id)}
-            className={`shrink-0 p-1 rounded-full border transition-all ${
-              user.automation_enabled
+            className={`p-1 rounded-full border transition-all ${
+              active
                 ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-500'
                 : 'bg-rose-500/10 border-rose-500/40 text-rose-500'
             }`}
-            title={user.automation_enabled ? 'Autom. ON' : 'Autom. OFF'}
+            title={active ? 'Autom. ON - Click para desactivar' : 'Autom. OFF - Click para activar'}
           >
-            <svg
-              className={`w-3 h-3 transition-transform ${user.automation_enabled ? 'animate-spin' : ''}`}
-              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+            <RefreshCw className={`w-3 h-3 ${active ? 'animate-spin' : ''}`} strokeWidth={2.5} />
           </button>
         </div>
       </div>
 
-      {/* Fila 3: Badges */}
-      <div className="flex items-center gap-1">
-        <span className="text-[8px] text-muted-foreground font-semibold uppercase tracking-wider shrink-0">Actual:</span>
-        {badges.map((b) => (
-          <div
-            key={b.key}
-            className="relative inline-flex shrink-0 min-w-0 flex-1"
-            onMouseEnter={() => setTooltipId(`${user.id}-current-${b.key}`)}
-            onMouseLeave={() => setTooltipId(null)}
-          >
-            <span className="w-full text-center text-[9px] px-1 py-0.5 rounded-full font-medium bg-muted text-foreground border border-border cursor-help whitespace-nowrap">
-              {b.label}
-            </span>
-            {tooltipId === `${user.id}-current-${b.key}` && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50">
-                <CustomTooltip
-                  active={true}
-                  payload={[{ name: b.tooltip, value: b.value, color: '#64748b' }]}
-                  label={`${user.owner_name} - ${b.tooltip}`}
-                />
-              </div>
-            )}
+      {/* Fila 2: Stock */}
+      <div className="flex items-center gap-2" title={`Stock: ${user.current_stock} de ${user.max_stock}`}>
+        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+          <div className={`h-full ${barColor} transition-all`} style={{ width: `${Math.min(load, 1) * 100}%` }} />
+        </div>
+        <span className={`text-[11px] font-bold tabular-nums shrink-0 ${load > 1 ? 'text-rose-500' : 'text-foreground'}`}>
+          {user.current_stock}
+          <span className="font-normal text-muted-foreground">/{user.max_stock}</span>
+        </span>
+      </div>
+
+      {/* Fila 3: IN / OUT / MM / ENT (ENT con su objetivo debajo) */}
+      <div className="grid grid-cols-[1fr_1fr_1fr_1.5fr] divide-x divide-border rounded-md bg-muted/40 py-1">
+        {stats.map((s) => (
+          <div key={s.label} className="group/stat relative min-w-0 text-center px-1 cursor-help">
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{s.label}</p>
+            <p className="text-xs font-bold tabular-nums text-foreground">{s.value}</p>
+            {s.sub && <p className="text-[10px] font-semibold text-foreground/70 whitespace-nowrap">{s.sub}</p>}
+
+            <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 hidden w-max max-w-[13rem] -translate-x-1/2 rounded-md border border-border bg-card px-2.5 py-1.5 text-left text-[11px] text-foreground shadow-md group-hover/stat:block">
+              <span className="font-semibold">{user.owner_name}</span>
+              <br />
+              {s.hint}
+            </div>
           </div>
         ))}
       </div>
