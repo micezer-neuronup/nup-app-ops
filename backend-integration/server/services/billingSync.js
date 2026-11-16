@@ -241,10 +241,12 @@ async function searchPage(objectId, properties, lastId, sinceMs) {
 async function fetchAll(spec, sinceMs) {
   const records = [];
   let lastId = '0';
-  while (true) {
+  for (let pages = 1; ; pages++) {
     const page = await searchPage(spec.hubspotId, spec.properties, lastId, sinceMs);
     records.push(...page);
     if (page.length < PAGE_SIZE) break;
+    // Progress: the read of a big object takes minutes and nothing else is logged until it ends
+    if (pages % 100 === 0) log('INFO', 'BILLING-SYNC', `${spec.object}: ${records.length} records read from HubSpot...`);
     lastId = page[page.length - 1].id;
     await delay(250);
   }
