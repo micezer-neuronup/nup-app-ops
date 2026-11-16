@@ -1,5 +1,5 @@
 -- ────── michael_db: full schema ─────────────────────────────────────────────────────────────────────────────────────────────────────
--- ── The whole structure of the database as it is after migrations 001-008 (taken from the prod pg_dump of 07/11/2026 plus the
+-- ── The whole structure of the database as it is after migrations 001-009 (taken from the prod pg_dump of 07/11/2026 plus the
 -- ──   migrations applied since). It is only for a NEW, empty database: an existing one is updated with db/migrations/.
 -- ── Run: psql -U michael -d michael_db -f backend-integration/server/db/schema.sql
 -- ── When a migration changes the structure, update this file in the same change, so both stay the same.
@@ -9,10 +9,11 @@ BEGIN;
 CREATE SCHEMA IF NOT EXISTS core;
 CREATE SCHEMA IF NOT EXISTS analytics;
 CREATE SCHEMA IF NOT EXISTS opportunities;
+CREATE SCHEMA IF NOT EXISTS billing;
 
 DO $$
 BEGIN
-  EXECUTE format('ALTER DATABASE %I SET search_path = core, analytics, opportunities, public', current_database());
+  EXECUTE format('ALTER DATABASE %I SET search_path = core, analytics, opportunities, billing, public', current_database());
 END $$;
 
 
@@ -208,5 +209,99 @@ CREATE TABLE opportunities.opportunity_detections (
 );
 CREATE INDEX idx_opportunity_detections_detected_at ON opportunities.opportunity_detections (detected_at DESC);
 CREATE INDEX idx_opportunity_detections_opportunity_id ON opportunities.opportunity_detections (opportunity_id);
+
+
+-- ────── billing: Zoho invoices and articles, copied from HubSpot (services/billingSync.js) ─────────────────────────────────────────
+
+-- One row per Zoho invoice (id_factura_zoho). invoice_number = invoice_id (INV-…), not unique (Academy is another Zoho organisation)
+CREATE TABLE billing.invoices (
+  zoho_invoice_id           varchar(50) PRIMARY KEY,
+  invoice_number            varchar(50),
+  hubspot_object_id         bigint NOT NULL,
+  nup_center_id             varchar(50),
+  sociedad                  varchar(100),
+  status                    varchar(20),
+  status_raw                varchar(50),
+  invoice_date              date,
+  currency                  varchar(10),
+  amount                    numeric,
+  amount_eur                numeric,
+  exchange_rate             numeric,
+  credit_note_amount_eur    numeric,
+  credit_note_date          date,
+  category                  varchar(100),
+  invoice_group             varchar(10),
+  sales_channel             varchar(50),
+  product_type              varchar(50),
+  payment_method            varchar(50),
+  preceding_zoho_invoice_id varchar(50),
+  hubspot_deal_id           varchar(50),
+  hubspot_updated_at        timestamptz,
+  hubspot_deleted_at        timestamptz,
+  created_at                timestamptz NOT NULL DEFAULT NOW(),
+  updated_at                timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_invoices_invoice_number ON billing.invoices (invoice_number);
+CREATE INDEX idx_invoices_nup_center_id ON billing.invoices (nup_center_id);
+CREATE INDEX idx_invoices_invoice_date ON billing.invoices (invoice_date);
+CREATE INDEX idx_invoices_status ON billing.invoices (status);
+CREATE INDEX idx_invoices_hubspot_object_id ON billing.invoices (hubspot_object_id);
+
+-- One row per invoice line (zoho_line_item_id). Belongs to the invoice with the same invoice_number; its centre comes from the invoice
+CREATE TABLE billing.invoice_items (
+  zoho_line_item_id   varchar(50) PRIMARY KEY,
+  hubspot_object_id   bigint NOT NULL,
+  invoice_number      varchar(50),
+  zoho_item_id        varchar(50),
+  item_name           varchar(255),
+  item_description    text,
+  custom_item         varchar(255),
+  product_kind        varchar(20),
+  item_type           varchar(20),
+  quantity            numeric,
+  price               numeric,
+  discount_pct        numeric,
+  discount_amount     numeric,
+  tax_name            varchar(50),
+  tax_pct             numeric,
+  tax_amount          numeric,
+  total               numeric,
+  total_eur           numeric,
+  currency            varchar(10),
+  invoice_date        date,
+  service_start       date,
+  service_end         date,
+  hubspot_updated_at  timestamptz,
+  hubspot_deleted_at  timestamptz,
+  created_at          timestamptz NOT NULL DEFAULT NOW(),
+  updated_at          timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_invoice_items_invoice_number ON billing.invoice_items (invoice_number);
+CREATE INDEX idx_invoice_items_zoho_item_id ON billing.invoice_items (zoho_item_id);
+CREATE INDEX idx_invoice_items_service_end ON billing.invoice_items (service_end);
+CREATE INDEX idx_invoice_items_hubspot_object_id ON billing.invoice_items (hubspot_object_id);
+
+-- One row per Zoho product. name / first_seen / last_seen / items_count from the sync; family, catalogue, billing_period, notes by hand
+CREATE TABLE billing.products (
+  zoho_item_id    varchar(50) PRIMARY KEY,
+  name            varchar(255),
+  first_seen      date,
+  last_seen       date,
+  items_count     integer NOT NULL DEFAULT 0,
+  family          varchar(100),
+  catalogue       varchar(20) CHECK (catalogue IN ('legacy', '2026')),
+  billing_period  varchar(20),
+  notes           text,
+  created_at      timestamptz NOT NULL DEFAULT NOW(),
+  updated_at      timestamptz NOT NULL DEFAULT NOW()
+);
+
+-- Watermark of the incremental sync per HubSpot object
+CREATE TABLE billing.sync_state (
+  object            varchar(30) PRIMARY KEY,
+  last_modified_at  timestamptz,
+  last_run_at       timestamptz,
+  last_full_run_at  timestamptz
+);
 
 COMMIT;

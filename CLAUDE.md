@@ -46,10 +46,11 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
 ### Docker
 `docker compose up -d --build server-michael` (o `dashboard-michael`) desde la raíz.
 - Los `.env.*` y `docker-compose*.yml` están en `.gitignore`.
-- **Base de datos (`michael_db`)**, tres esquemas (migración 008); el `search_path` de la BD es `core, analytics, opportunities, public`, así que el código no cualifica los nombres (las consultas nuevas pueden hacerlo):
+- **Base de datos (`michael_db`)**, cuatro esquemas (migraciones 008 y 009); el `search_path` de la BD es `core, analytics, opportunities, billing, public`, así que el código no cualifica los nombres (las consultas nuevas pueden hacerlo):
   - `core`: `centers`, `subscriptions`, `subscription_items`, `subscription_events`.
   - `analytics`: `events`, `daily_stats`, `feature_requests`, `fetch_metadata`.
   - `opportunities`: `commercial_opportunity`, `opportunity_detections`.
+  - `billing`: `invoices`, `invoice_items`, `products`, `sync_state` (facturas de Zoho copiadas de HubSpot; ver Flujo de datos).
   - `backend-integration/server/db/schema.sql`: la estructura completa, para crear una BD vacía. Si una migración cambia la estructura, actualizarlo en el mismo cambio.
   - Tras cambiar el `search_path` o mover tablas, reiniciar el servidor: el pool de pg conserva conexiones con el anterior.
 - Las migraciones SQL (`backend-integration/server/db/migrations/`) se aplican a mano con `psql`. No hay un runner de migraciones. La cabecera de cada una dice si va antes o después del rebuild (p. ej. 004 antes, 005 justo después).
@@ -71,8 +72,9 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
    | 03:00 diario | `services/stripeCatchup.js`: reprocesa las suscripciones con eventos de Stripe de las últimas 26 h (el webhook responde 200 antes de procesar y Stripe no reintenta). Manual: `server/scripts/stripeCatchup.js [horas]` |
    | 05:00 diario | `services/centersSync.js`: tabla `centers` desde HubSpot (empresas con `nup_center_id`) + IDs de Stripe/Zoho de la Ops API. Manual: `server/scripts/syncCenters.js` |
    | Domingo 04:00 | `server/scripts/reconcileHubspotStatuses.js --apply`: la BD es la fuente de verdad; las suscripciones de HubSpot que no coinciden (estado, isforever, fechas) y las vivas que faltan pasan a `PENDING`. Sin `--apply` es un dry run |
+   | 01:30 diario | `services/billingSync.js`: facturas y artículos de Zoho desde HubSpot al esquema `billing`. Incremental por `hs_lastmodifieddate`; los domingos completo (marca `hubspot_deleted_at`). Manual: `server/scripts/syncBilling.js [--full]` |
 
-   El cron de Zoho está desactivado.
+   El cron de Zoho (script de Python) está desactivado.
 2. **Suscripciones**:
    - Llegan por el webhook de Stripe `POST /apiwebhooks/stripe`, que usa `express.raw` y verifica la firma. Responde 200 antes de procesar.
    - Las procesan `services/subscriptionServices.js` y `db/dbSubscriptions.js`, y se sincronizan con HubSpot (`services/hubspotServices.js`).
@@ -82,7 +84,12 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
    - **Manuales** (`scripts/fullBackfillManual.js`): `start_date` = `createdAt` de la Ops API. Solo reescribe y marca `PENDING` para HubSpot cuando algo cambia. `revoked_access_date` vacío (la Ops API aún no da la fecha de fin real).
    - **Manual → Stripe**: la Ops API cambia el `kind` del mismo registro. `closeMigratedManualSubs` rellena `migrated_to_subscription_id` (la de Stripe, que lleva el id manual en `backend_subscription_id`) y cierra la manual si seguía viva.
    - `hubspot_subscription_id` / `hubspot_item_id`: record ID de HubSpot, guardado por `saveHubspotIds` tras el sync.
-   - Campos de facturas y dinero (`pending_payment`, `last_invoice_*`, `number_of_renovations`, `unit_price`) vendrán de Zoho; no se tocan hasta entonces.
+   - Campos de facturas y dinero (`pending_payment`, `last_invoice_*`, `number_of_renovations`, `unit_price`) vendrán de Zoho (esquema `billing`); no se tocan hasta decidir cómo derivarlos (`db/audits/2026-11_billing_checks.sql`).
+   - **Facturación (`billing`, migración 009)**: Zoho envía facturas y artículos a HubSpot (objetos `2-145603246` y `2-202420827`) y `services/billingSync.js` los copia.
+     - Claves: factura = `id_factura_zoho`; artículo = `zoho_line_item_id`. Un artículo pertenece a la factura cuyo `invoice_number` (`INV-…`) es su `zoho_invoice_number`; el centro sale de la factura (JOIN).
+     - `status` normalizado (`paid`, `sent`, `overdue`…) y `status_raw` tal cual. Solo se escribe lo que cambia (Zoho/HubSpot tocan registros sin cambiarlos).
+     - `products`: una fila por `zoho_item_id`; `family`, `catalogue` (`legacy`/`2026`), `billing_period` y `notes` se rellenan a mano y el sync no los toca. Identificar productos por `zoho_item_id`, no por nombre.
+     - No se guardan los campos de empresa copiados en la factura (`company_*`, segmento, mercado): están en `centers`.
    - **`centers`** (migración 006): una fila por centro. El universo son las empresas de HubSpot con `nup_center_id` numérico (no todas tienen suscripción).
      - De HubSpot: `hubspot_company_id` (la empresa que TIENE el `nup_center_id`), `name`, `commercial_name`, `segment` (se va rellenando; null si vacío), `market`, `currency` (mayúsculas).
      - De la Ops API: `stripe_customer_id`, `zoho_contact_id`. Su `hubspotCompanyId` no se usa: tras un merge en HubSpot guarda el id de la empresa que desapareció.

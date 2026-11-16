@@ -231,4 +231,7 @@ async function main() {
   }
 }
 
-main();
+// Run directly; auditHubspotCreditNotes.js reuses hs and auditObject
+if (require.main === module) main();
+
+module.exports = { hs, auditObject, SENSITIVE };

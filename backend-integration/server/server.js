@@ -40,6 +40,7 @@ const { processSubscriptionUpsert,
 
 const { runStripeCatchup } = require('./services/stripeCatchup');
 const { runCentersSync } = require('./services/centersSync');
+const { runBillingSync } = require('./services/billingSync');
 
 const { syncSingleSubscriptionToHubspot, 
         resolveCompanyData, 
@@ -711,6 +712,29 @@ cron.schedule('0 4 * * 0', () => {
   child.on('close', (code) => {
     log(code === 0 ? "INFO" : "WARN", "CRON-RECONCILE", `HubSpot reconciliation exited with code ${code}`);
   });
+});
+
+
+// ────── Cron job: Billing sync ─────────────────────────────────────────────────────────────────────────
+// ─── Runs every day at 01:30. Zoho invoices and articles from HubSpot into the billing schema (services/billingSync.js).
+// ─── Incremental (records modified since the last good run); on Sundays full, which also marks the records deleted in HubSpot.
+// ─── Manual run: node server/scripts/syncBilling.js [--full]
+// ───────────────────────────────────────────────────────────────────────────
+let isBillingSyncRunning = false;
+
+cron.schedule('30 1 * * *', async () => {
+  if (isBillingSyncRunning) {
+    log("WARN", "CRON", "Previous billing sync is still running. Skipping.");
+    return;
+  }
+  isBillingSyncRunning = true;
+  try {
+    await runBillingSync({ full: new Date().getDay() === 0 });
+  } catch (error) {
+    log("ERROR", "CRON", `Billing sync failed: ${error.message}`);
+  } finally {
+    isBillingSyncRunning = false;
+  }
 });
 
 // ────── Cron job: update invoices from Zoho ──────────────────────────────
