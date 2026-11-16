@@ -9,8 +9,9 @@
 -- ── family: platform (NeuronUP plans, any module / tier) | neuronup2go | addon (extra professionals, Pro features, student and
 -- ──   teacher access) | onboarding | legacy_licence (*Cuota Mantenimiento, *Licencia…) | academy | event | stimulus | hardware | services.
 -- ── catalogue (only platform, neuronup2go, addon, onboarding): '2026' if first seen from 01/11/2025 (new catalogue), else 'legacy'.
--- ── billing_period: one_off for academy / event / hardware / services / onboarding; else from the name (Anual / Mensual); else from
--- ──   the data: most lines 'Puntual' → one_off, usual service length 11-13 months → annual, 1 month → monthly.
+-- ── billing_period: one_off for academy / event / hardware / services / onboarding; else from the name (Anual / Mensual; NeuronUP2GO
+-- ──   packs annual); else from the data: most lines 'Puntual' → one_off, usual service length 11-13 months → annual, 1 month → monthly.
+-- ── Preview of 16/11/2026: the 113 products matched a rule.
 -- ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 \pset pager off
 BEGIN;
@@ -47,6 +48,7 @@ mapping AS (
          CASE WHEN f.family IN ('academy', 'event', 'hardware', 'services', 'onboarding') THEN 'one_off'
               WHEN f.name ~* 'anual|annual'          THEN 'annual'
               WHEN f.name ~* 'mensual|monthly'       THEN 'monthly'
+              WHEN f.family = 'neuronup2go' AND f.name ~* 'pack' THEN 'annual'   -- access packs: 12 months of validity (Pack 50 has no dates)
               WHEN s.one_off_share > 0.5             THEN 'one_off'
               WHEN s.months BETWEEN 11 AND 13        THEN 'annual'
               WHEN s.months = 1                      THEN 'monthly'
