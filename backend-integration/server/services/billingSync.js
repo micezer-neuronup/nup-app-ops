@@ -1,7 +1,8 @@
-// ────── Billing: Zoho invoices and articles from HubSpot ───────────────────────────────────────────────────────────────────────────────
-// ─── Zoho sends every invoice and its articles to HubSpot (custom objects, kept updated with webhooks); this copies them into the
-// ─── billing schema (migration 009). Used by the daily cron in server.js and by scripts/syncBilling.js (manual run).
-// ─── 1. Invoices, then articles: HubSpot search paged by hs_object_id (keyset, 200 per page: the search stops at 10k per query).
+// ────── Billing: Zoho invoices, credit notes and their articles from HubSpot ───────────────────────────────────────────────────────────
+// ─── Zoho sends every invoice, credit note and their articles to HubSpot (custom objects, kept updated with webhooks); this copies
+// ─── them into the billing schema (migration 009). Used by the daily cron in server.js and by scripts/syncBilling.js (manual run).
+// ─── 1. Invoices, articles, credit notes, credit note articles: HubSpot search paged by hs_object_id (keyset, 200 per page: the search
+// ───    stops at 10k per query). Each object on its own: if one fails the others still run, and the run ends with an error.
 // ───    Incremental: only records with hs_lastmodifieddate ≥ the watermark of the last good run (billing.sync_state) minus OVERLAP.
 // ───    Full (--full, Sundays, or no watermark yet): every record, and the rows no longer in HubSpot get hubspot_deleted_at.
 // ───    If HubSpot fails the object stops, nothing is written for it and the watermark doesn't move (the next run catches up).
@@ -9,6 +10,8 @@
 // ───    HubSpot (two records with the same Zoho id): the most recently modified wins, and they are counted in the log.
 // ─── 3. upsertBillingRows (db/dbBilling.js): only writes what changed. Then products is refreshed from the articles.
 // ─── An article belongs to the invoice whose invoice_number equals its zoho_invoice_number; the centre comes from the invoice.
+// ─── A credit note belongs to the invoice with its invoice_number; a credit note article to the credit note with its credit_note_number,
+// ─── and invoice_line_item_id is the invoice line it refunds.
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const { upsertBillingRows, markBillingDeleted, countBillingRows, refreshProducts,
         getSyncState, saveSyncState } = require('../db/dbBilling');
@@ -131,6 +134,82 @@ const ARTICLES = {
 };
 
 
+const CREDIT_NOTES = {
+  object: 'credit_notes',
+  hubspotId: '2-199692678',
+  table: 'billing.credit_notes',
+  key: 'zoho_credit_note_id',
+  properties: ['creditnote_zoho_id', 'id', 'invoice_number', 'invoice_id', 'nup_center_id', 'sociedad', 'status', 'date', 'issued_date',
+               'currency_code', 'sub_total', 'amount_a_eur', 'exchange_rate', 'total_refunded_amount', 'is_cancellation_invoice', 'type',
+               'tipo_de_abono', 'canal_comercial', 'hs_lastmodifieddate'],
+  columns: [
+    { name: 'zoho_credit_note_id', type: 'text' }, { name: 'credit_note_number', type: 'text' }, { name: 'hubspot_object_id', type: 'bigint' },
+    { name: 'invoice_number', type: 'text' }, { name: 'zoho_invoice_id', type: 'text' }, { name: 'nup_center_id', type: 'text' },
+    { name: 'sociedad', type: 'text' }, { name: 'status', type: 'text' }, { name: 'credit_note_date', type: 'date' },
+    { name: 'issued_date', type: 'date' }, { name: 'currency', type: 'text' }, { name: 'sub_total', type: 'numeric' },
+    { name: 'amount_eur', type: 'numeric' }, { name: 'exchange_rate', type: 'numeric' }, { name: 'total_refunded_amount', type: 'numeric' },
+    { name: 'is_cancellation', type: 'boolean' }, { name: 'type', type: 'text' }, { name: 'credit_type', type: 'text' },
+    { name: 'sales_channel', type: 'text' }, { name: 'hubspot_updated_at', type: 'timestamptz' },
+  ],
+  map: (id, p) => ({
+    zoho_credit_note_id: text(p.creditnote_zoho_id),
+    credit_note_number: text(p.id),
+    hubspot_object_id: id,
+    invoice_number: text(p.invoice_number),
+    zoho_invoice_id: text(p.invoice_id),
+    nup_center_id: text(p.nup_center_id),
+    sociedad: text(p.sociedad),
+    status: text(p.status)?.toLowerCase() || null,   // closed, open, void, draft
+    credit_note_date: date(p.date),
+    issued_date: date(p.issued_date),
+    currency: text(p.currency_code)?.toUpperCase() || null,
+    sub_total: num(p.sub_total),
+    amount_eur: num(p.amount_a_eur),
+    exchange_rate: num(p.exchange_rate),
+    total_refunded_amount: num(p.total_refunded_amount),
+    is_cancellation: text(p.is_cancellation_invoice) == null ? null : text(p.is_cancellation_invoice).toLowerCase() === 'true',
+    type: text(p.type),
+    credit_type: text(p.tipo_de_abono),
+    sales_channel: text(p.canal_comercial),
+    hubspot_updated_at: text(p.hs_lastmodifieddate),
+  }),
+};
+
+const CREDIT_ARTICLES = {
+  object: 'credit_note_articles',
+  hubspotId: '2-202874136',
+  table: 'billing.credit_note_items',
+  key: 'zoho_line_item_id',
+  properties: ['id', 'creditnote_number', 'invoice_item_id', 'zoho_item_id', 'item_name', 'item_description', 'quantity', 'item_price',
+               'tax_name', 'item_total', 'item_total_eur', 'currency_code', 'exchange_rate', 'zoho_cn_date', 'hs_lastmodifieddate'],
+  columns: [
+    { name: 'zoho_line_item_id', type: 'text' }, { name: 'hubspot_object_id', type: 'bigint' }, { name: 'credit_note_number', type: 'text' },
+    { name: 'invoice_line_item_id', type: 'text' }, { name: 'zoho_item_id', type: 'text' }, { name: 'item_name', type: 'text' },
+    { name: 'item_description', type: 'text' }, { name: 'quantity', type: 'numeric' }, { name: 'price', type: 'numeric' },
+    { name: 'tax_name', type: 'text' }, { name: 'total', type: 'numeric' }, { name: 'total_eur', type: 'numeric' },
+    { name: 'currency', type: 'text' }, { name: 'exchange_rate', type: 'numeric' }, { name: 'credit_note_date', type: 'date' },
+    { name: 'hubspot_updated_at', type: 'timestamptz' },
+  ],
+  map: (id, p) => ({
+    zoho_line_item_id: text(p.id),
+    hubspot_object_id: id,
+    credit_note_number: text(p.creditnote_number),
+    invoice_line_item_id: text(p.invoice_item_id),
+    zoho_item_id: text(p.zoho_item_id),
+    item_name: text(p.item_name),
+    item_description: text(p.item_description),
+    quantity: num(p.quantity),
+    price: num(p.item_price),
+    tax_name: text(p.tax_name),
+    total: num(p.item_total),
+    total_eur: num(p.item_total_eur),
+    currency: text(p.currency_code)?.toUpperCase() || null,
+    exchange_rate: num(p.exchange_rate),
+    credit_note_date: date(p.zoho_cn_date),
+    hubspot_updated_at: text(p.hs_lastmodifieddate),
+  }),
+};
+
 // ────── HubSpot search (keyset by hs_object_id) ───────────────────────────────────────────────────────────────────────────────────
 // ─── Search limit ~5 requests per second: 250 ms between pages. 429 / 5xx are retried up to 4 times (5 s, 10 s, 15 s, 20 s).
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -200,7 +279,12 @@ async function syncObject(spec, { full }) {
   }
   const rows = [...byKey.values()];
 
-  const changed = await upsertBillingRows(spec.table, spec.key, spec.columns, rows);
+  let changed;
+  try {
+    changed = await upsertBillingRows(spec.table, spec.key, spec.columns, rows);
+  } catch (error) {
+    throw new Error(`writing ${spec.table} (nothing written for it): ${error.message}`);
+  }
 
   // Deletions: only on a full run, and only if HubSpot gave a plausible amount of records
   let deleted = 0;
@@ -232,11 +316,21 @@ async function syncObject(spec, { full }) {
 
 async function runBillingSync({ full = false } = {}) {
   log('INFO', 'BILLING-SYNC', `Starting billing sync (${full ? 'full' : 'incremental'})...`);
-  const invoices = await syncObject(INVOICES, { full });
-  const articles = await syncObject(ARTICLES, { full });
-  const products = await refreshProducts();
-  log('INFO', 'BILLING-SYNC', `Done. Products inserted or changed: ${products}`);
-  return { invoices, articles, products };
+  const result = {};
+  const failed = [];
+  for (const spec of [INVOICES, ARTICLES, CREDIT_NOTES, CREDIT_ARTICLES]) {
+    try {
+      result[spec.object] = await syncObject(spec, { full });
+    } catch (error) {
+      failed.push(spec.object);
+      log('ERROR', 'BILLING-SYNC', `${spec.object}: ${error.message}`);
+    }
+  }
+  result.products = await refreshProducts();
+  log('INFO', 'BILLING-SYNC', `Done. Products inserted or changed: ${result.products}` +
+    (failed.length ? ` | FAILED (watermark not moved, the next run retries): ${failed.join(', ')}` : ''));
+  if (failed.length) throw new Error(`billing sync failed for ${failed.join(', ')}`);
+  return result;
 }
 
 module.exports = { runBillingSync };

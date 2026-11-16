@@ -1,11 +1,16 @@
--- ────── billing: Zoho invoices and articles (from HubSpot) ───────────────────────────────────────────────────────────────────────
+-- ────── billing: Zoho invoices, credit notes and their articles (from HubSpot) ─────────────────────────────────────────────────────
 -- ── Runs BEFORE rebuilding the server (only adds a schema and tables; the new code fills them).
--- ── Zoho sends every invoice and its articles to HubSpot (custom objects 2-145603246 and 2-202420827, kept updated with webhooks).
+-- ── Zoho sends every invoice, credit note and their articles to HubSpot (custom objects, kept updated with webhooks).
 -- ──   services/billingSync.js copies them here (daily cron; full on Sundays; by hand: server/scripts/syncBilling.js [--full]).
--- ── Keys (audit of 12/11/2026): invoice = id_factura_zoho (Zoho id); article = zoho_line_item_id. An article belongs to the invoice
--- ──   whose invoice_id (INV-…) equals its zoho_invoice_number (114/114 in the audit), so no HubSpot associations are needed.
+-- ── Keys and links (audits of 12/11 and 16/11/2026):
+-- ──   invoice = id_factura_zoho; article = zoho_line_item_id; article.zoho_invoice_number = invoice.invoice_id (114/114).
+-- ──   credit note = creditnote_zoho_id; credit_note.invoice_number = invoice.invoice_id (100/100, one invoice per credit note).
+-- ──   credit note article = id; its creditnote_number = credit note id (CN…) and its invoice_item_id = the invoice LINE it refunds.
 -- ──   The centre of an article is the one of its invoice (JOIN): the article's own nup_center_id is ~90 % filled.
--- ── invoice_number is not unique: Academy (another Zoho organisation) could repeat numbers. Checked in db/audits/2026-11_billing_checks.sql.
+-- ── Amounts: invoice amount = Σ article item_total (before tax; tax only in article tax_amount, to confirm with
+-- ──   db/audits/2026-11_billing_checks.sql). Credit notes have no tax: sub_total = Σ item_total; amount_eur = Σ item_total_eur.
+-- ── invoice_number is not unique: Academy (another Zoho organisation) could repeat numbers. Checked in the billing checks.
+-- ── Text columns are text (no length limit): Zoho values vary (lists of ids, free text) and a too long value stops the whole sync.
 -- ── products: one row per zoho_item_id. name / first_seen / last_seen / items_count are refreshed by the sync; family, catalogue,
 -- ──   billing_period and notes are filled by hand (old products vs the 2026 catalogue) and the sync never touches them.
 -- ── hubspot_deleted_at: set by the full sync when a record is no longer in HubSpot; cleared if it comes back.
@@ -16,27 +21,27 @@ BEGIN;
 CREATE SCHEMA IF NOT EXISTS billing;
 
 CREATE TABLE IF NOT EXISTS billing.invoices (
-  zoho_invoice_id           varchar(50) PRIMARY KEY,
-  invoice_number            varchar(50),
+  zoho_invoice_id           text PRIMARY KEY,
+  invoice_number            text,
   hubspot_object_id         bigint NOT NULL,
-  nup_center_id             varchar(50),
-  sociedad                  varchar(100),
-  status                    varchar(20),
-  status_raw                varchar(50),
+  nup_center_id             text,
+  sociedad                  text,
+  status                    text,
+  status_raw                text,
   invoice_date              date,
-  currency                  varchar(10),
+  currency                  text,
   amount                    numeric,
   amount_eur                numeric,
   exchange_rate             numeric,
   credit_note_amount_eur    numeric,
   credit_note_date          date,
-  category                  varchar(100),
-  invoice_group             varchar(10),
-  sales_channel             varchar(50),
-  product_type              varchar(50),
-  payment_method            varchar(50),
-  preceding_zoho_invoice_id varchar(50),
-  hubspot_deal_id           varchar(50),
+  category                  text,
+  invoice_group             text,
+  sales_channel             text,
+  product_type              text,
+  payment_method            text,
+  preceding_zoho_invoice_id text,
+  hubspot_deal_id           text,
   hubspot_updated_at        timestamptz,
   hubspot_deleted_at        timestamptz,
   created_at                timestamptz NOT NULL DEFAULT NOW(),
@@ -49,25 +54,25 @@ CREATE INDEX IF NOT EXISTS idx_invoices_status ON billing.invoices (status);
 CREATE INDEX IF NOT EXISTS idx_invoices_hubspot_object_id ON billing.invoices (hubspot_object_id);
 
 CREATE TABLE IF NOT EXISTS billing.invoice_items (
-  zoho_line_item_id   varchar(50) PRIMARY KEY,
+  zoho_line_item_id   text PRIMARY KEY,
   hubspot_object_id   bigint NOT NULL,
-  invoice_number      varchar(50),
-  zoho_item_id        varchar(50),
-  item_name           varchar(255),
+  invoice_number      text,
+  zoho_item_id        text,
+  item_name           text,
   item_description    text,
-  custom_item         varchar(255),
-  product_kind        varchar(20),
-  item_type           varchar(20),
+  custom_item         text,
+  product_kind        text,
+  item_type           text,
   quantity            numeric,
   price               numeric,
   discount_pct        numeric,
   discount_amount     numeric,
-  tax_name            varchar(50),
+  tax_name            text,
   tax_pct             numeric,
   tax_amount          numeric,
   total               numeric,
   total_eur           numeric,
-  currency            varchar(10),
+  currency            text,
   invoice_date        date,
   service_start       date,
   service_end         date,
@@ -81,15 +86,70 @@ CREATE INDEX IF NOT EXISTS idx_invoice_items_zoho_item_id ON billing.invoice_ite
 CREATE INDEX IF NOT EXISTS idx_invoice_items_service_end ON billing.invoice_items (service_end);
 CREATE INDEX IF NOT EXISTS idx_invoice_items_hubspot_object_id ON billing.invoice_items (hubspot_object_id);
 
+CREATE TABLE IF NOT EXISTS billing.credit_notes (
+  zoho_credit_note_id     text PRIMARY KEY,
+  credit_note_number      text,
+  hubspot_object_id       bigint NOT NULL,
+  invoice_number          text,
+  zoho_invoice_id         text,
+  nup_center_id           text,
+  sociedad                text,
+  status                  text,
+  credit_note_date        date,
+  issued_date             date,
+  currency                text,
+  sub_total               numeric,
+  amount_eur              numeric,
+  exchange_rate           numeric,
+  total_refunded_amount   numeric,
+  is_cancellation         boolean,
+  type                    text,
+  credit_type             text,
+  sales_channel           text,
+  hubspot_updated_at      timestamptz,
+  hubspot_deleted_at      timestamptz,
+  created_at              timestamptz NOT NULL DEFAULT NOW(),
+  updated_at              timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_credit_notes_credit_note_number ON billing.credit_notes (credit_note_number);
+CREATE INDEX IF NOT EXISTS idx_credit_notes_invoice_number ON billing.credit_notes (invoice_number);
+CREATE INDEX IF NOT EXISTS idx_credit_notes_nup_center_id ON billing.credit_notes (nup_center_id);
+CREATE INDEX IF NOT EXISTS idx_credit_notes_hubspot_object_id ON billing.credit_notes (hubspot_object_id);
+
+CREATE TABLE IF NOT EXISTS billing.credit_note_items (
+  zoho_line_item_id       text PRIMARY KEY,
+  hubspot_object_id       bigint NOT NULL,
+  credit_note_number      text,
+  invoice_line_item_id    text,
+  zoho_item_id            text,
+  item_name               text,
+  item_description        text,
+  quantity                numeric,
+  price                   numeric,
+  tax_name                text,
+  total                   numeric,
+  total_eur               numeric,
+  currency                text,
+  exchange_rate           numeric,
+  credit_note_date        date,
+  hubspot_updated_at      timestamptz,
+  hubspot_deleted_at      timestamptz,
+  created_at              timestamptz NOT NULL DEFAULT NOW(),
+  updated_at              timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_credit_note_items_credit_note_number ON billing.credit_note_items (credit_note_number);
+CREATE INDEX IF NOT EXISTS idx_credit_note_items_invoice_line_item_id ON billing.credit_note_items (invoice_line_item_id);
+CREATE INDEX IF NOT EXISTS idx_credit_note_items_hubspot_object_id ON billing.credit_note_items (hubspot_object_id);
+
 CREATE TABLE IF NOT EXISTS billing.products (
-  zoho_item_id    varchar(50) PRIMARY KEY,
-  name            varchar(255),
+  zoho_item_id    text PRIMARY KEY,
+  name            text,
   first_seen      date,
   last_seen       date,
   items_count     integer NOT NULL DEFAULT 0,
-  family          varchar(100),
-  catalogue       varchar(20) CHECK (catalogue IN ('legacy', '2026')),
-  billing_period  varchar(20),
+  family          text,
+  catalogue       text CHECK (catalogue IN ('legacy', '2026')),
+  billing_period  text,
   notes           text,
   created_at      timestamptz NOT NULL DEFAULT NOW(),
   updated_at      timestamptz NOT NULL DEFAULT NOW()
@@ -97,7 +157,7 @@ CREATE TABLE IF NOT EXISTS billing.products (
 
 -- Watermark of the incremental sync: the latest hs_lastmodifieddate of a run that finished well, per HubSpot object
 CREATE TABLE IF NOT EXISTS billing.sync_state (
-  object            varchar(30) PRIMARY KEY,
+  object            text PRIMARY KEY,
   last_modified_at  timestamptz,
   last_run_at       timestamptz,
   last_full_run_at  timestamptz

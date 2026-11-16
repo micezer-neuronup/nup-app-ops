@@ -3,7 +3,7 @@
 -- ── Run: psql -U michael -d michael_db -f backend-integration/server/db/audits/2026-11_billing_checks.sql
 -- ── 1. Volumes. 2. Keys and links invoice ↔ articles. 3. Does amount include taxes? 4. Invoice dates.
 -- ── 5. Service dates (end of manual subscriptions?). 6. Categories (renewals?). 7. Products (mapping old vs 2026 catalogue).
--- ── 8. Live subscriptions vs invoices.
+-- ── 8. Live subscriptions vs invoices. 9. Credit notes: links, amounts, and net invoiced per year.
 -- ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 \pset pager off
 
@@ -32,6 +32,7 @@ SELECT COUNT(*) AS invoices_without_articles
 FROM billing.invoices i WHERE NOT EXISTS (SELECT 1 FROM billing.invoice_items a WHERE a.invoice_number = i.invoice_number);
 
 \echo '── 3. Does amount include taxes? (sum of the articles total, with and without tax_amount, against amount; 1 cent tolerance)'
+\echo '      The 16/11 example (2026-00008791) says no: amount 873.60 = item_total, tax_amount 183.46 apart'
 WITH t AS (
   SELECT i.zoho_invoice_id, EXTRACT(YEAR FROM i.invoice_date)::int AS year, i.amount,
          SUM(a.total) AS items_total, SUM(a.total + COALESCE(a.tax_amount, 0)) AS items_total_tax
@@ -78,3 +79,52 @@ SELECT s.source, COUNT(DISTINCT s.nup_center_id) AS live_centres,
 FROM core.subscriptions s
 WHERE s.current_state IN ('active', 'past_due', 'trial') AND s.nup_center_id IS NOT NULL
 GROUP BY 1;
+
+\echo '── 9. Credit notes'
+SELECT COUNT(*) AS credit_notes, COUNT(*) FILTER (WHERE hubspot_deleted_at IS NOT NULL) AS deleted,
+       COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM billing.invoices i WHERE i.invoice_number = cn.invoice_number)) AS invoice_not_found,
+       COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM billing.credit_note_items x WHERE x.credit_note_number = cn.credit_note_number)) AS without_articles,
+       MIN(credit_note_date), MAX(credit_note_date)
+FROM billing.credit_notes cn;
+SELECT status, type, credit_type, is_cancellation, COUNT(*) FROM billing.credit_notes GROUP BY 1, 2, 3, 4 ORDER BY 5 DESC;
+SELECT COUNT(*) AS cn_articles,
+       COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM billing.credit_notes cn WHERE cn.credit_note_number = x.credit_note_number)) AS credit_note_not_found,
+       COUNT(*) FILTER (WHERE x.invoice_line_item_id IS NOT NULL
+                          AND NOT EXISTS (SELECT 1 FROM billing.invoice_items a WHERE a.zoho_line_item_id = x.invoice_line_item_id)) AS invoice_line_not_found,
+       COUNT(*) FILTER (WHERE x.zoho_item_id IS DISTINCT FROM (SELECT a.zoho_item_id FROM billing.invoice_items a
+                                                                WHERE a.zoho_line_item_id = x.invoice_line_item_id)) AS different_product_than_the_line
+FROM billing.credit_note_items x;
+
+-- credit note sub_total / amount_eur = Σ its articles (1 cent)
+WITH t AS (
+  SELECT cn.credit_note_number, cn.sub_total, cn.amount_eur, SUM(x.total) AS items_total, SUM(x.total_eur) AS items_total_eur
+  FROM billing.credit_notes cn JOIN billing.credit_note_items x ON x.credit_note_number = cn.credit_note_number
+  GROUP BY 1, 2, 3
+)
+SELECT COUNT(*) AS credit_notes_with_articles,
+       COUNT(*) FILTER (WHERE ABS(sub_total - items_total) <= 0.01) AS sub_total_ok,
+       COUNT(*) FILTER (WHERE ABS(amount_eur - items_total_eur) <= 0.01) AS amount_eur_ok
+FROM t;
+
+-- invoice credit_note_amount_eur = Σ amount_eur of its credit notes (void and draft left out)
+WITH c AS (
+  SELECT invoice_number, SUM(amount_eur) AS cn_eur, COUNT(*) AS n
+  FROM billing.credit_notes WHERE status NOT IN ('void', 'draft') AND hubspot_deleted_at IS NULL GROUP BY 1
+)
+SELECT COUNT(*) AS invoices_with_credit_notes, COUNT(*) FILTER (WHERE c.n > 1) AS with_several,
+       COUNT(*) FILTER (WHERE ABS(COALESCE(i.credit_note_amount_eur, 0) - c.cn_eur) <= 0.01) AS field_ok,
+       COUNT(*) FILTER (WHERE i.credit_note_amount_eur IS NULL) AS field_empty,
+       COUNT(*) FILTER (WHERE c.cn_eur >= i.amount_eur - 0.01) AS fully_credited,
+       string_agg(DISTINCT i.status_raw, ', ') AS invoice_statuses
+FROM c JOIN billing.invoices i ON i.invoice_number = c.invoice_number;
+
+-- Net invoiced per year (EUR, before tax): invoices (not void / cancelled / draft) minus their credit notes
+SELECT EXTRACT(YEAR FROM i.invoice_date)::int AS year, COUNT(*) AS invoices,
+       ROUND(SUM(i.amount_eur)) AS invoiced_eur,
+       ROUND(SUM(COALESCE(c.cn_eur, 0))) AS credited_eur,
+       ROUND(SUM(i.amount_eur - COALESCE(c.cn_eur, 0))) AS net_eur
+FROM billing.invoices i
+LEFT JOIN (SELECT invoice_number, SUM(amount_eur) AS cn_eur FROM billing.credit_notes
+           WHERE status NOT IN ('void', 'draft') AND hubspot_deleted_at IS NULL GROUP BY 1) c ON c.invoice_number = i.invoice_number
+WHERE i.status NOT IN ('void', 'cancelled', 'draft') AND i.hubspot_deleted_at IS NULL
+GROUP BY 1 ORDER BY 1;
