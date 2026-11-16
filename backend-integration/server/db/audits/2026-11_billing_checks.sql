@@ -71,14 +71,16 @@ SELECT category, COUNT(*) FROM billing.invoices GROUP BY 1 ORDER BY 2 DESC;
 \echo '── 7. Products (for the old vs 2026 mapping)'
 SELECT zoho_item_id, name, first_seen, last_seen, items_count FROM billing.products ORDER BY last_seen DESC, items_count DESC;
 
-\echo '── 8. Live subscriptions vs invoices of the last 13 months (by source)'
-SELECT s.source, COUNT(DISTINCT s.nup_center_id) AS live_centres,
+\echo '── 8. Live subscriptions vs invoices of the last 13 months (by source and state; trials have no invoices)'
+SELECT s.source, s.current_state, COUNT(DISTINCT s.nup_center_id) AS live_centres,
        COUNT(DISTINCT s.nup_center_id) FILTER (WHERE EXISTS (
          SELECT 1 FROM billing.invoices i WHERE i.nup_center_id = s.nup_center_id
-           AND i.invoice_date >= CURRENT_DATE - INTERVAL '13 months' AND i.hubspot_deleted_at IS NULL)) AS with_recent_invoice
+           AND i.invoice_date >= CURRENT_DATE - INTERVAL '13 months' AND i.hubspot_deleted_at IS NULL)) AS with_recent_invoice,
+       COUNT(DISTINCT s.nup_center_id) FILTER (WHERE EXISTS (
+         SELECT 1 FROM billing.invoices i WHERE i.nup_center_id = s.nup_center_id AND i.hubspot_deleted_at IS NULL)) AS with_any_invoice
 FROM core.subscriptions s
 WHERE s.current_state IN ('active', 'past_due', 'trial') AND s.nup_center_id IS NOT NULL
-GROUP BY 1;
+GROUP BY 1, 2 ORDER BY 1, 2;
 
 \echo '── 9. Credit notes'
 SELECT COUNT(*) AS credit_notes, COUNT(*) FILTER (WHERE hubspot_deleted_at IS NOT NULL) AS deleted,
