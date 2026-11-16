@@ -1,5 +1,5 @@
 -- ────── michael_db: full schema ─────────────────────────────────────────────────────────────────────────────────────────────────────
--- ── The whole structure of the database as it is after migrations 001-010 (taken from the prod pg_dump of 07/11/2026 plus the
+-- ── The whole structure of the database as it is after migrations 001-011 (taken from the prod pg_dump of 07/11/2026 plus the
 -- ──   migrations applied since). It is only for a NEW, empty database: an existing one is updated with db/migrations/.
 -- ── Run: psql -U michael -d michael_db -f backend-integration/server/db/schema.sql
 -- ── When a migration changes the structure, update this file in the same change, so both stay the same.
@@ -357,8 +357,8 @@ CREATE TABLE billing.sync_state (
 );
 
 
--- Billing state of each centre (migration 010; columns and rules described there)
-CREATE OR REPLACE VIEW billing.center_billing AS
+-- Billing state of each centre (migrations 010 and 011; columns and rules described there)
+CREATE VIEW billing.center_billing AS
 WITH credited AS (
   SELECT invoice_number, SUM(amount_eur) AS credited_eur
   FROM billing.credit_notes
@@ -411,9 +411,12 @@ last_products AS (
   GROUP BY 1
 ),
 service AS (
-  SELECT nup_center_id, MAX(service_end) AS paid_until
-  FROM lines
-  WHERE product_kind = 'Recurrente' AND service_end <= invoice_date_of_invoice + INTERVAL '3 years'
+  SELECT l.nup_center_id,
+         MAX(l.service_end) AS paid_until,
+         MAX(l.service_end) FILTER (WHERE p.family IN ('platform', 'legacy_licence')) AS paid_until_platform
+  FROM lines l
+  LEFT JOIN billing.products p USING (zoho_item_id)
+  WHERE l.product_kind = 'Recurrente' AND l.service_end <= l.invoice_date_of_invoice + INTERVAL '3 years'
   GROUP BY 1
 ),
 universe AS (
@@ -437,10 +440,12 @@ SELECT u.nup_center_id,
        COALESCE(a.overdue_invoices, 0) AS overdue_invoices,
        COALESCE(a.pending_invoices, 0) > 0 AS pending_payment,
        s.paid_until,
+       s.paid_until_platform,
        CASE WHEN a.nup_center_id IS NULL THEN 'no_invoice'
-            WHEN s.paid_until IS NULL THEN 'no_service_dates'
-            WHEN s.paid_until >= CURRENT_DATE THEN 'up_to_date'
-            WHEN s.paid_until >= CURRENT_DATE - 30 THEN 'renewal_due'
+            WHEN s.paid_until_platform IS NULL AND s.paid_until IS NOT NULL THEN 'no_platform'
+            WHEN s.paid_until_platform IS NULL THEN 'no_service_dates'
+            WHEN s.paid_until_platform >= CURRENT_DATE THEN 'up_to_date'
+            WHEN s.paid_until_platform >= CURRENT_DATE - 30 THEN 'renewal_due'
             ELSE 'expired' END AS billing_status
 FROM universe u
 LEFT JOIN invoice_agg a USING (nup_center_id)
