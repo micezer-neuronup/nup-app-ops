@@ -8,14 +8,16 @@
 -- ──   the same product has a different id in each one, so the rules go by name and catch every organisation.
 -- ── family: platform (NeuronUP plans, any module / tier) | neuronup2go | addon (extra professionals, Pro features, student and
 -- ──   teacher access) | onboarding | legacy_licence (*Cuota Mantenimiento, *Licencia…) | academy | event | stimulus | hardware | services.
--- ── catalogue (only platform, neuronup2go, addon, onboarding): '2026' if first seen from 01/11/2025 (new catalogue), else 'legacy'.
+-- ── catalogue (only platform, neuronup2go, addon, onboarding): '2026' if first seen from 01/10/2025 (new catalogue), else 'legacy'.
+-- ──   The Zoho export of 17/11/2026 shows two waves of the new catalogue: Pro / STARTER / ENTERPRISE / Assessment Starter (Oct 2025 -
+-- ──   Feb 2026) and Basic / Pro / Professional Pro of Rehab, Assessment and NeuronUP2GO tiers (Aug - Oct 2026); both are '2026'.
 -- ── billing_period: one_off for academy / event / hardware / services / onboarding; else from the name (Anual / Mensual); NeuronUP2GO
 -- ──   units (Acceso NeuronUP2GO, packs, usos) on_demand: 1 unit = one patient-month of online sessions, bought when they run out
 -- ──   (their service dates are a validity, not a renewal); the 2026 NeuronUP2GO plans (Micro, Essential... Mensual / Anual) keep
 -- ──   their period; else from the data: most lines 'Puntual' → one_off, usual service length 11-13 months → annual, 1 month → monthly.
 -- ── Preview of 16/11/2026: the 113 products matched a rule.
--- ── To confirm with sales / finance (kept as they are until then): NeuronUP Assessment Starter (first seen 01/10/2025) is 'legacy'
--- ──   by the date cut-off; the 'Pantalla (+ Soporte) y Suscripción digital' bundles are hardware / one_off, not a platform plan.
+-- ── Checked with the Zoho export of 17/11/2026 (NeuronUP S.L.): NeuronUP Assessment Starter is of the first wave of the new catalogue
+-- ──   ('2026'); the 'Pantalla (+ Soporte) y Suscripción digital' bundles include the digital activities and are a Base plan ('platform').
 -- ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 \pset pager off
 BEGIN;
@@ -34,6 +36,7 @@ families AS (
            WHEN p.zoho_item_id LIKE '960878%' OR p.name ~* '^(Curso|Especialista|Experto|Máster|CU EXPERTO|Prácticas)' THEN 'academy'
            WHEN p.name ~* 'Hub|Evento|Ponencia|Conferencia'               THEN 'event'
            WHEN p.name ~* 'Stimulus'                                      THEN 'stimulus'
+           WHEN p.name ~* 'Suscripci[oó]n digital'                        THEN 'platform'   -- screen + digital activities: a Base plan in Zoho
            WHEN p.name ~* 'Tablet|Pantalla'                               THEN 'hardware'
            WHEN p.name ~* 'Auditor'                                       THEN 'services'
            WHEN p.name ~* 'Onboarding'                                    THEN 'onboarding'
@@ -47,7 +50,7 @@ families AS (
 mapping AS (
   SELECT f.zoho_item_id, f.family,
          CASE WHEN f.family IN ('platform', 'neuronup2go', 'addon', 'onboarding')
-              THEN CASE WHEN f.first_seen >= DATE '2025-11-01' THEN '2026' ELSE 'legacy' END
+              THEN CASE WHEN f.first_seen >= DATE '2025-10-01' THEN '2026' ELSE 'legacy' END
          END AS catalogue,
          CASE WHEN f.family IN ('academy', 'event', 'hardware', 'services', 'onboarding') THEN 'one_off'
               WHEN f.name ~* 'anual|annual'          THEN 'annual'
