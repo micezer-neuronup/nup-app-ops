@@ -9,9 +9,13 @@
 -- ── family: platform (NeuronUP plans, any module / tier) | neuronup2go | addon (extra professionals, Pro features, student and
 -- ──   teacher access) | onboarding | legacy_licence (*Cuota Mantenimiento, *Licencia…) | academy | event | stimulus | hardware | services.
 -- ── catalogue (only platform, neuronup2go, addon, onboarding): '2026' if first seen from 01/11/2025 (new catalogue), else 'legacy'.
--- ── billing_period: one_off for academy / event / hardware / services / onboarding; else from the name (Anual / Mensual; NeuronUP2GO
--- ──   packs annual); else from the data: most lines 'Puntual' → one_off, usual service length 11-13 months → annual, 1 month → monthly.
+-- ── billing_period: one_off for academy / event / hardware / services / onboarding; else from the name (Anual / Mensual); NeuronUP2GO
+-- ──   units (Acceso NeuronUP2GO, packs, usos) on_demand: 1 unit = one patient-month of online sessions, bought when they run out
+-- ──   (their service dates are a validity, not a renewal); the 2026 NeuronUP2GO plans (Micro, Essential... Mensual / Anual) keep
+-- ──   their period; else from the data: most lines 'Puntual' → one_off, usual service length 11-13 months → annual, 1 month → monthly.
 -- ── Preview of 16/11/2026: the 113 products matched a rule.
+-- ── To confirm with sales / finance (kept as they are until then): NeuronUP Assessment Starter (first seen 01/10/2025) is 'legacy'
+-- ──   by the date cut-off; the 'Pantalla (+ Soporte) y Suscripción digital' bundles are hardware / one_off, not a platform plan.
 -- ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 \pset pager off
 BEGIN;
@@ -48,7 +52,7 @@ mapping AS (
          CASE WHEN f.family IN ('academy', 'event', 'hardware', 'services', 'onboarding') THEN 'one_off'
               WHEN f.name ~* 'anual|annual'          THEN 'annual'
               WHEN f.name ~* 'mensual|monthly'       THEN 'monthly'
-              WHEN f.family = 'neuronup2go' AND f.name ~* 'pack' THEN 'annual'   -- access packs: 12 months of validity (Pack 50 has no dates)
+              WHEN f.family = 'neuronup2go' AND f.name ~* 'acceso|pack|usos' THEN 'on_demand'   -- units bought on demand (1 = one patient-month of online sessions)
               WHEN s.one_off_share > 0.5             THEN 'one_off'
               WHEN s.months BETWEEN 11 AND 13        THEN 'annual'
               WHEN s.months = 1                      THEN 'monthly'
