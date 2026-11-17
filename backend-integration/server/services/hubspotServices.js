@@ -4,6 +4,7 @@ const { log } = require("../utils/logger");
 const { getCache, setCache } = require('../redisClient');
 const { saveHubspotIds } = require('../db/dbSubscriptions');
 const { getCenterHubspotCompanyId } = require('../db/dbCenters');
+const { subscriptionBillingProperties } = require('./hubspotBillingProps');
 
 
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
@@ -215,7 +216,9 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
         ...(mapped ? { source: mapped } : {}),
         start_date: formatHsDate(sub.start_date),
         precancelled_date: formatHsDate(sub.precancelled_date || sub.precanceled_date), 
-        subscription_finish_date: formatHsDate(sub.cancelation_date)
+        subscription_finish_date: formatHsDate(sub.cancelation_date),
+        // Billing of the centre from the Zoho invoices (migration 012); nothing if not filled yet
+        ...subscriptionBillingProperties(sub)
       }
     }];
 
@@ -262,7 +265,7 @@ async function syncSingleSubscriptionToHubspot(subscriptionId) {
             current_period_end: formatHsDate(item.current_period_end),
             isforever: sub.is_forever ? "true" : "false",
             features: featuresText,
-            number_of_renovations: item.number_of_renovations || 0,
+            number_of_renovations: sub.number_of_renovations ?? item.number_of_renovations ?? 0,   // renewals of the centre (invoices)
             product_name: item.product_name || "",
             stripe_product_id: item.product_id || "", 
             subscription_id: item.subscription_id,

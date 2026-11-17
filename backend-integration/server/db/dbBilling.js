@@ -99,4 +99,53 @@ async function saveSyncState(object, lastModifiedAt, full) {
   );
 }
 
-module.exports = { upsertBillingRows, markBillingDeleted, countBillingRows, refreshProducts, getSyncState, saveSyncState };
+// ────── Query: Billing of the centre into its live subscriptions ──────────────────────────────────────────────────────────────────────
+// ─── The only writer of the money fields of core.subscriptions (migration 012). Called after each billing sync (services/billingSync.js)
+// ─── and by scripts/applyBillingToSubscriptions.js. Values of billing.center_billing (facts of the centre) copied to every LIVE
+// ─── subscription of the centre (active, past_due, trial); subscriptions that are not live keep their last value.
+// ─── Only writes when something changed (IS DISTINCT FROM); then the subscription goes back to 'PENDING' for HubSpot.
+// ─── dryRun: nothing written, returns how many would change and up to 10 examples (current vs new).
+// ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+const LIVE_STATES = `('active', 'past_due', 'trial')`;
+const BILLING_FIELDS = `
+  SELECT s.subscription_id,
+         cb.pending_payment, cb.last_invoice_date, cb.last_invoice_eur AS last_invoice_amount, cb.last_invoice_status,
+         cb.renewals_count AS number_of_renovations, cb.paid_until_platform AS paid_until, cb.billing_status
+  FROM core.subscriptions s
+  JOIN billing.center_billing cb ON cb.nup_center_id = s.nup_center_id
+  WHERE s.current_state IN ${LIVE_STATES}`;
+const CURRENT = `(s.pending_payment, s.last_invoice_date, s.last_invoice_amount, s.last_invoice_status,
+                  s.number_of_renovations, s.paid_until, s.billing_status)`;
+const NEW = `(n.pending_payment, n.last_invoice_date, n.last_invoice_amount, n.last_invoice_status,
+              n.number_of_renovations, n.paid_until, n.billing_status)`;
+
+async function applyBillingToSubscriptions({ dryRun = false } = {}) {
+  if (dryRun) {
+    const { rows } = await pool.query(`
+      SELECT s.subscription_id, s.source, s.nup_center_id,
+             ${CURRENT}::text AS current_values, ${NEW}::text AS new_values
+      FROM core.subscriptions s JOIN (${BILLING_FIELDS}) n USING (subscription_id)
+      WHERE ${CURRENT} IS DISTINCT FROM ${NEW}
+      ORDER BY s.source, s.nup_center_id`);
+    return { changed: rows.length, examples: rows.slice(0, 10) };
+  }
+
+  const result = await pool.query(`
+    UPDATE core.subscriptions s SET
+      pending_payment = n.pending_payment,
+      last_invoice_date = n.last_invoice_date,
+      last_invoice_amount = n.last_invoice_amount,
+      last_invoice_status = n.last_invoice_status,
+      number_of_renovations = n.number_of_renovations,
+      paid_until = n.paid_until,
+      billing_status = n.billing_status,
+      hubspot_sync_status = 'PENDING',
+      updated_at = NOW()
+    FROM (${BILLING_FIELDS}) n
+    WHERE s.subscription_id = n.subscription_id
+      AND ${CURRENT} IS DISTINCT FROM ${NEW}`);
+  return { changed: result.rowCount };
+}
+
+module.exports = { upsertBillingRows, markBillingDeleted, countBillingRows, refreshProducts, getSyncState, saveSyncState,
+                   applyBillingToSubscriptions };

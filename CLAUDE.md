@@ -72,7 +72,7 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
    | 03:00 diario | `services/stripeCatchup.js`: reprocesa las suscripciones con eventos de Stripe de las últimas 26 h (el webhook responde 200 antes de procesar y Stripe no reintenta). Manual: `server/scripts/stripeCatchup.js [horas]` |
    | 05:00 diario | `services/centersSync.js`: tabla `centers` desde HubSpot (empresas con `nup_center_id`) + IDs de Stripe/Zoho de la Ops API. Manual: `server/scripts/syncCenters.js` |
    | Domingo 04:00 | `server/scripts/reconcileHubspotStatuses.js --apply`: la BD es la fuente de verdad; las suscripciones de HubSpot que no coinciden (estado, isforever, fechas) y las vivas que faltan pasan a `PENDING`. Sin `--apply` es un dry run |
-   | 01:30 diario | `services/billingSync.js`: facturas, abonos y sus artículos de Zoho desde HubSpot al esquema `billing`. Incremental por `hs_lastmodifieddate`; los domingos completo (marca `hubspot_deleted_at`). Manual: `server/scripts/syncBilling.js [--full]` |
+   | 01:30, 07:30, 13:30 y 19:30 | `services/billingSync.js`: facturas, abonos y sus artículos de Zoho desde HubSpot al esquema `billing`, y después `applyBillingToSubscriptions` (facturación del centro a sus suscripciones vivas). Incremental por `hs_lastmodifieddate`; el del domingo a la 01:30 es completo (marca `hubspot_deleted_at`). Manual: `server/scripts/syncBilling.js [--full]` y `server/scripts/applyBillingToSubscriptions.js [--dry-run]` |
 
    El cron de Zoho (script de Python) está desactivado.
 2. **Suscripciones**:
@@ -84,7 +84,14 @@ DB_HOST=localhost ../venv/bin/python sessions/sessions_detector.py --dry-run    
    - **Manuales** (`scripts/fullBackfillManual.js`): `start_date` = `createdAt` de la Ops API. Solo reescribe y marca `PENDING` para HubSpot cuando algo cambia. `revoked_access_date` vacío (la Ops API aún no da la fecha de fin real).
    - **Manual → Stripe**: la Ops API cambia el `kind` del mismo registro. `closeMigratedManualSubs` rellena `migrated_to_subscription_id` (la de Stripe, que lleva el id manual en `backend_subscription_id`) y cierra la manual si seguía viva.
    - `hubspot_subscription_id` / `hubspot_item_id`: record ID de HubSpot, guardado por `saveHubspotIds` tras el sync.
-   - Campos de facturas y dinero (`pending_payment`, `last_invoice_*`, `number_of_renovations`, `unit_price`) vendrán de Zoho (esquema `billing`); no se tocan hasta decidir cómo derivarlos (`db/audits/2026-11_billing_checks.sql`).
+   - **Campos de dinero de `subscriptions`** (migración 012): `pending_payment`, `last_invoice_date`, `last_invoice_amount` (EUR sin IVA), `last_invoice_status`, `number_of_renovations`, `paid_until` y `billing_status`.
+     - Única fuente: `billing.center_billing`. Su único escritor es `applyBillingToSubscriptions` (`db/dbBilling.js`), que corre tras cada sync de facturas.
+     - Son datos del centro y se copian a todas sus suscripciones vivas (`active`, `past_due`, `trial`); las no vivas conservan el último valor. Solo escribe lo que cambia, y lo que cambia vuelve a `PENDING` para HubSpot.
+     - Stripe ya no los escribe: ni el webhook (`updateInvoiceData` solo guarda el evento en `subscription_events`), ni `processSubscriptionUpsert`, ni `fullBackfillStripe.js`.
+     - `paid_until` no cambia `current_state`, `cancelation_date` ni `is_forever`.
+     - `subscription_items.number_of_renovations` ya no se escribe; HubSpot y el dashboard usan el de la suscripción.
+     - HubSpot: las propiedades del objeto suscripción (`pending_payment`, `last_invoice_date`, `last_invoice_amount_eur`, `last_invoice_status`, `number_of_renovations`, `paid_until`, `billing_status`) las crea `server/scripts/hubspotSubscriptionBillingProperties.js [--apply]`. Las envía `services/hubspotBillingProps.js` (solo si `billing_status` no es nulo; las fechas `date` se formatean con la fecha local), y la reconciliación compara `pending_payment` y `paid_until`.
+     - `unit_price` sigue viniendo de Stripe.
    - **Facturación (`billing`, migración 009)**: Zoho envía a HubSpot facturas (`2-145603246`), sus artículos (`2-202420827`), abonos (`2-199692678`) y artículos de abono (`2-202874136`); `services/billingSync.js` los copia.
      - Claves: factura = `id_factura_zoho`; artículo = `zoho_line_item_id`. Un artículo pertenece a la factura cuyo `invoice_number` (`INV-…`, desde 2026 `2026-…`) es su `zoho_invoice_number`; el centro sale de la factura (JOIN). Los artículos son líneas de factura, no el catálogo: el producto es `zoho_item_id`.
      - Abonos: clave `creditnote_zoho_id`; `credit_note_number` (`CN…`) y `invoice_number` de su factura (una por abono). Sus artículos llevan `credit_note_number` e `invoice_line_item_id` (la línea de factura que abonan). Sin impuestos.

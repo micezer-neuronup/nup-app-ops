@@ -716,20 +716,23 @@ cron.schedule('0 4 * * 0', () => {
 
 
 // ────── Cron job: Billing sync ─────────────────────────────────────────────────────────────────────────
-// ─── Runs every day at 01:30. Zoho invoices and articles from HubSpot into the billing schema (services/billingSync.js).
-// ─── Incremental (records modified since the last good run); on Sundays full, which also marks the records deleted in HubSpot.
+// ─── Runs every 6 hours (01:30, 07:30, 13:30, 19:30). Zoho invoices, credit notes and their articles from HubSpot into the billing
+// ─── schema (services/billingSync.js), then the billing of each centre into its live subscriptions (applyBillingToSubscriptions);
+// ─── the 6-hourly HubSpot cron sends the ones that changed. Incremental (records modified since the last good run); the Sunday
+// ─── 01:30 run is full, which also marks the records deleted in HubSpot.
 // ─── Manual run: node server/scripts/syncBilling.js [--full]
 // ───────────────────────────────────────────────────────────────────────────
 let isBillingSyncRunning = false;
 
-cron.schedule('30 1 * * *', async () => {
+cron.schedule('30 1,7,13,19 * * *', async () => {
   if (isBillingSyncRunning) {
     log("WARN", "CRON", "Previous billing sync is still running. Skipping.");
     return;
   }
   isBillingSyncRunning = true;
   try {
-    await runBillingSync({ full: new Date().getDay() === 0 });
+    const now = new Date();
+    await runBillingSync({ full: now.getDay() === 0 && now.getHours() === 1 });
   } catch (error) {
     log("ERROR", "CRON", `Billing sync failed: ${error.message}`);
   } finally {

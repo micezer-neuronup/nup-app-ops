@@ -133,8 +133,7 @@ async function fetchSubscriptionFromOps(stripeSubscriptionId) {
 // ─── The fetchSubscriptionFromOps function return nup_center_id, backendSubscriptionId, access status and features.
 // ─── Then we obtain the customer from stripe attached to the subscription to get the name and default_payment_method.
 // ─── The features, if not returned by OPS API, are fetched from Hubspot using the nup_center_id from the database linked to the subscription. 
-// ─── To know if a subscription has pending invoices, we check the list of open invoices limited to one.
-// ─── Then we set pendingPayment to True or False. (Invoice fields will come from Zoho, this stays as is until then.)
+// ─── Pending invoices are not checked here: pending_payment comes from the Zoho invoices (applyBillingToSubscriptions, migration 012).
 // ─── We retrieve the product names, if not on stripe we assume its a manual porduct.
 // ─── The rest of the fields are mapped by mapStripeSubscription (services/stripeMapping.js), the same function the backfill uses:
 // ───   precancelledDate is canceled_at (the date the cancel option was clicked), empty until the cancel button is clicked.
@@ -185,9 +184,6 @@ async function processSubscriptionUpsert(event) {
     log("INFO", "FEATURES", `Fallback: ${centerFeatures.length} features from HubSpot for center ${nupCenterId}`);
   }
 
-  const openInvoices = await stripe.invoices.list({ subscription: subId, status: 'open', limit: 1 });
-  const pendingPayment = openInvoices.data.length > 0;
-
   const productNames = new Map();
   for (const item of subscription.items.data) {
     const productId = typeof item.price.product === 'object' ? item.price.product.id : item.price.product;
@@ -208,7 +204,6 @@ async function processSubscriptionUpsert(event) {
 
   const payload = {
     ...mapped,
-    pending_payment: pendingPayment,
     items: subscriptionItems,
     stripe_event_id: event.id,
     event_type: event.type,
@@ -239,9 +234,8 @@ async function processSubscriptionUpsert(event) {
 // ─── Called when a invoice event is recieved.
 // ─── We obrtain the subscription attached to the invoice event and call fetchLatestSubscription.
 // ─── Then we call processSubscriptionUpsert building a manual event to feed it with.
-// ─── We obtain the status of the invoice, the amount and the invoice date.
-// ─── Then if the invoice is a invoice.paid type, we obtain the paid items.
-// ─── Then we build the payload and await the call of updateInvoiceData from dbSubscriptions.
+// ─── Then we await the call of updateInvoiceData from dbSubscriptions, which only logs the raw event: the invoice fields of the
+// ─── subscription (pending_payment, last_invoice_*, renewals) come from the Zoho invoices (applyBillingToSubscriptions, migration 012).
 // ─── After responding, we proceed to sync the subscription to hubspot by awaiting markHubspotSyncStatus from hubspotServices.
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function processInvoiceEvent(event) {
@@ -263,33 +257,13 @@ async function processInvoiceEvent(event) {
     data: { object: liveSubscription }
   });
 
-  const status = invoice.status; 
-  const amount = invoice.amount_due ? (invoice.amount_due / 100) : 0;
-  const invoiceDate = formatStripeDate(invoice.created); 
-
-  const paidItemIds = [];
-  if (event.type === 'invoice.paid') {
-    for (const line of invoice.lines.data) {
-      const stripeItemId = line.parent?.subscription_item_details?.subscription_item || line.subscription_item;
-      if (stripeItemId) {
-        paidItemIds.push(stripeItemId);
-      }
-    }
-  }
-
-  const payload = {
+  await updateInvoiceData({
     subscription_id: subId,
-    last_invoice_status: status,
-    last_invoice_amount: amount,
-    last_invoice_date: invoiceDate,
-    paid_items: paidItemIds, 
     stripe_event_id: event.id,
     event_type: event.type,
     raw_payload: event
-  };
-
-  await updateInvoiceData(payload);
-  log("INFO", "SUBSCRIPTION-SERVICE", `Invoice data routed to DB for ${subId}`);
+  });
+  log("INFO", "SUBSCRIPTION-SERVICE", `Invoice event logged for ${subId}`);
 
   syncSingleSubscriptionToHubspot(subId).then(async (result) => {
     if (result === true) {

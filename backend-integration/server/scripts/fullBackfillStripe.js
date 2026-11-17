@@ -90,9 +90,9 @@ async function upsertSubscription(sub, items) {
          subscription_id, nup_center_id, backend_subscription_id,
          start_date, precancelled_date,
          cancelation_date, revoked_access_date, current_state, currency,
-         source, payment_method_type, pending_payment, access, hubspot_sync_status
+         source, payment_method_type, access, hubspot_sync_status
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (subscription_id) DO UPDATE SET
          nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
          backend_subscription_id = COALESCE(EXCLUDED.backend_subscription_id, subscriptions.backend_subscription_id),
@@ -127,7 +127,6 @@ async function upsertSubscription(sub, items) {
         sub.currency,
         'stripe',
         sub.payment_method_type,
-        sub.pending_payment,
         sub.access,
         'PENDING'
       ]
@@ -284,10 +283,8 @@ async function main() {
           productNames: productsMap,
         });
 
-        // Invoice fields will come from Zoho. Until then pending_payment is only set here on insert (status-based);
-        // on existing rows the backfill doesn't touch it, the webhook keeps it (open invoices)
-        payloadSub.pending_payment = ['past_due', 'unpaid', 'incomplete'].includes(stripeSub.status);
-
+        // Invoice fields (pending_payment, last_invoice_*...) are not written here: they come from the Zoho invoices
+        // (applyBillingToSubscriptions, migration 012)
         if (await upsertSubscription(payloadSub, payloadItems)) changedCount++;
 
         successCount++;

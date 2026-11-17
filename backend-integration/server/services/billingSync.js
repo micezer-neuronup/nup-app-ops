@@ -9,12 +9,14 @@
 // ─── 2. Mapping: HubSpot properties → columns (text trimmed, empty → null; status normalised and kept raw). Duplicated keys in
 // ───    HubSpot (two records with the same Zoho id): the most recently modified wins, and they are counted in the log.
 // ─── 3. upsertBillingRows (db/dbBilling.js): only writes what changed. Then products is refreshed from the articles.
+// ─── 4. applyBillingToSubscriptions (db/dbBilling.js): the billing of each centre (billing.center_billing) into its live subscriptions,
+// ───    which go back to 'PENDING' for HubSpot when something changed. Skipped if invoices or articles failed (the next run does it).
 // ─── An article belongs to the invoice whose invoice_number equals its zoho_invoice_number; the centre comes from the invoice.
 // ─── A credit note belongs to the invoice with its invoice_number; a credit note article to the credit note with its credit_note_number,
 // ─── and invoice_line_item_id is the invoice line it refunds.
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const { upsertBillingRows, markBillingDeleted, countBillingRows, refreshProducts,
-        getSyncState, saveSyncState } = require('../db/dbBilling');
+        getSyncState, saveSyncState, applyBillingToSubscriptions } = require('../db/dbBilling');
 const { log } = require('../utils/logger');
 
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
@@ -329,7 +331,11 @@ async function runBillingSync({ full = false } = {}) {
     }
   }
   result.products = await refreshProducts();
-  log('INFO', 'BILLING-SYNC', `Done. Products inserted or changed: ${result.products}` +
+  if (!failed.includes(INVOICES.object) && !failed.includes(ARTICLES.object)) {
+    result.subscriptions = (await applyBillingToSubscriptions()).changed;
+  }
+  log('INFO', 'BILLING-SYNC', `Done. Products inserted or changed: ${result.products} | ` +
+    `Subscriptions updated: ${result.subscriptions ?? 'skipped'}` +
     (failed.length ? ` | FAILED (watermark not moved, the next run retries): ${failed.join(', ')}` : ''));
   if (failed.length) throw new Error(`billing sync failed for ${failed.join(', ')}`);
   return result;

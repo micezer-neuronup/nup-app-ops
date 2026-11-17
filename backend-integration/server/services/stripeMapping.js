@@ -3,8 +3,9 @@
 // ─── Before, each one had its own copy and they ended up writing different data for the same subscription.
 // ─── Pure function: no Stripe or database calls. The caller fetches the subscription (with default_payment_method expanded),
 // ─── the customer (with invoice_settings.default_payment_method expanded), the Ops API data and the product names.
-// ─── Invoice and money fields (pending_payment, last_invoice_*, number_of_renovations) are not mapped here: they will come
-// ─── from Zoho. is_forever is not mapped either: Postgres computes it (migration 005).
+// ─── Invoice and money fields (pending_payment, last_invoice_*, number_of_renovations, paid_until, billing_status) are not mapped
+// ─── here: they come from the Zoho invoices (db/dbBilling.js applyBillingToSubscriptions, migration 012). is_forever is not mapped
+// ─── either: Postgres computes it (migration 005).
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function formatStripeDate(unixTimestamp) {

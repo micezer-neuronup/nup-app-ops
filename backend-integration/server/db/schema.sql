@@ -1,5 +1,5 @@
 -- ────── michael_db: full schema ─────────────────────────────────────────────────────────────────────────────────────────────────────
--- ── The whole structure of the database as it is after migrations 001-011 (taken from the prod pg_dump of 07/11/2026 plus the
+-- ── The whole structure of the database as it is after migrations 001-012 (taken from the prod pg_dump of 07/11/2026 plus the
 -- ──   migrations applied since). It is only for a NEW, empty database: an existing one is updated with db/migrations/.
 -- ── Run: psql -U michael -d michael_db -f backend-integration/server/db/schema.sql
 -- ── When a migration changes the structure, update this file in the same change, so both stay the same.
@@ -62,7 +62,11 @@ CREATE TABLE core.subscriptions (
   migrated_to_subscription_id varchar(255) REFERENCES core.subscriptions(subscription_id) ON DELETE SET NULL,
   -- Computed by Postgres: live and without an end date (migration 005)
   is_forever                  boolean GENERATED ALWAYS AS
-                                (current_state IN ('active', 'past_due', 'trial') AND cancelation_date IS NULL) STORED
+                                (current_state IN ('active', 'past_due', 'trial') AND cancelation_date IS NULL) STORED,
+  -- Billing of the centre, copied from billing.center_billing to the live subscriptions (migration 012)
+  number_of_renovations       integer,
+  paid_until                  date,
+  billing_status              text
 );
 CREATE INDEX idx_subscriptions_nup_center_id ON core.subscriptions (nup_center_id);
 CREATE INDEX idx_subscriptions_backend_subscription_id ON core.subscriptions (backend_subscription_id);

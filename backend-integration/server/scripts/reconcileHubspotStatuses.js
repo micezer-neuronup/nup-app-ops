@@ -3,6 +3,7 @@
 // ─── Until 07/11/2026 the sync skipped every subscription that was no longer live, so cancelled ones stayed "active" in HubSpot.
 // ─── The sync now sends them, and this script catches whatever is still out of line, in both directions:
 // ───   HubSpot record whose status / isforever / end date / start date differs from the database → mismatch → 'PENDING'.
+// ───   Also pending_payment and paid_until (billing of the centre, migration 012), only on subscriptions filled from the invoices.
 // ───   Live subscription in the database without a HubSpot record → missing → 'PENDING' (the sync creates it).
 // ───   Live subscription stuck in FAILED_NO_COMPANY → 'PENDING' again (the company may exist now).
 // ───   HubSpot record that is not in the database → orphan: only reported, nothing is changed.
@@ -21,6 +22,7 @@ dotenv.config({ path: path.resolve(__dirname, envFile) });
 const { pool } = require('../db/db');
 const { log } = require('../utils/logger');
 const { ACCOUNT_SUB_OBJECT_ID, statusMap } = require('../services/hubspotServices');
+const { subscriptionBillingProperties } = require('../services/hubspotBillingProps');
 
 const HUBSPOT_TOKEN = process.env.HUBSPOT_TOKEN;
 const APPLY = process.argv.includes('--apply');
@@ -52,7 +54,8 @@ async function fetchHubspotRecords() {
       body: JSON.stringify({
         filterGroups: [{ filters: [{ propertyName: 'hs_object_id', operator: 'GT', value: lastId }] }],
         sorts: [{ propertyName: 'hs_object_id', direction: 'ASCENDING' }],
-        properties: ['subscription_id_unique', 'status', 'isforever', 'subscription_finish_date', 'start_date'],
+        properties: ['subscription_id_unique', 'status', 'isforever', 'subscription_finish_date', 'start_date',
+                     'pending_payment', 'paid_until'],
         limit: PAGE_SIZE,
       })
     });
@@ -87,6 +90,14 @@ function differences(rec, row) {
     diffs.push(`finish ${day(rec.subscription_finish_date) || '-'} → ${day(row.cancelation_date) || '-'}`);
   }
   if (day(rec.start_date) !== day(row.start_date)) diffs.push(`start ${day(rec.start_date) || '-'} → ${day(row.start_date) || '-'}`);
+  // Billing (same values the sync sends; empty object if the subscription is not filled from the invoices yet)
+  const billing = subscriptionBillingProperties(row);
+  if ('pending_payment' in billing && String(rec.pending_payment || '') !== billing.pending_payment) {
+    diffs.push(`pending_payment ${rec.pending_payment || '-'} → ${billing.pending_payment || '-'}`);
+  }
+  if ('paid_until' in billing && day(rec.paid_until) !== billing.paid_until) {
+    diffs.push(`paid_until ${day(rec.paid_until) || '-'} → ${billing.paid_until || '-'}`);
+  }
   return diffs;
 }
 
@@ -101,7 +112,9 @@ async function main() {
 
     const { rows } = await pool.query(
       `SELECT subscription_id, current_state, is_forever, cancelation_date, start_date, source,
-              nup_center_id, hubspot_subscription_id, hubspot_sync_status
+              nup_center_id, hubspot_subscription_id, hubspot_sync_status,
+              pending_payment, last_invoice_date, last_invoice_amount, last_invoice_status,
+              number_of_renovations, paid_until, billing_status
        FROM subscriptions
        WHERE subscription_id = ANY($1) OR current_state = ANY($2)`,
       [[...inHubspot.keys()], LIVE_STATES]

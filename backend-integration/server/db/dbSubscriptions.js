@@ -37,6 +37,9 @@ async function getSubscriptionByCenterId(centerId) {
         s.last_invoice_status,
         s.last_invoice_amount,
         s.last_invoice_date,
+        s.number_of_renovations,
+        s.paid_until::text AS paid_until,
+        s.billing_status,
         s.updated_at,
         json_agg(
           json_build_object(
@@ -51,7 +54,7 @@ async function getSubscriptionByCenterId(centerId) {
             'unit_price', si.unit_price,
             'features', si.features,
             'quantity', si.quantity,
-            'number_of_renovations', si.number_of_renovations,
+            'number_of_renovations', COALESCE(s.number_of_renovations, si.number_of_renovations),   -- renewals of the centre (invoices)
             'start_date', si.start_date,
             'current_period_start', si.current_period_start,
             'current_period_end', si.current_period_end,
@@ -124,10 +127,11 @@ async function getSubscriptionByCenterId(centerId) {
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // ─── is_forever is not written: Postgres computes it (migration 005).
 // ─── hubspot_subscription_id / hubspot_item_id are not overwritten: saveHubspotIds stores them after the HubSpot sync.
+// ─── The money fields (pending_payment, last_invoice_*, number_of_renovations, paid_until, billing_status) are not written here:
+// ─── their only source is the invoices (db/dbBilling.js applyBillingToSubscriptions, migration 012).
 async function upsertSubscriptionData(data) {
   const client = await pool.connect();
 
-  const pending_payment = data.pending_payment !== undefined ? data.pending_payment : data.pendingPayment;
   const safePrecancelledDate = data.precancelled_date || data.precanceled_date || null;
 
   try {
@@ -142,10 +146,9 @@ async function upsertSubscriptionData(data) {
          subscription_id, nup_center_id, backend_subscription_id,
          start_date, precancelled_date,
          cancelation_date, revoked_access_date, current_state, currency,
-         source, payment_method_type, last_invoice_status,
-         last_invoice_amount, last_invoice_date, pending_payment, access, updated_at
+         source, payment_method_type, access, updated_at
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)
        ON CONFLICT (subscription_id)
        DO UPDATE SET
          nup_center_id = COALESCE(EXCLUDED.nup_center_id, subscriptions.nup_center_id),
@@ -157,7 +160,6 @@ async function upsertSubscriptionData(data) {
          current_state = EXCLUDED.current_state,
          currency = EXCLUDED.currency,
          payment_method_type = EXCLUDED.payment_method_type,
-         pending_payment = EXCLUDED.pending_payment,
          access = COALESCE(EXCLUDED.access, subscriptions.access),
          hubspot_sync_status = 'PENDING',
          updated_at = CURRENT_TIMESTAMP`,
@@ -165,8 +167,7 @@ async function upsertSubscriptionData(data) {
         data.subscription_id, data.nup_center_id, data.backend_subscription_id,
         data.start_date, safePrecancelledDate,
         data.cancelation_date, data.revoked_access_date, data.current_state, data.currency,
-        data.source || 'stripe', data.payment_method_type, data.last_invoice_status,
-        data.last_invoice_amount, data.last_invoice_date, pending_payment, data.access || null
+        data.source || 'stripe', data.payment_method_type, data.access || null
       ]
     );
 
@@ -264,59 +265,15 @@ async function upsertSubscriptionData(data) {
 // ─── 
 // ─── 
 // ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ─── Stripe invoice events only leave their raw log in subscription_events: the money fields of the subscription come from the
+// ─── Zoho invoices (db/dbBilling.js applyBillingToSubscriptions, migration 012), not from Stripe.
 async function updateInvoiceData(data) {
-  const client = await pool.connect();
-  
-  const {
-    subscription_id, last_invoice_status, last_invoice_amount,
-    last_invoice_date, paid_items, stripe_event_id, event_type, raw_payload
-  } = data;
-
-  try {
-    await client.query('BEGIN');
-
-    const isPaid = last_invoice_status === 'paid';
-    
-    await client.query(
-      `UPDATE subscriptions 
-       SET 
-         last_invoice_status = $1,
-         last_invoice_amount = $2,
-         last_invoice_date = $3,
-         pending_payment = CASE WHEN $4 = TRUE THEN FALSE ELSE pending_payment END,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE subscription_id = $5`,
-      [last_invoice_status, last_invoice_amount, last_invoice_date, isPaid, subscription_id]
-    );
-
-    if (paid_items && paid_items.length > 0) {
-      for (const item_id of paid_items) {
-        await client.query(
-          `UPDATE subscription_items 
-           SET 
-             number_of_renovations = COALESCE(number_of_renovations, 0) + 1,
-             updated_at = CURRENT_TIMESTAMP
-           WHERE item_id = $1`, 
-          [item_id]
-        );
-      }
-    }
-
-    await client.query(
-      `INSERT INTO subscription_events (event_id, subscription_id, event_type, raw_payload)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (event_id) DO NOTHING`,
-      [data.stripe_event_id, data.subscription_id, data.event_type, JSON.stringify(data.raw_payload)]
-    );
-
-    await client.query('COMMIT');
-    
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  await pool.query(
+    `INSERT INTO subscription_events (event_id, subscription_id, event_type, raw_payload)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (event_id) DO NOTHING`,
+    [data.stripe_event_id, data.subscription_id, data.event_type, JSON.stringify(data.raw_payload)]
+  );
 }
 
 

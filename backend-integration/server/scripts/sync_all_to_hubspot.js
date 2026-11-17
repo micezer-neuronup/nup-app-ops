@@ -7,6 +7,7 @@ const envPath = path.resolve(__dirname, envFile);
 dotenv.config({ path: envPath });
 
 const { markHubspotSyncStatus } = require('../db/dbSubscriptions');
+const { subscriptionBillingProperties } = require('../services/hubspotBillingProps');
 
 // ============================================================================
 // CONFIGURACIÓN DE CREDENCIALES Y OBJETOS
@@ -119,7 +120,9 @@ async function main() {
           start_date: formatHsDate(sub.start_date),
           // 🔥 Nombre interno en HubSpot: "precancelled_date" (doble L)
           precancelled_date: formatHsDate(sub.precancelled_date),
-          subscription_finish_date: formatHsDate(sub.cancelation_date)
+          subscription_finish_date: formatHsDate(sub.cancelation_date),
+          // Billing of the centre from the Zoho invoices (migration 012); nothing if not filled yet
+          ...subscriptionBillingProperties(sub)
         }
       }];
 
@@ -180,7 +183,7 @@ async function main() {
               current_period_end: formatHsDate(item.current_period_end),
               isforever: sub.is_forever ? "true" : "false",
               features: featuresText,
-              number_of_renovations: item.number_of_renovations || 0,
+              number_of_renovations: sub.number_of_renovations ?? item.number_of_renovations ?? 0,   // renewals of the centre (invoices)
               product_name: item.product_name || "",
               stripe_product_id: item.product_id || "", 
               subscription_id: item.subscription_id,
